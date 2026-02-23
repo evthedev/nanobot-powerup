@@ -54,6 +54,7 @@ class SubagentManager:
         self,
         task: str,
         label: str | None = None,
+        model: str | None = None,
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
     ) -> str:
@@ -63,6 +64,8 @@ class SubagentManager:
         Args:
             task: The task description for the subagent.
             label: Optional human-readable label for the task.
+            model: Optional model override (e.g. 'anthropic/claude-sonnet-4-6').
+                   Defaults to the SubagentManager's configured model.
             origin_channel: The channel to announce results to.
             origin_chat_id: The chat ID to announce results to.
         
@@ -71,6 +74,7 @@ class SubagentManager:
         """
         task_id = str(uuid.uuid4())[:8]
         display_label = label or task[:30] + ("..." if len(task) > 30 else "")
+        effective_model = model or self.model
         
         origin = {
             "channel": origin_channel,
@@ -79,15 +83,16 @@ class SubagentManager:
         
         # Create background task
         bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, origin)
+            self._run_subagent(task_id, task, display_label, origin, effective_model)
         )
         self._running_tasks[task_id] = bg_task
         
         # Cleanup when done
         bg_task.add_done_callback(lambda _: self._running_tasks.pop(task_id, None))
         
-        logger.info("Spawned subagent [{}]: {}", task_id, display_label)
-        return f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
+        model_note = f" using {effective_model}" if model else ""
+        logger.info("Spawned subagent [{}]{}: {}", task_id, model_note, display_label)
+        return f"Subagent [{display_label}] started (id: {task_id}{model_note}). I'll notify you when it completes."
     
     async def _run_subagent(
         self,
@@ -95,6 +100,7 @@ class SubagentManager:
         task: str,
         label: str,
         origin: dict[str, str],
+        model: str,
     ) -> None:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
@@ -133,7 +139,7 @@ class SubagentManager:
                 response = await self.provider.chat(
                     messages=messages,
                     tools=tools.get_definitions(),
-                    model=self.model,
+                    model=model,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                 )
