@@ -142,6 +142,71 @@ write_file(
 
 ---
 
+## reddit_search
+Search Reddit posts using the public Reddit JSON API (no API key needed).
+```
+reddit_search(query: str, subreddit: str = None, sort: str = "relevance",
+              time: str = "all", limit: int = 10) -> str
+```
+
+**Parameters:**
+- `query` — search terms
+- `subreddit` — restrict to a subreddit (e.g. "sydney", "personalfinance")
+- `sort` — relevance | hot | new | top | comments
+- `time` — hour | day | week | month | year | all (used with top/relevance)
+- `limit` — 1–25 results
+
+Returns post titles, scores, comment counts, subreddit, permalinks, and body snippets.
+
+---
+
+## trustpilot_search
+Search Trustpilot for businesses and optionally pull recent reviews (no API key needed).
+```
+trustpilot_search(query: str, include_reviews: bool = False,
+                  review_count: int = 5, limit: int = 5) -> str
+```
+
+**Parameters:**
+- `query` — business name or domain (e.g. "airbnb" or "airbnb.com")
+- `include_reviews` — if true, also fetch recent English reviews for top result
+- `review_count` — how many reviews (1–10)
+- `limit` — number of business results (1–10)
+
+Returns trust scores, review counts, categories, and review text/ratings.
+
+---
+
+## yelp_search
+Search for local businesses via the Yelp Fusion API. Requires a Yelp API key.
+```
+yelp_search(term: str, location: str = None, latitude: float = None,
+            longitude: float = None, categories: str = None,
+            sort_by: str = "best_match", price: str = None,
+            open_now: bool = False, radius: int = 5000, limit: int = 10) -> str
+```
+
+**Parameters:**
+- `term` — what to search for (e.g. "sushi", "plumber", "yoga studio")
+- `location` — city or address (e.g. "Sydney NSW", "Surry Hills 2010")
+- `latitude` / `longitude` — alternative to `location`
+- `categories` — Yelp category filter (e.g. "restaurants", "bars")
+- `sort_by` — best_match | rating | review_count | distance
+- `price` — "1"–"4" for $–$$$$ (comma-separated for multiple)
+- `open_now` — only show currently open businesses
+- `radius` — search radius in metres (max 40,000)
+- `limit` — 1–20 results
+
+Returns ratings, review counts, price tier, address, opening status, and Yelp URL.
+
+**Setup:** Add your Yelp API key to `~/.nanobot/config.json`:
+```json
+"tools": { "yelp": { "api_key": "YOUR_KEY_HERE" } }
+```
+Get a free key at https://docs.developer.yelp.com/docs/fusion-intro
+
+---
+
 ## Adding Custom Tools
 
 To add custom tools:

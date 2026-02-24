@@ -165,6 +165,14 @@ class QQConfig(Base):
     allow_from: list[str] = Field(default_factory=list)  # Allowed user openids (empty = public access)
 
 
+class WebConfig(Base):
+    """Web channel configuration (WebSocket bridge for the chat dashboard)."""
+
+    enabled: bool = False
+    port: int = 18791
+    allow_from: list[str] = Field(default_factory=list)
+
+
 class ChannelsConfig(Base):
     """Configuration for chat channels."""
 
@@ -177,6 +185,7 @@ class ChannelsConfig(Base):
     email: EmailConfig = Field(default_factory=EmailConfig)
     slack: SlackConfig = Field(default_factory=SlackConfig)
     qq: QQConfig = Field(default_factory=QQConfig)
+    web: WebConfig = Field(default_factory=WebConfig)
 
 
 class AgentDefaults(Base):
@@ -262,11 +271,18 @@ class MCPServerConfig(Base):
     headers: dict[str, str] = Field(default_factory=dict)  # HTTP: Custom HTTP Headers
 
 
+class YelpConfig(Base):
+    """Yelp Fusion API configuration."""
+
+    api_key: str = ""
+
+
 class ToolsConfig(Base):
     """Tools configuration."""
 
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
+    yelp: YelpConfig = Field(default_factory=YelpConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 

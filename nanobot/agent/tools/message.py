@@ -1,5 +1,6 @@
 """Message tool for sending messages to users."""
 
+import os
 from typing import Any, Awaitable, Callable
 
 from nanobot.agent.tools.base import Tool
@@ -89,11 +90,17 @@ class MessageTool(Tool):
         if not self._send_callback:
             return "Error: Message sending not configured"
 
+        # Resolve relative media paths to absolute so the channel can open them
+        resolved_media = [
+            os.path.abspath(p) if p and not os.path.isabs(p) else p
+            for p in (media or [])
+        ]
+
         msg = OutboundMessage(
             channel=channel,
             chat_id=chat_id,
             content=content,
-            media=media or [],
+            media=resolved_media,
             metadata={
                 "message_id": message_id,
             }

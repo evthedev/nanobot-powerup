@@ -328,6 +328,7 @@ def gateway(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Start the nanobot gateway."""
+    import os, sys
     from nanobot.config.loader import load_config, get_data_dir
     from nanobot.bus.queue import MessageBus
     from nanobot.agent.loop import AgentLoop
@@ -336,7 +337,37 @@ def gateway(
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
-    
+
+    # ── PID lock: prevent duplicate gateway instances ─────────────────────────
+    _pid_file = Path(os.path.expanduser("~/.nanobot/gateway.pid"))
+    _pid_file.parent.mkdir(parents=True, exist_ok=True)
+    if _pid_file.exists():
+        try:
+            existing_pid = int(_pid_file.read_text().strip())
+            # Check if that process is actually still alive
+            os.kill(existing_pid, 0)  # raises if dead
+            console.print(f"[red]Error:[/red] Gateway already running (PID {existing_pid}). Stop it first or delete {_pid_file}.")
+            sys.exit(1)
+        except (ProcessLookupError, ValueError):
+            _pid_file.unlink(missing_ok=True)  # stale lock, remove it
+    _pid_file.write_text(str(os.getpid()))
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # ── File log sink (dashboard log viewer reads from this) ──────────────────
+    from loguru import logger as _logger
+    _log_dir = Path(os.path.expanduser("~/.nanobot/logs"))
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _log_file = _log_dir / "gateway.log"
+    _logger.add(
+        str(_log_file),
+        level="DEBUG",
+        rotation="20 MB",
+        retention=3,
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {name}:{function}:{line} - {message}",
+        enqueue=True,
+    )
+    # ─────────────────────────────────────────────────────────────────────────
+
     if verbose:
         import logging
         logging.basicConfig(level=logging.DEBUG)
@@ -363,6 +394,7 @@ def gateway(
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
         brave_api_key=config.tools.web.search.api_key or None,
+        yelp_api_key=config.tools.yelp.api_key or None,
         exec_config=config.tools.exec,
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
@@ -430,6 +462,7 @@ def gateway(
             heartbeat.stop()
             cron.stop()
             agent.stop()
+            _pid_file.unlink(missing_ok=True)
             await channels.stop_all()
     
     asyncio.run(run())
@@ -480,6 +513,7 @@ def agent(
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
         brave_api_key=config.tools.web.search.api_key or None,
+        yelp_api_key=config.tools.yelp.api_key or None,
         exec_config=config.tools.exec,
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
@@ -931,6 +965,7 @@ def cron_run(
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
         brave_api_key=config.tools.web.search.api_key or None,
+        yelp_api_key=config.tools.yelp.api_key or None,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,

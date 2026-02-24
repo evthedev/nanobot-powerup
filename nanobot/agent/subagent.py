@@ -14,7 +14,11 @@ from nanobot.providers.base import LLMProvider
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.reddit import RedditSearchTool
+from nanobot.agent.tools.trustpilot import TrustpilotSearchTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
+from nanobot.agent.tools.yelp import YelpSearchTool
+from nanobot.agent.tools.message import MessageTool
 
 
 class SubagentManager:
@@ -35,6 +39,7 @@ class SubagentManager:
         temperature: float = 0.7,
         max_tokens: int = 4096,
         brave_api_key: str | None = None,
+        yelp_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
     ):
@@ -46,9 +51,16 @@ class SubagentManager:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.brave_api_key = brave_api_key
+        self.yelp_api_key = yelp_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
+        self._mcp_tools: list = []  # MCP tools passed down from main agent (e.g. Playwright)
+
+    def set_mcp_tools(self, tools: list) -> None:
+        """Receive MCP tool objects from the main agent for subagent use."""
+        self._mcp_tools = tools
+        logger.info("SubagentManager: received {} MCP tools for subagents", len(tools))
     
     async def spawn(
         self,
@@ -106,7 +118,7 @@ class SubagentManager:
         logger.info("Subagent [{}] starting task: {}", task_id, label)
         
         try:
-            # Build subagent tools (no message tool, no spawn tool)
+            # Build subagent tools (no spawn tool — no recursive spawning)
             tools = ToolRegistry()
             allowed_dir = self.workspace if self.restrict_to_workspace else None
             tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
@@ -120,6 +132,16 @@ class SubagentManager:
             ))
             tools.register(WebSearchTool(api_key=self.brave_api_key))
             tools.register(WebFetchTool())
+            tools.register(RedditSearchTool())
+            tools.register(TrustpilotSearchTool())
+            tools.register(YelpSearchTool(api_key=self.yelp_api_key))
+            # Subagents can send messages (including images/media) directly back to the user
+            msg_tool = MessageTool(send_callback=self.bus.publish_outbound)
+            msg_tool.set_context(origin["channel"], origin["chat_id"])
+            tools.register(msg_tool)
+            # Add MCP tools (e.g. Playwright) passed from the main agent
+            for mcp_tool in self._mcp_tools:
+                tools.register(mcp_tool)
             
             # Build messages with subagent-specific prompt
             system_prompt = self._build_subagent_prompt(task)
@@ -129,10 +151,12 @@ class SubagentManager:
             ]
             
             # Run agent loop (limited iterations)
-            max_iterations = 15
+            max_iterations = 50
             iteration = 0
             final_result: str | None = None
             
+            messaged_directly = False  # Track if subagent sent message() to user
+
             while iteration < max_iterations:
                 iteration += 1
                 
@@ -143,7 +167,17 @@ class SubagentManager:
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                 )
-                
+
+                if response.usage:
+                    u = response.usage
+                    logger.info(
+                        "LLM usage | model={} tokens_in={} tokens_out={} total={}",
+                        model,
+                        u.get("prompt_tokens", 0),
+                        u.get("completion_tokens", 0),
+                        u.get("total_tokens", 0),
+                    )
+
                 if response.has_tool_calls:
                     # Add assistant message with tool calls
                     tool_call_dicts = [
@@ -168,6 +202,8 @@ class SubagentManager:
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                         logger.debug("Subagent [{}] executing: {} with arguments: {}", task_id, tool_call.name, args_str)
                         result = await tools.execute(tool_call.name, tool_call.arguments)
+                        if tool_call.name == "message" and not result.startswith("Error:"):
+                            messaged_directly = True
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
@@ -179,15 +215,21 @@ class SubagentManager:
                     break
             
             if final_result is None:
-                final_result = "Task completed but no final response was generated."
-            
-            logger.info("Subagent [{}] completed successfully", task_id)
-            await self._announce_result(task_id, label, task, final_result, origin, "ok")
+                final_result = (
+                    f"Task incomplete: reached the {max_iterations}-iteration limit "
+                    f"without finishing. The task may require more steps than allowed. "
+                    f"Consider breaking it into smaller subtasks."
+                )
+                logger.warning("Subagent [{}] hit iteration limit ({}) without completing", task_id, max_iterations)
+                await self._announce_result(task_id, label, task, final_result, origin, "error", messaged_directly)
+            else:
+                logger.info("Subagent [{}] completed successfully", task_id)
+                await self._announce_result(task_id, label, task, final_result, origin, "ok", messaged_directly)
             
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             logger.error("Subagent [{}] failed: {}", task_id, e)
-            await self._announce_result(task_id, label, task, error_msg, origin, "error")
+            await self._announce_result(task_id, label, task, error_msg, origin, "error", False)
     
     async def _announce_result(
         self,
@@ -197,11 +239,19 @@ class SubagentManager:
         result: str,
         origin: dict[str, str],
         status: str,
+        messaged_directly: bool = False,
     ) -> None:
         """Announce the subagent result to the main agent via the message bus."""
         status_text = "completed successfully" if status == "ok" else "failed"
-        
-        announce_content = f"""[Subagent '{label}' {status_text}]
+
+        if messaged_directly:
+            # Subagent already sent the result to the user via message() — skip
+            # publishing to the bus entirely so the main agent loop is not triggered
+            # and cannot double-message or re-spawn.
+            logger.info("Subagent [{}] messaged user directly — skipping announce to main agent", task_id)
+            return
+        else:
+            announce_content = f"""[Subagent '{label}' {status_text}]
 
 Task: {task}
 
@@ -228,6 +278,19 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
         now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
         tz = _time.strftime("%Z") or "UTC"
 
+        # Load system context files so the subagent knows the environment
+        context_sections: list[str] = []
+        for filename in ("AGENTS.md", "USER.md"):
+            path = self.workspace / filename
+            try:
+                content = path.read_text(encoding="utf-8").strip()
+                if content:
+                    context_sections.append(f"## {filename}\n{content}")
+            except Exception:
+                pass
+
+        context_block = "\n\n".join(context_sections)
+
         return f"""# Subagent
 
 ## Current Time
@@ -235,26 +298,34 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
 
 You are a subagent spawned by the main agent to complete a specific task.
 
+{context_block}
+
 ## Rules
-1. Stay focused - complete only the assigned task, nothing else
+1. Stay focused — complete only the assigned task, nothing else
 2. Your final response will be reported back to the main agent
 3. Do not initiate conversations or take on side tasks
-4. Be concise but informative in your findings
+4. Be thorough — fully complete the task before stopping
+5. For long-running commands (e.g. npm install), they may take several minutes — wait for them
 
 ## What You Can Do
 - Read and write files in the workspace
-- Execute shell commands
+- Execute shell commands (including long-running ones)
 - Search the web and fetch web pages
 - Complete the task thoroughly
 
 ## What You Cannot Do
-- Send messages directly to users (no message tool available)
 - Spawn other subagents
 - Access the main agent's conversation history
 
 ## Workspace
 Your workspace is at: {self.workspace}
 Skills are available at: {self.workspace}/skills/ (read SKILL.md files as needed)
+
+## Sending Results to the User
+You have a `message` tool. Use it to send your final result directly to the user.
+- For screenshots and images: ALWAYS save to an absolute path first (e.g. `{self.workspace}/screenshot.png`), then call `message` with `media: ["{self.workspace}/screenshot.png"]`
+- NEVER pass relative filenames to `message` — Telegram cannot find them
+- The `filename` parameter in `mcp_playwright_browser_take_screenshot` must be an absolute path like `{self.workspace}/screenshot.png`
 
 When you have completed the task, provide a clear summary of your findings or actions."""
     

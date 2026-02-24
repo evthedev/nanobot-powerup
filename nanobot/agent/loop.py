@@ -20,7 +20,10 @@ from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
+from nanobot.agent.tools.reddit import RedditSearchTool
+from nanobot.agent.tools.trustpilot import TrustpilotSearchTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
+from nanobot.agent.tools.yelp import YelpSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
@@ -54,6 +57,7 @@ class AgentLoop:
         max_tokens: int = 4096,
         memory_window: int = 50,
         brave_api_key: str | None = None,
+        yelp_api_key: str | None = None,
         exec_config: ExecToolConfig | None = None,
         cron_service: CronService | None = None,
         restrict_to_workspace: bool = False,
@@ -70,6 +74,7 @@ class AgentLoop:
         self.max_tokens = max_tokens
         self.memory_window = memory_window
         self.brave_api_key = brave_api_key
+        self.yelp_api_key = yelp_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
@@ -85,6 +90,7 @@ class AgentLoop:
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             brave_api_key=brave_api_key,
+            yelp_api_key=yelp_api_key,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
         )
@@ -109,6 +115,9 @@ class AgentLoop:
         ))
         self.tools.register(WebSearchTool(api_key=self.brave_api_key))
         self.tools.register(WebFetchTool())
+        self.tools.register(RedditSearchTool())
+        self.tools.register(TrustpilotSearchTool())
+        self.tools.register(YelpSearchTool(api_key=self.yelp_api_key))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
@@ -124,6 +133,15 @@ class AgentLoop:
             self._mcp_stack = AsyncExitStack()
             await self._mcp_stack.__aenter__()
             await connect_mcp_servers(self._mcp_servers, self.tools, self._mcp_stack)
+            # Strip Playwright tools from main agent — it's too weak to sequence
+            # navigate→screenshot correctly. Pass them to subagents instead.
+            playwright_tools = [n for n in self.tools.tool_names if n.startswith("mcp_playwright_")]
+            mcp_tool_objects = [self.tools.get(n) for n in playwright_tools]
+            for tool_name in playwright_tools:
+                self.tools.unregister(tool_name)
+            if playwright_tools:
+                logger.info("Main agent: removed {} Playwright tools → passed to subagents", len(playwright_tools))
+                self.subagents.set_mcp_tools(mcp_tool_objects)
             self._mcp_connected = True
         except Exception as e:
             logger.error("Failed to connect MCP servers (will retry next message): {}", e)
@@ -189,6 +207,16 @@ class AgentLoop:
                 max_tokens=self.max_tokens,
             )
 
+            if response.usage:
+                u = response.usage
+                logger.info(
+                    "LLM usage | model={} tokens_in={} tokens_out={} total={}",
+                    self.model,
+                    u.get("prompt_tokens", 0),
+                    u.get("completion_tokens", 0),
+                    u.get("total_tokens", 0),
+                )
+
             if response.has_tool_calls:
                 if on_progress:
                     clean = self._strip_think(response.content)
@@ -212,7 +240,28 @@ class AgentLoop:
                     reasoning_content=response.reasoning_content,
                 )
 
-                for tool_call in response.tool_calls:
+                # Main agent is a sequential orchestrator — enforce one tool at a time.
+                # Parallel calls prevent it from using the result of one tool to inform
+                # the next (e.g. calendar result → targeted web search).
+                calls_to_run = response.tool_calls
+                if len(calls_to_run) > 1:
+                    # If spawn is present, it takes full priority
+                    if any(tc.name == "spawn" for tc in calls_to_run):
+                        calls_to_run = [tc for tc in calls_to_run if tc.name == "spawn"]
+                        dropped = [tc.name for tc in response.tool_calls if tc.name != "spawn"]
+                    else:
+                        # Otherwise run only the first tool; LLM will call the rest next iteration
+                        calls_to_run = [response.tool_calls[0]]
+                        dropped = [tc.name for tc in response.tool_calls[1:]]
+                    logger.info("Sequential mode — running 1 tool, deferring: {}", dropped)
+                    for tc in response.tool_calls:
+                        if tc not in calls_to_run:
+                            messages = self.context.add_tool_result(
+                                messages, tc.id, tc.name,
+                                "(deferred — run sequentially after seeing previous result)"
+                            )
+
+                for tool_call in calls_to_run:
                     tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
@@ -296,8 +345,7 @@ class AgentLoop:
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
 
-        preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
-        logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
+        logger.info(">>> INBOUND [{}:{}]: {}", msg.channel, msg.sender_id, msg.content)
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
@@ -359,8 +407,7 @@ class AgentLoop:
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
 
-        preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
-        logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
+        logger.info("<<< OUTBOUND [{}:{}]: {}", msg.channel, msg.sender_id, final_content)
 
         session.add_message("user", msg.content)
         session.add_message("assistant", final_content,
