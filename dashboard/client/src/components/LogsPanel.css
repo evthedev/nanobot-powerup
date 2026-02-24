@@ -1,0 +1,273 @@
+/* LogsPanel — dark terminal-style log viewer */
+
+.logs-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #0d0f14;
+  color: #c9d1d9;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  font-size: 12px;
+  position: relative;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+.logs-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 8px;
+  background: #161b22;
+  border-bottom: 1px solid #21262d;
+  flex-shrink: 0;
+}
+
+.logs-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logs-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6edf3;
+  letter-spacing: 0.04em;
+}
+
+.logs-conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.logs-conn-dot.live  { background: #3fb950; box-shadow: 0 0 5px #3fb950; }
+.logs-conn-dot.dead  { background: #f85149; }
+
+.logs-conn-label {
+  font-size: 11px;
+  color: #7d8590;
+}
+
+.logs-count {
+  font-size: 11px;
+  color: #484f58;
+  margin-left: auto;
+}
+
+.logs-main-model {
+  font-size: 11px;
+  color: #7d8590;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Token summary in toolbar */
+.logs-token-summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  background: #1a1f2e;
+  border: 1px solid #2a3a50;
+  border-radius: 4px;
+  padding: 1px 7px;
+  color: #7d8590;
+  white-space: nowrap;
+}
+.token-sum-icon { font-size: 10px; }
+.tok-sum-total { color: #c9d1d9; font-weight: 600; }
+.token-sum-detail { color: #484f58; font-size: 10px; }
+
+.logs-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.logs-filters {
+  display: flex;
+  gap: 3px;
+}
+
+.log-filter-btn {
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #7d8590;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.log-filter-btn:hover  { border-color: #58a6ff; color: #c9d1d9; }
+.log-filter-btn.active { background: #1f3a5f; border-color: #58a6ff; color: #58a6ff; }
+
+.logs-search {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 9px;
+  border-radius: 4px;
+  outline: none;
+  width: 160px;
+}
+.logs-search::placeholder { color: #484f58; }
+.logs-search:focus { border-color: #58a6ff; }
+
+.log-ctrl-btn {
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #7d8590;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.log-ctrl-btn:hover  { border-color: #c9d1d9; color: #c9d1d9; }
+.log-ctrl-btn.active { background: #3d2b1f; border-color: #f78166; color: #f78166; }
+
+/* ── Log body ────────────────────────────────────────────────────────────── */
+.logs-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.logs-empty {
+  color: #484f58;
+  font-size: 12px;
+  text-align: center;
+  margin-top: 40px;
+}
+
+/* ── Log row ─────────────────────────────────────────────────────────────── */
+.log-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 14px;
+  min-height: 20px;
+  line-height: 1.6;
+  border-left: 2px solid transparent;
+  transition: background 0.1s;
+}
+.log-row:hover { background: rgba(255,255,255,0.03); }
+
+/* border accent by type */
+.log-type-main     { border-left-color: #58a6ff; }
+.log-type-subagent { border-left-color: #a78bfa; }
+.log-type-channel  { border-left-color: #3fb950; }
+.log-type-system   { border-left-color: #484f58; }
+
+/* error / warn highlight */
+.log-level-error { background: rgba(248, 81, 73, 0.08); border-left-color: #f85149 !important; }
+.log-level-warn  { background: rgba(210, 153, 34, 0.07); border-left-color: #d29922 !important; }
+
+/* dim system rows */
+.log-type-system { opacity: 0.55; }
+
+/* ── Row parts ───────────────────────────────────────────────────────────── */
+.log-ts {
+  color: #484f58;
+  flex-shrink: 0;
+  font-size: 11px;
+  width: 86px;
+}
+
+.log-src {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  width: 58px;
+  text-align: right;
+}
+.log-src-main     { color: #58a6ff; }
+.log-src-subagent { color: #a78bfa; }
+.log-src-channel  { color: #3fb950; }
+.log-src-system   { color: #484f58; }
+
+.log-msg {
+  flex: 1;
+  word-break: break-word;
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: #c9d1d9;
+}
+
+/* ── Token rows ──────────────────────────────────────────────────────────── */
+.log-cat-tokens {
+  opacity: 0.7;
+  font-size: 11px;
+  background: rgba(88, 166, 255, 0.04);
+}
+.log-cat-tokens:hover { opacity: 1; }
+
+.log-tokens {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+.tok-total {
+  color: #58a6ff;
+  font-weight: 600;
+  font-size: 11px;
+}
+.tok-total::after { content: ' tok'; color: #484f58; font-weight: 400; }
+.tok-detail {
+  color: #484f58;
+  font-size: 10px;
+}
+
+/* ── Model badges ────────────────────────────────────────────────────────── */
+.model-badge {
+  flex-shrink: 0;
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 6px;
+  border-radius: 3px;
+  letter-spacing: 0.03em;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.model-badge-main     { background: #1f3a5f; color: #58a6ff; }
+.model-badge-subagent { background: #2a1f4f; color: #a78bfa; }
+
+/* ── Message category colours ────────────────────────────────────────────── */
+.msg-arrow     { color: #58a6ff; margin-right: 3px; }
+.msg-arrow-out { color: #3fb950; margin-right: 3px; }
+.msg-spawn     { color: #f0c832; margin-right: 3px; }
+.msg-tool      { margin-right: 3px; }
+.msg-done      { color: #3fb950; margin-right: 3px; }
+.msg-err       { color: #f85149; margin-right: 3px; }
+
+/* ── Jump-to-bottom ──────────────────────────────────────────────────────── */
+.scroll-to-bottom {
+  position: absolute;
+  bottom: 16px;
+  right: 20px;
+  background: #1f3a5f;
+  border: 1px solid #58a6ff;
+  color: #58a6ff;
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  z-index: 10;
+  transition: background 0.15s;
+}
+.scroll-to-bottom:hover { background: #1c4073; }
+
+/* ── Scrollbar styling ───────────────────────────────────────────────────── */
+.logs-body::-webkit-scrollbar       { width: 5px; }
+.logs-body::-webkit-scrollbar-track { background: transparent; }
+.logs-body::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+.logs-body::-webkit-scrollbar-thumb:hover { background: #484f58; }

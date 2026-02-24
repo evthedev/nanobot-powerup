@@ -1,0 +1,5 @@
+**/node_modules
+client/build
+server/chat.db
+server/nanobot-chat.db
+**/.env.local

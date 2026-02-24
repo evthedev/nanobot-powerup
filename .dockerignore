@@ -11,3 +11,9 @@ build/
 node_modules/
 bridge/dist/
 workspace/
+# Test artefacts
+*.png
+dashboard/server/node_modules/
+dashboard/client/node_modules/
+dashboard/server/nanobot-chat.db
+dashboard/server/chat.db

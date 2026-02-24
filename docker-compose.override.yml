@@ -1,0 +1,16 @@
+# Local dev overrides — auto-merged by docker compose in development.
+# On EC2, only docker-compose.yml is used (/opt/nanobot, ports 80/443 are free).
+x-nanobot-volume: &nanobot-volume
+  - ~/.nanobot:/root/.nanobot
+
+services:
+  nanobot-gateway:
+    volumes: *nanobot-volume
+  dashboard:
+    volumes: *nanobot-volume
+    ports:
+      - "3002:3001"   # Expose directly for local testing
+  nginx:
+    ports:
+      - "8181:80"
+      - "8444:443"

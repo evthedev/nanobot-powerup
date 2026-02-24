@@ -1,18 +1,23 @@
-x-common-config: &common-config
-  build:
-    context: .
-    dockerfile: Dockerfile
-  volumes:
-    - ~/.nanobot:/root/.nanobot
+x-nanobot-volume: &nanobot-volume
+  - /opt/nanobot:/root/.nanobot
 
 services:
+
+  # ── nanobot gateway ─────────────────────────────────────────────────────────
   nanobot-gateway:
     container_name: nanobot-gateway
-    <<: *common-config
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: ["gateway"]
     restart: unless-stopped
-    ports:
-      - 18790:18790
+    volumes: *nanobot-volume
+    # Port 18791 (WebSocket) is internal only — dashboard talks to it directly
+    expose:
+      - "18791"
+    environment:
+      - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+      - PLAYWRIGHT_BROWSERS_PATH=/usr/bin
     deploy:
       resources:
         limits:
@@ -21,11 +26,53 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
-  
+
+  # ── chat dashboard (Express API + React static) ───────────────────────────
+  dashboard:
+    container_name: nanobot-dashboard
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes: *nanobot-volume
+    expose:
+      - "3001"
+    environment:
+      - PORT=3001
+      - NANOBOT_WS=ws://nanobot-gateway:18791
+      - NANOBOT_HOME=/root/.nanobot
+      - DB_PATH=/root/.nanobot/chat.db
+    depends_on:
+      - nanobot-gateway
+
+  # ── nginx reverse proxy (HTTPS + basic auth) ─────────────────────────────
+  nginx:
+    container_name: nanobot-nginx
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
+      - ./deploy/nginx/entrypoint.sh:/entrypoint.sh:ro
+      - nginx-ssl:/etc/nginx/ssl
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    depends_on:
+      - dashboard
+
+  # ── one-off CLI (docker compose --profile cli run nanobot-cli <cmd>) ──────
   nanobot-cli:
-    <<: *common-config
-    profiles:
-      - cli
+    profiles: ["cli"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes: *nanobot-volume
     command: ["status"]
     stdin_open: true
     tty: true
+
+volumes:
+  nginx-ssl:
+    driver: local
