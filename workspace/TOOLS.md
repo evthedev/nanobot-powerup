@@ -207,6 +207,23 @@ Get a free key at https://docs.developer.yelp.com/docs/fusion-intro
 
 ---
 
+---
+
+## review_screenshots
+Capture browser screenshots of a product's Reddit discussion, Trustpilot page, and top editorial review, then post all three as inline images. Call this **before** writing the review text (it spawns a background subagent).
+```
+review_screenshots(
+  company_slug: str,    # e.g. "notion", "monday-com", "linear-app"
+  reddit_url: str,      # top Reddit post permalink, or https://www.reddit.com/search/?q=<company>+review
+  trustpilot_url: str,  # e.g. "https://www.trustpilot.com/review/notion.so"
+  editorial_url: str    # top editorial review URL from web_search results
+) -> str
+```
+
+Used exclusively during the **review workflow** (Step 4). Do not call `spawn` manually for screenshots — use this tool instead.
+
+---
+
 ## Adding Custom Tools
 
 To add custom tools:
