@@ -1,50 +1,34 @@
-"""Travel screenshots tool — runs Playwright directly (no LLM subagent) to capture
-real flight, hotel and ticket search results from live booking sites."""
+"""Travel screenshots tool — spawns a subagent with Playwright MCP tools to:
+1. Navigate to live booking sites using a single run_code call (bypasses multi-step sequencing issues)
+2. Screenshot each page at the right moment
+3. Extract real prices via page.innerText
+4. Post screenshots + extracted prices back to the main agent"""
 
-import asyncio
 import os
 import re
 import urllib.parse
-from typing import Any, Callable, Awaitable, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
-from nanobot.bus.events import OutboundMessage
 
 if TYPE_CHECKING:
     from nanobot.agent.subagent import SubagentManager
 
-_SCREENSHOTS_DIR = os.path.expanduser("~/.nanobot/workspace/screenshots")
 _SCREENSHOTS_URL = os.environ.get("SCREENSHOTS_BASE_URL", "http://localhost:3001/api/screenshots")
-
-_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/122.0.0.0 Safari/537.36"
-)
+_SCREENSHOTS_DIR = os.path.expanduser("~/.nanobot/workspace/screenshots")
 
 
 class TravelScreenshotsTool(Tool):
     """
-    Capture real screenshots of flight prices, hotel availability and event tickets
-    by directly driving a Playwright browser — no LLM subagent involved.
-
-    Uses Google Search result pages which render inline flight/hotel/ticket widgets
-    with real prices. Results are saved and posted as inline images.
-
-    Call this in the SAME round as your first web_searches (runs in background).
+    Spawns a Playwright subagent that uses a single run_code call to navigate
+    to live booking sites, extract real prices, and screenshot each page at the
+    right moment. Extracts prices and posts screenshots as follow-up messages.
     """
 
-    def __init__(
-        self,
-        manager: "SubagentManager",
-        screenshots_dir: str = _SCREENSHOTS_DIR,
-        send_callback: Callable[[OutboundMessage], Awaitable[None]] | None = None,
-    ):
+    def __init__(self, manager: "SubagentManager", screenshots_dir: str = "", send_callback=None):
         self._manager = manager
-        self._screenshots_dir = screenshots_dir
-        self._send_callback: Callable[[OutboundMessage], Awaitable[None]] | None = send_callback
         self._origin_channel = "cli"
         self._origin_chat_id = "direct"
 
@@ -52,8 +36,8 @@ class TravelScreenshotsTool(Tool):
         self._origin_channel = channel
         self._origin_chat_id = chat_id
 
-    def set_send_callback(self, callback: Callable[[OutboundMessage], Awaitable[None]]) -> None:
-        self._send_callback = callback
+    def set_send_callback(self, callback) -> None:
+        pass
 
     @property
     def name(self) -> str:
@@ -62,9 +46,10 @@ class TravelScreenshotsTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Capture live screenshots of real flight prices, hotels and ticket availability "
-            "from booking sites. Runs Playwright directly — no subagent needed. "
-            "Call this BEFORE writing the itinerary text so screenshots post as a follow-up."
+            "Spawns a Playwright subagent that navigates to live flight, hotel and ticket pages, "
+            "captures screenshots as visual proof, and extracts real prices. "
+            "Screenshots and prices arrive as a follow-up message. "
+            "Write the itinerary structure now — a follow-up with real prices will arrive shortly."
         )
 
     @property
@@ -74,28 +59,36 @@ class TravelScreenshotsTool(Tool):
             "properties": {
                 "trip_slug": {
                     "type": "string",
-                    "description": "Lowercase hyphenated trip ID. e.g. 'bts-busan-mar26'",
-                },
-                "origin_city": {
-                    "type": "string",
-                    "description": "Departure city. Default: Sydney",
-                    "default": "Sydney",
+                    "description": "Lowercase hyphenated trip ID, e.g. 'bts-busan-jun26'",
                 },
                 "destination_city": {
                     "type": "string",
-                    "description": "Destination city. e.g. 'Busan', 'Tokyo', 'Paris'",
+                    "description": "Destination city, e.g. 'Busan', 'Tokyo'",
                 },
                 "travel_date": {
                     "type": "string",
-                    "description": "Concert/event date or travel period. e.g. 'March 21 2026' or 'March 2026'",
+                    "description": "Concert/event date, e.g. 'June 12 2026'",
+                },
+                "checkin": {
+                    "type": "string",
+                    "description": "Hotel check-in YYYY-MM-DD, e.g. '2026-06-10'",
+                },
+                "checkout": {
+                    "type": "string",
+                    "description": "Hotel check-out YYYY-MM-DD, e.g. '2026-06-14'",
                 },
                 "event_name": {
                     "type": "string",
-                    "description": "Event name for ticket search. e.g. 'BTS World Tour 2026', 'Coldplay Tokyo 2026'",
+                    "description": "Event for ticket search, e.g. 'BTS World Tour 2026'",
+                },
+                "origin_city": {
+                    "type": "string",
+                    "description": "Departure city, default: Sydney",
+                    "default": "Sydney",
                 },
                 "budget_per_night": {
                     "type": "string",
-                    "description": "Max hotel budget. e.g. '$200' — used to filter hotel search",
+                    "description": "Max hotel budget, e.g. '$200'",
                     "default": "$200",
                 },
             },
@@ -108,125 +101,126 @@ class TravelScreenshotsTool(Tool):
         destination_city: str,
         travel_date: str,
         event_name: str,
+        checkin: str = "",
+        checkout: str = "",
         origin_city: str = "Sydney",
         budget_per_night: str = "$200",
-        # Legacy params — accepted but ignored (backwards compat with auto-inject)
-        flights_url: str = "",
-        hotels_url: str = "",
-        event_url: str = "",
+        flights_url: str = "",  # legacy
+        hotels_url: str = "",   # legacy
+        event_url: str = "",    # legacy
         **kwargs: Any,
     ) -> str:
         slug = re.sub(r"[^a-z0-9-]", "-", trip_slug.lower()).strip("-")
-        os.makedirs(self._screenshots_dir, exist_ok=True)
 
-        fl_file = f"{self._screenshots_dir}/{slug}-flights.png"
-        ht_file = f"{self._screenshots_dir}/{slug}-hotels.png"
-        tk_file = f"{self._screenshots_dir}/{slug}-tickets.png"
-        fl_img  = f"{_SCREENSHOTS_URL}/{slug}-flights.png"
-        ht_img  = f"{_SCREENSHOTS_URL}/{slug}-hotels.png"
-        tk_img  = f"{_SCREENSHOTS_URL}/{slug}-tickets.png"
-
-        # Build Google Search URLs — inline widgets show real prices without bot-blocking
         flights_q = urllib.parse.quote(
-            f"return flights {origin_city} to {destination_city} {travel_date} "
-            f"price AUD Korean Air Asiana"
+            f"return flights {origin_city} to {destination_city} {travel_date} price AUD"
         )
-        hotels_q = urllib.parse.quote(
-            f"hotels {destination_city} {travel_date} under {budget_per_night} per night near venue"
-        )
-        tickets_q = urllib.parse.quote(
-            f"{event_name} tickets buy official {travel_date}"
-        )
+        flights_url_built = f"https://www.google.com/search?q={flights_q}&gl=au&hl=en"
 
-        urls = [
-            (f"https://www.google.com/search?q={flights_q}&gl=au&hl=en", fl_file, "flights"),
-            (f"https://www.google.com/search?q={hotels_q}&gl=au&hl=en",  ht_file, "hotels"),
-            (f"https://www.google.com/search?q={tickets_q}&gl=au&hl=en", tk_file, "tickets"),
-        ]
-
-        results: list[str] = []
-        errors: list[str] = []
-
-        # Run Playwright directly — no LLM subagent
-        asyncio.get_event_loop()  # ensure loop exists
-        await self._capture_screenshots(urls, results, errors)
-
-        if errors:
-            logger.warning("travel_screenshots partial errors: {}", errors)
-
-        # Post images directly via message bus
-        img_md = (
-            f"![Flights — {origin_city} → {destination_city}]({fl_img})\n\n"
-            f"![Hotels — {destination_city} {budget_per_night}/night]({ht_img})\n\n"
-            f"![Tickets — {event_name}]({tk_img})"
-        )
-        if self._send_callback:
-            await self._send_callback(OutboundMessage(
-                channel=self._origin_channel,
-                chat_id=self._origin_chat_id,
-                content=img_md,
-            ))
-            logger.info("travel_screenshots: posted 3 images for '{}'", slug)
-            return f"Screenshots captured and posted for '{slug}': flights, hotels, tickets."
+        if checkin and checkout:
+            hotels_url_built = (
+                f"https://www.booking.com/searchresults.html"
+                f"?ss={urllib.parse.quote(destination_city)}"
+                f"&checkin={checkin}&checkout={checkout}"
+                f"&group_adults=1&nflt=price_usd-max%3D200&order=price"
+            )
         else:
-            return f"Screenshots saved for '{slug}'.\n\n{img_md}"
-
-    async def _capture_screenshots(
-        self,
-        urls: list[tuple[str, str, str]],
-        results: list[str],
-        errors: list[str],
-    ) -> None:
-        """Drive Playwright directly to capture each page."""
-        import asyncio as _asyncio
-        from playwright.async_api import async_playwright
-
-        async with async_playwright() as pw:
-            browser = await pw.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                ],
+            hotels_q = urllib.parse.quote(
+                f"hotels {destination_city} {travel_date} under {budget_per_night} per night near venue"
             )
-            ctx = await browser.new_context(
-                user_agent=_UA,
-                viewport={"width": 1280, "height": 900},
-                locale="en-AU",
-                timezone_id="Australia/Sydney",
-            )
-            await ctx.add_init_script(
-                'Object.defineProperty(navigator,"webdriver",{get:()=>undefined})'
-            )
-            page = await ctx.new_page()
+            hotels_url_built = f"https://www.google.com/search?q={hotels_q}&gl=au&hl=en"
 
-            for url, path, label in urls:
-                try:
-                    logger.info("travel_screenshots: capturing {} → {}", label, url[:80])
-                    await page.goto(url, timeout=25000, wait_until="domcontentloaded")
+        tickets_q = urllib.parse.quote(f"{event_name} tickets buy official {travel_date}")
+        tickets_url_built = f"https://www.google.com/search?q={tickets_q}&gl=au&hl=en"
 
-                    # Wait for Google's inline result widgets to render
-                    if "google.com/search" in url:
-                        # Try to wait for rich result cards (flights/hotels/events widget)
-                        for selector in [
-                            "[data-md]",          # Google inline widgets
-                            ".kp-blk",            # Knowledge panel
-                            ".g",                 # Standard search result
-                        ]:
-                            try:
-                                await page.wait_for_selector(selector, timeout=5000)
-                                break
-                            except Exception:
-                                pass
+        fl_path = f"{_SCREENSHOTS_DIR}/{slug}-flights.png"
+        ht_path = f"{_SCREENSHOTS_DIR}/{slug}-hotels.png"
+        tk_path = f"{_SCREENSHOTS_DIR}/{slug}-tickets.png"
+        fl_img = f"{_SCREENSHOTS_URL}/{slug}-flights.png"
+        ht_img = f"{_SCREENSHOTS_URL}/{slug}-hotels.png"
+        tk_img = f"{_SCREENSHOTS_URL}/{slug}-tickets.png"
 
-                    await _asyncio.sleep(3)
-                    await page.screenshot(path=path, full_page=False)
-                    results.append(label)
-                    logger.info("travel_screenshots: {} OK → {}", label, path)
-                except Exception as exc:
-                    errors.append(f"{label}: {exc}")
-                    logger.warning("travel_screenshots: {} failed: {}", label, exc)
+        # Single run_code JS function: handles navigate + screenshot + text extraction
+        # This avoids multi-step LLM coordination which fails at high context
+        js_code = (
+            f"async (page) => {{\n"
+            f"  const results = {{}};\n"
+            f"\n"
+            f"  // === FLIGHTS ===\n"
+            f"  await page.goto('{flights_url_built}', {{waitUntil: 'domcontentloaded'}});\n"
+            f"  await page.waitForTimeout(4000);\n"
+            f"  await page.screenshot({{path: '{fl_path}'}});\n"
+            f"  results.flights = (await page.innerText('body')).slice(0, 2000);\n"
+            f"\n"
+            f"  // === HOTELS ===\n"
+            f"  await page.goto('{hotels_url_built}', {{waitUntil: 'domcontentloaded'}});\n"
+            f"  await page.waitForTimeout(5000);\n"
+            f"  await page.screenshot({{path: '{ht_path}'}});\n"
+            f"  results.hotels = (await page.innerText('body')).slice(0, 2000);\n"
+            f"\n"
+            f"  // === TICKETS ===\n"
+            f"  await page.goto('{tickets_url_built}', {{waitUntil: 'domcontentloaded'}});\n"
+            f"  await page.waitForTimeout(4000);\n"
+            f"  await page.screenshot({{path: '{tk_path}'}});\n"
+            f"  results.tickets = (await page.innerText('body')).slice(0, 2000);\n"
+            f"\n"
+            f"  return results;\n"
+            f"}}"
+        )
 
-            await browser.close()
+        task = f"""You are a travel price assistant. Use ONE tool call to capture 3 screenshots and extract real prices.
+
+## YOUR ONLY JOB: Call mcp_playwright_browser_run_code with this exact function
+
+```javascript
+{js_code}
+```
+
+The function will:
+1. Navigate to flights page → screenshot → extract price text
+2. Navigate to hotels page → screenshot → extract price text
+3. Navigate to tickets page → screenshot → extract price text
+4. Return all extracted text
+
+## AFTER getting the result from run_code, call `message` tool with:
+
+```
+![Flights — {origin_city} → {destination_city}]({fl_img})
+
+![Hotels — {destination_city}]({ht_img})
+
+![Tickets — {event_name}]({tk_img})
+
+---
+**Real prices from live browser:**
+
+✈️ FLIGHTS ({origin_city} → {destination_city}, {travel_date}):
+[list every airline and price you saw in the flights text]
+
+🏨 HOTELS ({destination_city} {checkin or travel_date}–{checkout}):
+[list every hotel name and price you saw in the hotels text]
+
+🎫 TICKETS ({event_name}):
+[list ticket prices and where to buy from the tickets text]
+```
+
+RULES:
+- Call run_code FIRST — this takes all 3 screenshots atomically
+- Then call message ONCE with the 3 images + price data from the run_code result
+- Only 2 tool calls total
+"""
+
+        logger.info("travel_screenshots: spawning Playwright subagent for '{}'", slug)
+        result = await self._manager.spawn(
+            task=task,
+            label=f"travel-screenshots:{slug}",
+            model=None,
+            origin_channel=self._origin_channel,
+            origin_chat_id=self._origin_chat_id,
+        )
+        return (
+            f"Playwright subagent launched for '{slug}'. "
+            f"Will capture 3 screenshots and extract real prices — arriving shortly as follow-up. "
+            f"Write your complete itinerary structure now. "
+            f"{result}"
+        )
