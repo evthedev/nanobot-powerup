@@ -28,122 +28,13 @@ from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.agent.tools.yelp import YelpSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.providers.base import LLMProvider, ToolCallRequest
+from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
     from nanobot.config.schema import ExecToolConfig
     from nanobot.cron.service import CronService
 
-
-# ---------------------------------------------------------------------------
-# Travel-screenshots auto-injection
-# ---------------------------------------------------------------------------
-# gpt-4o-mini stops following skill MANDATORY RULES at ~15k+ input tokens.
-# This guard detects travel-related web_searches that omit travel_screenshots
-# and synthesises the call so it always fires, regardless of context depth.
-
-_TRAVEL_DEST = {
-    "busan":     ("pus", "Busan"),
-    "seoul":     ("icn", "Seoul"),
-    "tokyo":     ("nrt", "Tokyo"),
-    "osaka":     ("kix", "Osaka"),
-    "kyoto":     ("itm", "Kyoto"),
-    "paris":     ("cdg", "Paris"),
-    "london":    ("lhr", "London"),
-    "bali":      ("dps", "Bali"),
-    "singapore": ("sin", "Singapore"),
-    "bangkok":   ("bkk", "Bangkok"),
-    "hong kong": ("hkg", "Hong Kong"),
-    "new york":  ("jfk", "New York"),
-    "dubai":     ("dxb", "Dubai"),
-}
-
-_TRAVEL_SIGNALS = frozenset({
-    "flight", "flights", "hotel", "hotels", "accommodation",
-    "hostel", "itinerary", "concert", "trip to", "travel to",
-    *_TRAVEL_DEST,
-})
-
-
-def _maybe_inject_travel_screenshots(
-    calls: list[ToolCallRequest],
-    messages: list[dict],
-    tools,
-) -> list[ToolCallRequest]:
-    """Return calls unchanged, or with a synthetic travel_screenshots prepended."""
-    # Only act when there are web_searches but no travel_screenshots.
-    if any(tc.name == "travel_screenshots" for tc in calls):
-        return calls
-    if not any(tc.name == "web_search" for tc in calls):
-        return calls
-
-    # Check recent tool results — skip if travel_screenshots already fired this turn.
-    for msg in reversed(messages[-10:]):
-        if msg.get("role") == "tool" and msg.get("name") == "travel_screenshots":
-            return calls
-
-    # Scan search queries for travel signals + a known destination.
-    all_queries = " ".join(
-        json.dumps(tc.arguments).lower()
-        for tc in calls
-        if tc.name == "web_search"
-    )
-    if not any(sig in all_queries for sig in _TRAVEL_SIGNALS):
-        return calls
-
-    dest_key = next((k for k in _TRAVEL_DEST if k in all_queries), None)
-    if not dest_key:
-        return calls
-
-    _iata, dest_name = _TRAVEL_DEST[dest_key]
-
-    # Extract year/month hints — check queries first, then scan message history
-    # (covers "March 21" stored in memory but not repeated in every search query).
-    yr_m = re.search(r"20(\d{2})", all_queries)
-    yr_sfx = yr_m.group(1) if yr_m else "26"
-    mo_map = {"jan": "jan", "feb": "feb", "mar": "mar", "apr": "apr",
-              "may": "may", "jun": "jun", "jul": "jul", "aug": "aug",
-              "sep": "sep", "oct": "oct", "nov": "nov", "dec": "dec"}
-    mo_sfx = next((v for k, v in mo_map.items() if k in all_queries), "")
-    if not mo_sfx:
-        # Fallback: scan recent messages/tool-results for month hints (e.g. from MEMORY.md)
-        history_text = " ".join(
-            str(m.get("content", "")).lower()
-            for m in messages[-20:]
-            if m.get("role") in ("tool", "user", "assistant")
-        )
-        mo_sfx = next((v for k, v in mo_map.items() if k in history_text), "")
-
-    # Extract event hint.
-    event_words = ["bts", "coldplay", "taylor swift", "concert", "festival"]
-    event_name_raw = next((e for e in event_words if e in all_queries), dest_name)
-    event_slug = event_name_raw.replace(" ", "-")
-
-    slug_parts = [p for p in [event_slug, dest_name.lower().replace(" ", "-"), f"{mo_sfx}{yr_sfx}"] if p]
-    trip_slug = "-".join(slug_parts)
-
-    # Build a human-readable travel date for Google Search queries
-    mo_full_map = {
-        "jan": "January", "feb": "February", "mar": "March", "apr": "April",
-        "may": "May", "jun": "June", "jul": "July", "aug": "August",
-        "sep": "September", "oct": "October", "nov": "November", "dec": "December",
-    }
-    mo_full = mo_full_map.get(mo_sfx, mo_sfx) if mo_sfx else ""
-    travel_date = f"{mo_full} 20{yr_sfx}" if mo_full else f"20{yr_sfx}"
-
-    event_name_display = f"{event_name_raw.title()} {dest_name} {travel_date} concert"
-
-    args = {
-        "trip_slug":        trip_slug,
-        "destination_city": dest_name,
-        "travel_date":      travel_date,
-        "event_name":       event_name_display,
-        "origin_city":      "Sydney",
-    }
-    synthetic = ToolCallRequest(id="auto-ts-inject", name="travel_screenshots", arguments=args)
-    logger.info("Auto-injected travel_screenshots for '{}' — date: {}", trip_slug, travel_date)
-    return [synthetic, *calls]
 
 
 class AgentLoop:
@@ -389,12 +280,6 @@ class AgentLoop:
                     "review_screenshots", "travel_screenshots",
                 }
                 calls_to_run = response.tool_calls
-
-                # Auto-inject travel_screenshots when the model calls travel-related
-                # web_searches but omits travel_screenshots (happens at high context depth).
-                calls_to_run = _maybe_inject_travel_screenshots(
-                    calls_to_run, messages, self.tools,
-                )
 
                 if len(calls_to_run) > 1:
                     call_names = {tc.name for tc in calls_to_run}
