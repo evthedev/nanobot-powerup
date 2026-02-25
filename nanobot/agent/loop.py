@@ -72,8 +72,6 @@ def _maybe_inject_travel_screenshots(
     tools,
 ) -> list[ToolCallRequest]:
     """Return calls unchanged, or with a synthetic travel_screenshots prepended."""
-    import urllib.parse as _up
-
     # Only act when there are web_searches but no travel_screenshots.
     if any(tc.name == "travel_screenshots" for tc in calls):
         return calls
@@ -100,33 +98,51 @@ def _maybe_inject_travel_screenshots(
 
     _iata, dest_name = _TRAVEL_DEST[dest_key]
 
-    # Extract year hint (e.g. "2026" or "jun26").
+    # Extract year/month hints — check queries first, then scan message history
+    # (covers "March 21" stored in memory but not repeated in every search query).
     yr_m = re.search(r"20(\d{2})", all_queries)
     yr_sfx = yr_m.group(1) if yr_m else "26"
     mo_map = {"jan": "jan", "feb": "feb", "mar": "mar", "apr": "apr",
               "may": "may", "jun": "jun", "jul": "jul", "aug": "aug",
               "sep": "sep", "oct": "oct", "nov": "nov", "dec": "dec"}
     mo_sfx = next((v for k, v in mo_map.items() if k in all_queries), "")
+    if not mo_sfx:
+        # Fallback: scan recent messages/tool-results for month hints (e.g. from MEMORY.md)
+        history_text = " ".join(
+            str(m.get("content", "")).lower()
+            for m in messages[-20:]
+            if m.get("role") in ("tool", "user", "assistant")
+        )
+        mo_sfx = next((v for k, v in mo_map.items() if k in history_text), "")
 
     # Extract event hint.
     event_words = ["bts", "coldplay", "taylor swift", "concert", "festival"]
-    event_slug = next((e.replace(" ", "-") for e in event_words if e in all_queries), "")
+    event_name_raw = next((e for e in event_words if e in all_queries), dest_name)
+    event_slug = event_name_raw.replace(" ", "-")
 
     slug_parts = [p for p in [event_slug, dest_name.lower().replace(" ", "-"), f"{mo_sfx}{yr_sfx}"] if p]
     trip_slug = "-".join(slug_parts)
 
-    flights_q = _up.quote(f"flights Sydney to {dest_name} {mo_sfx}{yr_sfx} prices airlines")
-    hotels_q  = _up.quote(f"hotels {dest_name} near venue {mo_sfx}{yr_sfx}")
-    event_q   = _up.quote(f"{(event_slug or dest_name).replace('-', ' ')} {yr_sfx} concert event")
+    # Build a human-readable travel date for Google Search queries
+    mo_full_map = {
+        "jan": "January", "feb": "February", "mar": "March", "apr": "April",
+        "may": "May", "jun": "June", "jul": "July", "aug": "August",
+        "sep": "September", "oct": "October", "nov": "November", "dec": "December",
+    }
+    mo_full = mo_full_map.get(mo_sfx, mo_sfx) if mo_sfx else ""
+    travel_date = f"{mo_full} 20{yr_sfx}" if mo_full else f"20{yr_sfx}"
+
+    event_name_display = f"{event_name_raw.title()} {dest_name} {travel_date} concert"
 
     args = {
-        "trip_slug":   trip_slug,
-        "flights_url": f"https://search.brave.com/search?q={flights_q}",
-        "hotels_url":  f"https://search.brave.com/search?q={hotels_q}",
-        "event_url":   f"https://search.brave.com/search?q={event_q}",
+        "trip_slug":        trip_slug,
+        "destination_city": dest_name,
+        "travel_date":      travel_date,
+        "event_name":       event_name_display,
+        "origin_city":      "Sydney",
     }
     synthetic = ToolCallRequest(id="auto-ts-inject", name="travel_screenshots", arguments=args)
-    logger.info("Auto-injected travel_screenshots for '{}'", trip_slug)
+    logger.info("Auto-injected travel_screenshots for '{}' — date: {}", trip_slug, travel_date)
     return [synthetic, *calls]
 
 
@@ -226,7 +242,11 @@ class AgentLoop:
         self.tools.register(SpawnTool(manager=self.subagents))
         screenshots_dir = str(self.workspace / "screenshots")
         self.tools.register(ReviewScreenshotsTool(manager=self.subagents, screenshots_dir=screenshots_dir))
-        self.tools.register(TravelScreenshotsTool(manager=self.subagents, screenshots_dir=screenshots_dir))
+        self.tools.register(TravelScreenshotsTool(
+            manager=self.subagents,
+            screenshots_dir=screenshots_dir,
+            send_callback=self.bus.publish_outbound,
+        ))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 
@@ -277,6 +297,7 @@ class AgentLoop:
         if ts_tool := self.tools.get("travel_screenshots"):
             if isinstance(ts_tool, TravelScreenshotsTool):
                 ts_tool.set_context(channel, chat_id)
+                ts_tool.set_send_callback(self.bus.publish_outbound)
 
         if cron_tool := self.tools.get("cron"):
             if isinstance(cron_tool, CronTool):

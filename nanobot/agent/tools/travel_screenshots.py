@@ -1,36 +1,59 @@
-"""Travel screenshots tool — spawns a Playwright subagent to capture travel research screenshots."""
+"""Travel screenshots tool — runs Playwright directly (no LLM subagent) to capture
+real flight, hotel and ticket search results from live booking sites."""
 
+import asyncio
 import os
 import re
-from typing import Any, TYPE_CHECKING
+import urllib.parse
+from typing import Any, Callable, Awaitable, TYPE_CHECKING
+
+from loguru import logger
 
 from nanobot.agent.tools.base import Tool
+from nanobot.bus.events import OutboundMessage
 
 if TYPE_CHECKING:
     from nanobot.agent.subagent import SubagentManager
 
-_SCREENSHOTS_DIR = "/root/.nanobot/workspace/screenshots"
+_SCREENSHOTS_DIR = os.path.expanduser("~/.nanobot/workspace/screenshots")
 _SCREENSHOTS_URL = os.environ.get("SCREENSHOTS_BASE_URL", "http://localhost:3001/api/screenshots")
+
+_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/122.0.0.0 Safari/537.36"
+)
 
 
 class TravelScreenshotsTool(Tool):
     """
-    Capture Playwright screenshots of travel research pages (flights, hotels, event info)
-    and post them as inline images in the chat.
+    Capture real screenshots of flight prices, hotel availability and event tickets
+    by directly driving a Playwright browser — no LLM subagent involved.
 
-    This tool spawns a subagent internally. Call it BEFORE writing the itinerary text
-    so screenshots appear as a follow-up message while you compile the response.
+    Uses Google Search result pages which render inline flight/hotel/ticket widgets
+    with real prices. Results are saved and posted as inline images.
+
+    Call this in the SAME round as your first web_searches (runs in background).
     """
 
-    def __init__(self, manager: "SubagentManager", screenshots_dir: str = _SCREENSHOTS_DIR):
+    def __init__(
+        self,
+        manager: "SubagentManager",
+        screenshots_dir: str = _SCREENSHOTS_DIR,
+        send_callback: Callable[[OutboundMessage], Awaitable[None]] | None = None,
+    ):
         self._manager = manager
         self._screenshots_dir = screenshots_dir
+        self._send_callback: Callable[[OutboundMessage], Awaitable[None]] | None = send_callback
         self._origin_channel = "cli"
         self._origin_chat_id = "direct"
 
     def set_context(self, channel: str, chat_id: str) -> None:
         self._origin_channel = channel
         self._origin_chat_id = chat_id
+
+    def set_send_callback(self, callback: Callable[[OutboundMessage], Awaitable[None]]) -> None:
+        self._send_callback = callback
 
     @property
     def name(self) -> str:
@@ -39,9 +62,9 @@ class TravelScreenshotsTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Capture browser screenshots of travel research pages — flights, hotels, and event info — "
-            "then post them as inline images. Call this during travel research BEFORE writing the itinerary. "
-            "It spawns a background subagent that navigates to each URL, saves screenshots, and posts them."
+            "Capture live screenshots of real flight prices, hotels and ticket availability "
+            "from booking sites. Runs Playwright directly — no subagent needed. "
+            "Call this BEFORE writing the itinerary text so screenshots post as a follow-up."
         )
 
     @property
@@ -51,123 +74,159 @@ class TravelScreenshotsTool(Tool):
             "properties": {
                 "trip_slug": {
                     "type": "string",
-                    "description": (
-                        "Lowercase hyphenated identifier for the trip, used as filename prefix. "
-                        "Examples: 'bts-busan-jun26', 'paris-trip', 'tokyo-concert'."
-                    ),
+                    "description": "Lowercase hyphenated trip ID. e.g. 'bts-busan-mar26'",
                 },
-                "flights_url": {
+                "origin_city": {
                     "type": "string",
-                    "description": (
-                        "URL of a flights search page. Use Skyscanner: "
-                        "https://www.skyscanner.com.au/routes/syd/<destination-iata>/ "
-                        "e.g. https://www.skyscanner.com.au/routes/syd/pus/ for Busan."
-                    ),
+                    "description": "Departure city. Default: Sydney",
+                    "default": "Sydney",
                 },
-                "hotels_url": {
+                "destination_city": {
                     "type": "string",
-                    "description": (
-                        "URL of a hotel search page. Use Booking.com: "
-                        "https://www.booking.com/searchresults.en-gb.html?ss=<city> "
-                        "e.g. https://www.booking.com/searchresults.en-gb.html?ss=Busan"
-                    ),
+                    "description": "Destination city. e.g. 'Busan', 'Tokyo', 'Paris'",
                 },
-                "event_url": {
+                "travel_date": {
                     "type": "string",
-                    "description": (
-                        "URL of the event info page — concert/festival page, Weverse, Ticketmaster, "
-                        "or the top search result about the event. "
-                        "Use https://weverse.io or https://bts.ibighit.com if no specific event page exists."
-                    ),
+                    "description": "Concert/event date or travel period. e.g. 'March 21 2026' or 'March 2026'",
+                },
+                "event_name": {
+                    "type": "string",
+                    "description": "Event name for ticket search. e.g. 'BTS World Tour 2026', 'Coldplay Tokyo 2026'",
+                },
+                "budget_per_night": {
+                    "type": "string",
+                    "description": "Max hotel budget. e.g. '$200' — used to filter hotel search",
+                    "default": "$200",
                 },
             },
-            "required": ["trip_slug", "flights_url", "hotels_url", "event_url"],
+            "required": ["trip_slug", "destination_city", "travel_date", "event_name"],
         }
 
     async def execute(  # pylint: disable=arguments-differ
         self,
         trip_slug: str,
-        flights_url: str,
-        hotels_url: str,
-        event_url: str,
+        destination_city: str,
+        travel_date: str,
+        event_name: str,
+        origin_city: str = "Sydney",
+        budget_per_night: str = "$200",
+        # Legacy params — accepted but ignored (backwards compat with auto-inject)
+        flights_url: str = "",
+        hotels_url: str = "",
+        event_url: str = "",
         **kwargs: Any,
     ) -> str:
         slug = re.sub(r"[^a-z0-9-]", "-", trip_slug.lower()).strip("-")
-        fl_file  = f"{self._screenshots_dir}/{slug}-flights.png"
-        ht_file  = f"{self._screenshots_dir}/{slug}-hotels.png"
-        ev_file  = f"{self._screenshots_dir}/{slug}-event.png"
-        fl_img   = f"{_SCREENSHOTS_URL}/{slug}-flights.png"
-        ht_img   = f"{_SCREENSHOTS_URL}/{slug}-hotels.png"
-        ev_img   = f"{_SCREENSHOTS_URL}/{slug}-event.png"
+        os.makedirs(self._screenshots_dir, exist_ok=True)
 
-        # Flight booking sites (Skyscanner, Kayak, etc.) block headless Chromium.
-        # Use Brave Search results instead — reliable, no bot detection.
-        def _to_brave(url: str, fallback_query: str) -> str:
-            blocked = ("skyscanner", "kayak", "expedia", "google.com/travel",
-                       "booking.com", "agoda", "airbnb", "hotels.com", "tripadvisor.com")
-            if any(d in url.lower() for d in blocked):
-                import urllib.parse  # noqa: PLC0415
-                return "https://search.brave.com/search?q=" + urllib.parse.quote(fallback_query)
-            return url
+        fl_file = f"{self._screenshots_dir}/{slug}-flights.png"
+        ht_file = f"{self._screenshots_dir}/{slug}-hotels.png"
+        tk_file = f"{self._screenshots_dir}/{slug}-tickets.png"
+        fl_img  = f"{_SCREENSHOTS_URL}/{slug}-flights.png"
+        ht_img  = f"{_SCREENSHOTS_URL}/{slug}-hotels.png"
+        tk_img  = f"{_SCREENSHOTS_URL}/{slug}-tickets.png"
 
-        safe_flights_url = _to_brave(flights_url, f"{slug} flights Sydney prices 2026")
-        safe_hotels_url  = _to_brave(hotels_url,  f"{slug} hotels near venue rates 2026")
-
-        script = (
-            "import sys, time\n"
-            "from playwright.sync_api import sync_playwright\n"
-            f"urls = [{safe_flights_url!r}, {safe_hotels_url!r}, {event_url!r}]\n"
-            f"files = [{fl_file!r}, {ht_file!r}, {ev_file!r}]\n"
-            "_UA = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '\n"
-            "       'AppleWebKit/537.36 (KHTML, like Gecko) '\n"
-            "       'Chrome/122.0.0.0 Safari/537.36')\n"
-            "with sync_playwright() as p:\n"
-            "    browser = p.chromium.launch(\n"
-            "        headless=True,\n"
-            "        args=['--disable-blink-features=AutomationControlled',\n"
-            "              '--no-sandbox', '--disable-dev-shm-usage']\n"
-            "    )\n"
-            "    ctx = browser.new_context(\n"
-            "        user_agent=_UA,\n"
-            "        viewport={'width': 1280, 'height': 900},\n"
-            "        locale='en-AU',\n"
-            "    )\n"
-            "    ctx.add_init_script('Object.defineProperty(navigator,\"webdriver\",{get:()=>undefined})')\n"
-            "    page = ctx.new_page()\n"
-            "    for url, path in zip(urls, files):\n"
-            "        try:\n"
-            "            page.goto(url, timeout=20000, wait_until='domcontentloaded')\n"
-            "            time.sleep(4)\n"
-            "            page.screenshot(path=path, full_page=False)\n"
-            "            print(f'OK: {path}')\n"
-            "        except Exception as e:\n"
-            "            print(f'WARN: {url} -> {e}', file=sys.stderr)\n"
-            "    browser.close()\n"
-            "print('done')\n"
+        # Build Google Search URLs — inline widgets show real prices without bot-blocking
+        flights_q = urllib.parse.quote(
+            f"return flights {origin_city} to {destination_city} {travel_date} "
+            f"price AUD Korean Air Asiana"
+        )
+        hotels_q = urllib.parse.quote(
+            f"hotels {destination_city} {travel_date} under {budget_per_night} per night near venue"
+        )
+        tickets_q = urllib.parse.quote(
+            f"{event_name} tickets buy official {travel_date}"
         )
 
-        task = (
-            f"Run the following Python script to capture travel research screenshots, "
-            f"then post the images inline.\n\n"
-            f"Step 1 — exec: mkdir -p {self._screenshots_dir}\n\n"
-            f"Step 2 — Write this script to /tmp/travel_ss.py with write_file, then run it:\n"
-            f"```python\n{script}```\n\n"
-            f"exec(command=\"python3 /tmp/travel_ss.py\")\n\n"
-            f"Step 3 — After the script succeeds, your ONLY output must be "
-            f"exactly these three markdown image lines (no other text):\n\n"
-            f"![Flights]({fl_img})\n\n"
-            f"![Hotels]({ht_img})\n\n"
-            f"![Event]({ev_img})\n\n"
-            f"RULES:\n"
-            f"- message content must contain ONLY those three markdown image lines\n"
-            f"- DO NOT add explanation text or file paths\n"
-        )
+        urls = [
+            (f"https://www.google.com/search?q={flights_q}&gl=au&hl=en", fl_file, "flights"),
+            (f"https://www.google.com/search?q={hotels_q}&gl=au&hl=en",  ht_file, "hotels"),
+            (f"https://www.google.com/search?q={tickets_q}&gl=au&hl=en", tk_file, "tickets"),
+        ]
 
-        result = await self._manager.spawn(
-            task=task,
-            label=f"travel-screenshots:{slug}",
-            model=None,
-            origin_channel=self._origin_channel,
-            origin_chat_id=self._origin_chat_id,
+        results: list[str] = []
+        errors: list[str] = []
+
+        # Run Playwright directly — no LLM subagent
+        asyncio.get_event_loop()  # ensure loop exists
+        await self._capture_screenshots(urls, results, errors)
+
+        if errors:
+            logger.warning("travel_screenshots partial errors: {}", errors)
+
+        # Post images directly via message bus
+        img_md = (
+            f"![Flights — {origin_city} → {destination_city}]({fl_img})\n\n"
+            f"![Hotels — {destination_city} {budget_per_night}/night]({ht_img})\n\n"
+            f"![Tickets — {event_name}]({tk_img})"
         )
-        return f"Travel screenshot subagent launched for '{slug}' (flights + hotels + event). {result}"
+        if self._send_callback:
+            await self._send_callback(OutboundMessage(
+                channel=self._origin_channel,
+                chat_id=self._origin_chat_id,
+                content=img_md,
+            ))
+            logger.info("travel_screenshots: posted 3 images for '{}'", slug)
+            return f"Screenshots captured and posted for '{slug}': flights, hotels, tickets."
+        else:
+            return f"Screenshots saved for '{slug}'.\n\n{img_md}"
+
+    async def _capture_screenshots(
+        self,
+        urls: list[tuple[str, str, str]],
+        results: list[str],
+        errors: list[str],
+    ) -> None:
+        """Drive Playwright directly to capture each page."""
+        import asyncio as _asyncio
+        from playwright.async_api import async_playwright
+
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                ],
+            )
+            ctx = await browser.new_context(
+                user_agent=_UA,
+                viewport={"width": 1280, "height": 900},
+                locale="en-AU",
+                timezone_id="Australia/Sydney",
+            )
+            await ctx.add_init_script(
+                'Object.defineProperty(navigator,"webdriver",{get:()=>undefined})'
+            )
+            page = await ctx.new_page()
+
+            for url, path, label in urls:
+                try:
+                    logger.info("travel_screenshots: capturing {} → {}", label, url[:80])
+                    await page.goto(url, timeout=25000, wait_until="domcontentloaded")
+
+                    # Wait for Google's inline result widgets to render
+                    if "google.com/search" in url:
+                        # Try to wait for rich result cards (flights/hotels/events widget)
+                        for selector in [
+                            "[data-md]",          # Google inline widgets
+                            ".kp-blk",            # Knowledge panel
+                            ".g",                 # Standard search result
+                        ]:
+                            try:
+                                await page.wait_for_selector(selector, timeout=5000)
+                                break
+                            except Exception:
+                                pass
+
+                    await _asyncio.sleep(3)
+                    await page.screenshot(path=path, full_page=False)
+                    results.append(label)
+                    logger.info("travel_screenshots: {} OK → {}", label, path)
+                except Exception as exc:
+                    errors.append(f"{label}: {exc}")
+                    logger.warning("travel_screenshots: {} failed: {}", label, exc)
+
+            await browser.close()

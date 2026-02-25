@@ -1,0 +1,10 @@
+[   10900ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/api/conversations:0
+[   10944ms] Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+[   34293ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/api/conversations:0
+[   34606ms] Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+[   35622ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/api/conversations:0
+[   36403ms] Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+[   41645ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/api/conversations:0
+[   41698ms] Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+[   49693ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/api/conversations:0
+[   50514ms] Unexpected token 'P', "Proxy erro"... is not valid JSON
