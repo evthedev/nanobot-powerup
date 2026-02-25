@@ -14,9 +14,9 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION:    ap-southeast-2
+      AWS_DEFAULT_REGION:    ${{ vars.AWS_REGION }}
       # Terraform reads TF_VAR_* automatically as input variables
-      TF_VAR_aws_region:     ap-southeast-2
+      TF_VAR_aws_region:     ${{ vars.AWS_REGION }}
       TF_VAR_key_pair_name:  ${{ secrets.EC2_KEY_PAIR_NAME }}
 
     steps:
@@ -34,7 +34,7 @@ jobs:
         run: |
           terraform init \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-            -backend-config="region=ap-southeast-2"
+            -backend-config="region=${{ vars.AWS_REGION }}"
 
       - name: Terraform apply
         working-directory: deploy/terraform
