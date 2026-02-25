@@ -224,6 +224,21 @@ Used exclusively during the **review workflow** (Step 4). Do not call `spawn` ma
 
 ---
 
+## travel_screenshots
+Capture browser screenshots of travel research pages (flights, hotels, event info) and post them as inline images. Call this **before** writing the itinerary text (spawns a background subagent).
+```
+travel_screenshots(
+  trip_slug: str,     # e.g. "bts-busan-jun26", "paris-trip", "tokyo-2026"
+  flights_url: str,   # e.g. "https://www.skyscanner.com.au/routes/syd/pus/"
+  hotels_url: str,    # e.g. "https://www.booking.com/searchresults.en-gb.html?ss=Busan"
+  event_url: str      # top event/venue URL from research (Weverse, Ticketmaster, etc.)
+) -> str
+```
+
+Used exclusively during the **travel-research workflow** (Step 4). Do not call `spawn` manually for screenshots — use this tool instead.
+
+---
+
 ## Adding Custom Tools
 
 To add custom tools:
