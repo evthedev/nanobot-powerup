@@ -34,21 +34,36 @@ class MCPToolWrapper(Tool):
 
     async def execute(self, **kwargs: Any) -> str:
         from mcp import types
-        result = await self._session.call_tool(self._original_name, arguments=kwargs)
         is_screenshot = "screenshot" in self._original_name.lower()
         if is_screenshot:
-            logger.debug(
-                "MCP {} | isError={} | content_types={}",
+            logger.info("MCP {} ← calling with kwargs={}", self._original_name, {k: str(v)[:100] for k, v in kwargs.items()})
+        result = await self._session.call_tool(self._original_name, arguments=kwargs)
+        if is_screenshot:
+            content_list = getattr(result, "content", None) or []
+            logger.info(
+                "MCP {} → isError={} | content_types={}",
                 self._original_name,
                 getattr(result, "isError", False),
-                [type(b).__name__ for b in result.content],
+                [type(b).__name__ for b in content_list],
             )
+        # Large page content from navigate/wait_for/snapshot balloons LLM context fast.
+        # Keep only the first 6000 chars — enough to extract prices from any page.
+        _CONTENT_TRUNCATE = 6000
+        is_navigate = True  # Apply truncation to ALL playwright tool text results
+
         parts = []
-        for block in result.content:
+        for block in (getattr(result, "content", None) or []):
             if isinstance(block, types.TextContent):
+                text = block.text
+                if is_navigate and len(text) > _CONTENT_TRUNCATE:
+                    logger.debug(
+                        "MCP {} — truncating result {} → {} chars",
+                        self._original_name, len(text), _CONTENT_TRUNCATE,
+                    )
+                    text = text[:_CONTENT_TRUNCATE] + "\n...[truncated — extract prices from what's visible above]"
                 if is_screenshot:
-                    logger.debug("MCP {} text result: {}", self._original_name, block.text[:200])
-                parts.append(block.text)
+                    logger.debug("MCP {} text result: {}", self._original_name, text[:200])
+                parts.append(text)
             elif isinstance(block, types.ImageContent):
                 # Drop base64 data — returning it bloats LLM context by 20k+ tokens per screenshot.
                 # The file was already saved to disk by the MCP server; the LLM just needs to know it succeeded.

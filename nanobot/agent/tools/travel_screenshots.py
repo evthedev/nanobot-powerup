@@ -1,24 +1,18 @@
-"""Travel screenshots tool — spawns a subagent with Playwright MCP tools.
+"""Travel screenshots tool — captures live flight/hotel/ticket pages using direct Playwright.
 
-Uses individual MCP navigate/wait/screenshot tools with strict sequential
-instructions to prevent the LLM from batching all navigations together
-(which would result in all screenshots showing the last page only).
-
-Key design: numbered pages, explicit CHECKPOINT markers, and "one tool at a time"
-instructions force true sequential execution.
+Navigates sequentially (no subagent) to avoid concurrency issues. Returns extracted page
+content and image URLs directly to the main agent so it can write a complete itinerary
+with real prices in one pass — no placeholders, no follow-up subagent needed.
 """
 
 import os
 import re
 import urllib.parse
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
-
-if TYPE_CHECKING:
-    from nanobot.agent.subagent import SubagentManager
 
 _SCREENSHOTS_URL = os.environ.get("SCREENSHOTS_BASE_URL", "http://localhost:3001/api/screenshots")
 _SCREENSHOTS_DIR = os.path.expanduser("~/.nanobot/workspace/screenshots")
@@ -26,13 +20,12 @@ _SCREENSHOTS_DIR = os.path.expanduser("~/.nanobot/workspace/screenshots")
 
 class TravelScreenshotsTool(Tool):
     """
-    Spawns a Playwright subagent that captures screenshots of live flight, hotel
-    and ticket pages as visual proof, and extracts real prices for the itinerary.
-
-    Each page is screenshotted individually before moving to the next.
+    Navigates directly (via Playwright Python) to live flight, hotel and ticket pages,
+    captures a screenshot of each, extracts visible text, and returns everything to the
+    main agent so it can write a complete, price-filled itinerary immediately.
     """
 
-    def __init__(self, manager: "SubagentManager", screenshots_dir: str = "", send_callback=None):
+    def __init__(self, manager=None, screenshots_dir: str = "", send_callback=None):
         self._manager = manager
         self._origin_channel = "cli"
         self._origin_chat_id = "direct"
@@ -51,10 +44,10 @@ class TravelScreenshotsTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Spawns a Playwright subagent that navigates to live flight search, hotel listings "
-            "and ticket pages, captures a screenshot of each, and extracts real prices. "
-            "Screenshots + prices arrive as a follow-up message. "
-            "Write the itinerary now using web_search results — follow-up fills in live prices."
+            "Navigates to live flight search, hotel listings and ticket pages, captures a "
+            "screenshot of each, and returns the extracted page content (with real prices) "
+            "plus the image URLs — so you can write a complete, price-filled itinerary "
+            "immediately. Call ONCE alongside web_search calls."
         )
 
     @property
@@ -171,59 +164,102 @@ class TravelScreenshotsTool(Tool):
         ht_path = f"{_SCREENSHOTS_DIR}/{ht_file}"
         tk_path = f"{_SCREENSHOTS_DIR}/{tk_file}"
 
-        task = (
-            f"You are a browser automation agent. Your ONLY job is to take 3 screenshots, "
-            f"read the prices, and call `message`. Nothing else.\n\n"
-            f"🚫 BANNED ACTIONS (never call these, ever):\n"
-            f"- mcp_playwright_browser_install\n"
-            f"- Any action not in the numbered list below\n\n"
-            f"⚠️ ERROR RULE: If any navigate call shows a captcha, error page, or blank page — "
-            f"take the screenshot ANYWAY (it documents what happened) and continue to the next step. "
-            f"Never loop. Never retry a step. Execute each step exactly once.\n\n"
-            f"⚠️ SEQUENCING RULE: After each tool call completes, IMMEDIATELY call the next step. "
-            f"Do NOT produce any text between steps 1–11. "
-            f"The ONLY allowed text output is the final `message` call at step 12.\n\n"
-            f"Execute EXACTLY these steps in order:\n\n"
-            f"STEP 1: mcp_playwright_browser_navigate url=\"{flights_search}\"\n"
-            f"STEP 2: mcp_playwright_browser_wait_for time=5\n"
-            f"STEP 3: mcp_playwright_browser_take_screenshot filename=\"{fl_path}\"\n"
-            f"STEP 4: mcp_playwright_browser_navigate url=\"{hotels_search}\"\n"
-            f"STEP 5: mcp_playwright_browser_wait_for time=5\n"
-            f"STEP 6: mcp_playwright_browser_take_screenshot filename=\"{ht_path}\"\n"
-            f"STEP 7: mcp_playwright_browser_navigate url=\"{tickets_search}\"\n"
-            f"STEP 8: mcp_playwright_browser_wait_for time=4\n"
-            f"STEP 9: mcp_playwright_browser_take_screenshot filename=\"{tk_path}\"\n"
-            f"STEP 10: mcp_playwright_browser_snapshot\n"
-            f"STEP 11: mcp_playwright_browser_navigate url=\"{hotels_search}\"\n"
-            f"STEP 12: mcp_playwright_browser_snapshot\n\n"
-            f"After step 12, call `message` with EXACTLY this format "
-            f"(fill in real data extracted from the snapshots — no TBD, no placeholders):\n\n"
-            f"```\n"
-            f"![Flights — {origin_city} → {destination_city}]({fl_img})\n\n"
-            f"![Hotels — {destination_city}]({ht_img})\n\n"
-            f"![Tickets — {event_name}]({tk_img})\n\n"
-            f"---\n"
-            f"**Real prices from live browser:**\n\n"
-            f"✈️ FLIGHTS ({origin_city} → {destination_city}, {travel_date}):\n"
-            f"[List actual airlines and prices from the flights screenshot/snapshot]\n\n"
-            f"🏨 HOTELS (near {venue_for_hotels}, {destination_city}):\n"
-            f"[List actual hotel names and prices per night from the hotels snapshot]\n\n"
-            f"🎫 TICKETS ({event_name}):\n"
-            f"[List actual ticket prices, sections/categories, and purchase URLs from the tickets snapshot]\n"
-            f"```\n"
+        # Use direct Playwright Python (not MCP) so screenshots are guaranteed sequential.
+        # MCP/subagent approach caused concurrency issues (shared browser, LLM batching).
+        import asyncio
+        from playwright.async_api import async_playwright
+
+        logger.info("travel_screenshots: launching direct Playwright for '{}'", slug)
+
+        os.makedirs(_SCREENSHOTS_DIR, exist_ok=True)
+
+        fl_content = ""
+        ht_content = ""
+        tk_content = ""
+
+        try:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(headless=False)
+                page = await browser.new_page()
+
+                # --- Flights ---
+                logger.info("travel_screenshots: navigating to flights: {}", flights_search)
+                try:
+                    await page.goto(flights_search, timeout=20_000, wait_until="domcontentloaded")
+                    await asyncio.sleep(5)
+                    fl_content = (await page.inner_text("body"))[:4000]
+                    await page.screenshot(path=fl_path, type="png", full_page=False)
+                    logger.info("travel_screenshots: flights screenshot saved → {}", fl_path)
+                except Exception as exc:
+                    logger.warning("travel_screenshots: flights step failed: {}", exc)
+                    try:
+                        await page.screenshot(path=fl_path, type="png")
+                    except Exception:
+                        pass
+
+                # --- Hotels ---
+                logger.info("travel_screenshots: navigating to hotels: {}", hotels_search)
+                try:
+                    await page.goto(hotels_search, timeout=20_000, wait_until="domcontentloaded")
+                    await asyncio.sleep(6)
+                    ht_content = (await page.inner_text("body"))[:5000]
+                    await page.screenshot(path=ht_path, type="png", full_page=False)
+                    logger.info("travel_screenshots: hotels screenshot saved → {}", ht_path)
+                except Exception as exc:
+                    logger.warning("travel_screenshots: hotels step failed: {}", exc)
+                    try:
+                        await page.screenshot(path=ht_path, type="png")
+                    except Exception:
+                        pass
+
+                # --- Tickets ---
+                logger.info("travel_screenshots: navigating to tickets: {}", tickets_search)
+                try:
+                    await page.goto(tickets_search, timeout=20_000, wait_until="domcontentloaded")
+                    await asyncio.sleep(4)
+                    tk_content = (await page.inner_text("body"))[:3000]
+                    await page.screenshot(path=tk_path, type="png", full_page=False)
+                    logger.info("travel_screenshots: tickets screenshot saved → {}", tk_path)
+                except Exception as exc:
+                    logger.warning("travel_screenshots: tickets step failed: {}", exc)
+                    try:
+                        await page.screenshot(path=tk_path, type="png")
+                    except Exception:
+                        pass
+
+                await browser.close()
+
+        except Exception as exc:
+            logger.error("travel_screenshots: Playwright session failed: {}", exc)
+
+        # Return everything directly to the main agent — no subagent spawn needed.
+        # The agent uses fl_content/ht_content/tk_content to fill in real prices immediately.
+        ok_fl = "✅" if fl_content else "⚠️ no content"
+        ok_ht = "✅" if ht_content else "⚠️ no content"
+        ok_tk = "✅" if tk_content else "⚠️ no content"
+
+        logger.info(
+            "travel_screenshots: returning results to main agent — fl={} ht={} tk={}",
+            ok_fl, ok_ht, ok_tk,
         )
 
-        logger.info("travel_screenshots: spawning Playwright subagent for '{}'", slug)
-        result = await self._manager.spawn(
-            task=task,
-            label=f"travel-screenshots:{slug}",
-            model=None,
-            origin_channel=self._origin_channel,
-            origin_chat_id=self._origin_chat_id,
-        )
         return (
-            f"Playwright subagent launched for '{slug}'. "
-            f"Will navigate to live booking pages one at a time, extract prices and post 3 screenshots. "
-            f"Write your complete itinerary now using web_search results for hotel names and activities. "
-            f"{result}"
+            f"## travel_screenshots results for '{slug}'\n\n"
+            f"Screenshots saved. Use the image URLs and page content below to write your "
+            f"itinerary with REAL prices — do NOT use placeholders.\n\n"
+            f"### Image URLs (embed these in your response)\n"
+            f"- Flights:  {fl_img}\n"
+            f"- Hotels:   {ht_img}\n"
+            f"- Tickets:  {tk_img}\n\n"
+            f"### FLIGHTS page content ({ok_fl})\n"
+            f"Source: {flights_search}\n"
+            f"```\n{fl_content or '(failed to load)'}\n```\n\n"
+            f"### HOTELS page content ({ok_ht})\n"
+            f"Source: {hotels_search}\n"
+            f"```\n{ht_content or '(failed to load)'}\n```\n\n"
+            f"### TICKETS page content ({ok_tk})\n"
+            f"Source: {tickets_search}\n"
+            f"```\n{tk_content or '(failed to load)'}\n```\n\n"
+            f"Extract all prices, hotel names, and ticket options from the content above "
+            f"and use them directly in your itinerary. Embed all three images.\n"
         )
