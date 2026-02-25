@@ -72,6 +72,6 @@ fi
 bash "$REPO_DIR/deploy/ec2-setup.sh"
 
 echo ""
-echo "=== First-boot setup complete ==="
+echo "=== Setup complete ==="
 echo "Next: SSH in and edit /opt/nanobot/config.json to add your API keys"
 echo "Then: cd $REPO_DIR && docker compose up -d"

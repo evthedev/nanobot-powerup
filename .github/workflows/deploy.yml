@@ -45,19 +45,53 @@ jobs:
         working-directory: deploy/terraform
         run: echo "ec2_host=$(terraform output -raw public_ip)" >> "$GITHUB_OUTPUT"
 
-      # ── 2. SSH: pull latest code and restart stack ──────────────────────────
+      # ── 2. SSH: wait for first-boot, pull latest code, restart stack ─────────
       - name: Deploy to EC2
         env:
           EC2_HOST: ${{ steps.tf.outputs.ec2_host }}
         run: |
-          # Write the SSH key to a temp file
-          echo "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2.pem
+          printf '%s' "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2.pem
           chmod 600 /tmp/ec2.pem
 
-          ssh -o StrictHostKeyChecking=no -i /tmp/ec2.pem ubuntu@"$EC2_HOST" bash << 'ENDSSH'
-            set -euo pipefail
-            cd /opt/nanobot-app
+          SSH="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i /tmp/ec2.pem ubuntu@$EC2_HOST"
 
+          # Wait for SSH to become available (instance may still be booting)
+          echo "Waiting for SSH..."
+          for i in $(seq 1 30); do
+            $SSH true 2>/dev/null && break
+            echo "  attempt $i/30 — retrying in 20s"
+            sleep 20
+          done
+
+          # Wait for first-boot user_data to finish (clones repo, installs Docker)
+          echo "Waiting for first-boot setup to complete..."
+          for i in $(seq 1 30); do
+            $SSH '[ -f /var/log/nanobot-setup.log ] && grep -q "Setup complete" /var/log/nanobot-setup.log' \
+              2>/dev/null && break
+            echo "  attempt $i/30 — setup still running, retrying in 20s"
+            $SSH 'tail -1 /var/log/nanobot-setup.log 2>/dev/null || true'
+            sleep 20
+          done
+
+          $SSH bash << 'ENDSSH'
+            set -euo pipefail
+            REPO_DIR="/opt/nanobot-app"
+            REPO_URL="https://github.com/evthedev/nanobot-powerup.git"
+
+            # Ensure correct repo is present (handles wrong-URL clone from user_data)
+            if [ ! -d "$REPO_DIR/.git" ]; then
+              echo "--- cloning repo ---"
+              sudo git clone "$REPO_URL" "$REPO_DIR"
+              sudo chown -R ubuntu:ubuntu "$REPO_DIR"
+            else
+              CURRENT=$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null || true)
+              if [ "$CURRENT" != "$REPO_URL" ]; then
+                echo "--- fixing remote url ($CURRENT → $REPO_URL) ---"
+                git -C "$REPO_DIR" remote set-url origin "$REPO_URL"
+              fi
+            fi
+
+            cd "$REPO_DIR"
             echo "--- pulling latest code ---"
             git fetch origin main
             git reset --hard origin/main

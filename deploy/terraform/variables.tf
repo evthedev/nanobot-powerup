@@ -42,7 +42,7 @@ variable "allowed_ssh_cidrs" {
 variable "repo_url" {
   description = "Git repo URL to clone on first boot (the nanobot-powerup repo)"
   type        = string
-  default     = "https://github.com/HKUDS/nanobot.git"
+  default     = "https://github.com/evthedev/nanobot-powerup.git"
 }
 
 variable "repo_branch" {
