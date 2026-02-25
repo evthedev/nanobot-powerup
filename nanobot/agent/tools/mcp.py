@@ -35,10 +35,25 @@ class MCPToolWrapper(Tool):
     async def execute(self, **kwargs: Any) -> str:
         from mcp import types
         result = await self._session.call_tool(self._original_name, arguments=kwargs)
+        is_screenshot = "screenshot" in self._original_name.lower()
+        if is_screenshot:
+            logger.debug(
+                "MCP {} | isError={} | content_types={}",
+                self._original_name,
+                getattr(result, "isError", False),
+                [type(b).__name__ for b in result.content],
+            )
         parts = []
         for block in result.content:
             if isinstance(block, types.TextContent):
+                if is_screenshot:
+                    logger.debug("MCP {} text result: {}", self._original_name, block.text[:200])
                 parts.append(block.text)
+            elif isinstance(block, types.ImageContent):
+                # Drop base64 data — returning it bloats LLM context by 20k+ tokens per screenshot.
+                # The file was already saved to disk by the MCP server; the LLM just needs to know it succeeded.
+                fmt = (block.mimeType or "image/png").split("/")[-1]
+                parts.append(f"[Screenshot saved as {fmt}. File is on disk. Proceed to next step.]")
             else:
                 parts.append(str(block))
         return "\n".join(parts) or "(no output)"
