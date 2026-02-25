@@ -21,8 +21,8 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.reddit import RedditSearchTool
-from nanobot.agent.tools.review_screenshots import ReviewScreenshotsTool
 from nanobot.agent.tools.screenshot_pages import ScreenshotPagesTool
+from nanobot.agent.tools.plan_task import PlanTaskTool
 from nanobot.agent.tools.trustpilot import TrustpilotSearchTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.agent.tools.yelp import YelpSearchTool
@@ -132,8 +132,8 @@ class AgentLoop:
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         screenshots_dir = str(self.workspace / "screenshots")
-        self.tools.register(ReviewScreenshotsTool(manager=self.subagents, screenshots_dir=screenshots_dir))
         self.tools.register(ScreenshotPagesTool(manager=self.subagents, screenshots_dir=screenshots_dir))
+        self.tools.register(PlanTaskTool(provider=self.provider))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 
