@@ -269,6 +269,9 @@ class AgentLoop:
                     "reddit_search", "trustpilot_search", "yelp_search",
                     "web_search", "web_fetch",
                     "read_file", "list_files", "list_directory",
+                    # Screenshot tools spawn background subagents (non-blocking)
+                    # and can fire alongside search tools in the same round
+                    "review_screenshots", "travel_screenshots",
                 }
                 calls_to_run = response.tool_calls
                 if len(calls_to_run) > 1:
