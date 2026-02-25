@@ -22,7 +22,7 @@ from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.reddit import RedditSearchTool
 from nanobot.agent.tools.review_screenshots import ReviewScreenshotsTool
-from nanobot.agent.tools.travel_screenshots import TravelScreenshotsTool
+from nanobot.agent.tools.screenshot_pages import ScreenshotPagesTool
 from nanobot.agent.tools.trustpilot import TrustpilotSearchTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.agent.tools.yelp import YelpSearchTool
@@ -133,11 +133,7 @@ class AgentLoop:
         self.tools.register(SpawnTool(manager=self.subagents))
         screenshots_dir = str(self.workspace / "screenshots")
         self.tools.register(ReviewScreenshotsTool(manager=self.subagents, screenshots_dir=screenshots_dir))
-        self.tools.register(TravelScreenshotsTool(
-            manager=self.subagents,
-            screenshots_dir=screenshots_dir,
-            send_callback=self.bus.publish_outbound,
-        ))
+        self.tools.register(ScreenshotPagesTool(manager=self.subagents, screenshots_dir=screenshots_dir))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 
@@ -185,10 +181,6 @@ class AgentLoop:
         if rs_tool := self.tools.get("review_screenshots"):
             if isinstance(rs_tool, ReviewScreenshotsTool):
                 rs_tool.set_context(channel, chat_id)
-        if ts_tool := self.tools.get("travel_screenshots"):
-            if isinstance(ts_tool, TravelScreenshotsTool):
-                ts_tool.set_context(channel, chat_id)
-                ts_tool.set_send_callback(self.bus.publish_outbound)
 
         if cron_tool := self.tools.get("cron"):
             if isinstance(cron_tool, CronTool):
