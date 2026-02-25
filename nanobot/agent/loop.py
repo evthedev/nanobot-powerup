@@ -21,6 +21,7 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.reddit import RedditSearchTool
+from nanobot.agent.tools.review_screenshots import ReviewScreenshotsTool
 from nanobot.agent.tools.trustpilot import TrustpilotSearchTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.agent.tools.yelp import YelpSearchTool
@@ -101,6 +102,14 @@ class AgentLoop:
         self._mcp_connected = False
         self._mcp_connecting = False
         self._consolidating: set[str] = set()  # Session keys with consolidation in progress
+        # Tracks the last Telegram chat_id seen so heartbeat can deliver there.
+        # Persisted across restarts via a small file in the workspace.
+        self._tg_chat_id_file = workspace / ".last_telegram_chat_id"
+        self.last_telegram_chat_id: str | None = (
+            self._tg_chat_id_file.read_text().strip()
+            if self._tg_chat_id_file.exists()
+            else None
+        )
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
@@ -120,6 +129,8 @@ class AgentLoop:
         self.tools.register(YelpSearchTool(api_key=self.yelp_api_key))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
+        screenshots_dir = str(self.workspace / "screenshots")
+        self.tools.register(ReviewScreenshotsTool(manager=self.subagents, screenshots_dir=screenshots_dir))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 
@@ -163,6 +174,10 @@ class AgentLoop:
         if spawn_tool := self.tools.get("spawn"):
             if isinstance(spawn_tool, SpawnTool):
                 spawn_tool.set_context(channel, chat_id)
+
+        if rs_tool := self.tools.get("review_screenshots"):
+            if isinstance(rs_tool, ReviewScreenshotsTool):
+                rs_tool.set_context(channel, chat_id)
 
         if cron_tool := self.tools.get("cron"):
             if isinstance(cron_tool, CronTool):
@@ -240,20 +255,34 @@ class AgentLoop:
                     reasoning_content=response.reasoning_content,
                 )
 
-                # Main agent is a sequential orchestrator — enforce one tool at a time.
-                # Parallel calls prevent it from using the result of one tool to inform
-                # the next (e.g. calendar result → targeted web search).
+                # Orchestration mode:
+                # - Read-only search tools (reddit, trustpilot, web_search, web_fetch, read, list)
+                #   are safe to run in parallel — their inputs are independent.
+                # - Side-effect tools (spawn, message, write, edit) must be serialised: only one
+                #   runs per turn so the agent sees results before proceeding.
+                _PARALLEL_SAFE = {
+                    "reddit_search", "trustpilot_search", "yelp_search",
+                    "web_search", "web_fetch",
+                    "read_file", "list_files", "list_directory",
+                }
                 calls_to_run = response.tool_calls
                 if len(calls_to_run) > 1:
-                    # If spawn is present, it takes full priority
+                    call_names = {tc.name for tc in calls_to_run}
                     if any(tc.name == "spawn" for tc in calls_to_run):
+                        # spawn takes full priority — run only spawns
                         calls_to_run = [tc for tc in calls_to_run if tc.name == "spawn"]
                         dropped = [tc.name for tc in response.tool_calls if tc.name != "spawn"]
+                        logger.info("Sequential mode — running 1 tool, deferring: {}", dropped)
+                    elif call_names <= _PARALLEL_SAFE:
+                        # All calls are read-only search tools — run in parallel
+                        logger.info("Parallel search mode — running {} tools simultaneously: {}",
+                                    len(calls_to_run), sorted(call_names))
+                        dropped = []
                     else:
-                        # Otherwise run only the first tool; LLM will call the rest next iteration
+                        # Mixed or side-effect tools — run only the first
                         calls_to_run = [response.tool_calls[0]]
                         dropped = [tc.name for tc in response.tool_calls[1:]]
-                    logger.info("Sequential mode — running 1 tool, deferring: {}", dropped)
+                        logger.info("Sequential mode — running 1 tool, deferring: {}", dropped)
                     for tc in response.tool_calls:
                         if tc not in calls_to_run:
                             messages = self.context.add_tool_result(
@@ -261,14 +290,27 @@ class AgentLoop:
                                 "(deferred — run sequentially after seeing previous result)"
                             )
 
-                for tool_call in calls_to_run:
-                    tools_used.append(tool_call.name)
-                    args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                    logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
-                    result = await self.tools.execute(tool_call.name, tool_call.arguments)
-                    messages = self.context.add_tool_result(
-                        messages, tool_call.id, tool_call.name, result
-                    )
+                if len(calls_to_run) > 1:
+                    # Run all calls concurrently (only reached when all are parallel-safe)
+                    async def _run_one(tc) -> tuple:
+                        args_str = json.dumps(tc.arguments, ensure_ascii=False)
+                        logger.info("Tool call: {}({})", tc.name, args_str[:200])
+                        result = await self.tools.execute(tc.name, tc.arguments)
+                        return tc, result
+
+                    results_pairs = await asyncio.gather(*[_run_one(tc) for tc in calls_to_run])
+                    for tc, result in results_pairs:
+                        tools_used.append(tc.name)
+                        messages = self.context.add_tool_result(messages, tc.id, tc.name, result)
+                else:
+                    for tool_call in calls_to_run:
+                        tools_used.append(tool_call.name)
+                        args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
+                        logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
+                        result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                        messages = self.context.add_tool_result(
+                            messages, tool_call.id, tool_call.name, result
+                        )
             else:
                 final_content = self._strip_think(response.content)
                 break
@@ -287,6 +329,14 @@ class AgentLoop:
                     self.bus.consume_inbound(),
                     timeout=1.0
                 )
+                if msg.channel == "telegram" and msg.chat_id:
+                    if msg.chat_id != self.last_telegram_chat_id:
+                        self.last_telegram_chat_id = msg.chat_id
+                        try:
+                            self._tg_chat_id_file.write_text(msg.chat_id)
+                        except Exception:
+                            pass
+
                 try:
                     response = await self._process_message(msg)
                     if response is not None:

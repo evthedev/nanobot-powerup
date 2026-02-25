@@ -423,9 +423,24 @@ def gateway(
     
     # Create heartbeat service
     async def on_heartbeat(prompt: str) -> str:
-        """Execute heartbeat through the agent."""
-        return await agent.process_direct(prompt, session_key="heartbeat")
-    
+        """Execute heartbeat through the agent.
+
+        Deliver to Telegram when a chat_id has been seen (i.e. the user has
+        previously messaged the bot). Falls back to cli if no Telegram session
+        exists yet.
+        """
+        tg_chat_id = agent.last_telegram_chat_id
+        if config.channels.telegram.enabled and tg_chat_id:
+            channel, chat_id = "telegram", tg_chat_id
+        else:
+            channel, chat_id = "cli", "direct"
+        return await agent.process_direct(
+            prompt,
+            session_key="heartbeat",
+            channel=channel,
+            chat_id=chat_id,
+        )
+
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
         on_heartbeat=on_heartbeat,
