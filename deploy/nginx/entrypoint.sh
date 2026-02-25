@@ -3,6 +3,8 @@
 if [ ! -f /etc/nginx/ssl/cert.pem ]; then
   echo "Generating self-signed TLS certificate..."
   mkdir -p /etc/nginx/ssl
+  # nginx:alpine doesn't ship openssl — install it only when cert generation is needed
+  command -v openssl >/dev/null 2>&1 || apk add --no-cache openssl
   openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
     -keyout /etc/nginx/ssl/key.pem \
     -out    /etc/nginx/ssl/cert.pem \
