@@ -45,32 +45,27 @@ jobs:
         working-directory: deploy/terraform
         run: echo "ec2_host=$(terraform output -raw public_ip)" >> "$GITHUB_OUTPUT"
 
-      # ── 2. SSH: wait for first-boot, pull latest code, restart stack ─────────
+      # ── 2. SSH: idempotent setup + deploy (works on fresh or existing instance) ─
       - name: Deploy to EC2
         env:
           EC2_HOST: ${{ steps.tf.outputs.ec2_host }}
         run: |
           printf '%s' "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2.pem
           chmod 600 /tmp/ec2.pem
-
           SSH="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i /tmp/ec2.pem ubuntu@$EC2_HOST"
 
-          # Wait for SSH to become available (instance may still be booting)
+          # Wait for SSH (instance may still be booting)
           echo "Waiting for SSH..."
           for i in $(seq 1 30); do
-            $SSH true 2>/dev/null && break
-            echo "  attempt $i/30 — retrying in 20s"
-            sleep 20
+            $SSH true 2>/dev/null && { echo "  SSH ready"; break; }
+            echo "  attempt $i/30 — retrying in 20s"; sleep 20
           done
 
-          # Wait for first-boot user_data to finish (clones repo, installs Docker)
-          echo "Waiting for first-boot setup to complete..."
+          # Wait for Docker (user_data installs it; may still be running)
+          echo "Waiting for Docker..."
           for i in $(seq 1 30); do
-            $SSH '[ -f /var/log/nanobot-setup.log ] && grep -q "Setup complete" /var/log/nanobot-setup.log' \
-              2>/dev/null && break
-            echo "  attempt $i/30 — setup still running, retrying in 20s"
-            $SSH 'tail -1 /var/log/nanobot-setup.log 2>/dev/null || true'
-            sleep 20
+            $SSH 'docker info &>/dev/null' 2>/dev/null && { echo "  Docker ready"; break; }
+            echo "  attempt $i/30 — retrying in 20s"; sleep 20
           done
 
           $SSH bash << 'ENDSSH'
@@ -78,7 +73,7 @@ jobs:
             REPO_DIR="/opt/nanobot-app"
             REPO_URL="https://github.com/evthedev/nanobot-powerup.git"
 
-            # Ensure correct repo is present (handles wrong-URL clone from user_data)
+            # ── Ensure correct repo ──────────────────────────────────────────────
             if [ ! -d "$REPO_DIR/.git" ]; then
               echo "--- cloning repo ---"
               sudo git clone "$REPO_URL" "$REPO_DIR"
@@ -86,16 +81,25 @@ jobs:
             else
               CURRENT=$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null || true)
               if [ "$CURRENT" != "$REPO_URL" ]; then
-                echo "--- fixing remote url ($CURRENT → $REPO_URL) ---"
-                git -C "$REPO_DIR" remote set-url origin "$REPO_URL"
+                echo "--- wrong remote ($CURRENT) — re-cloning ---"
+                sudo rm -rf "$REPO_DIR"
+                sudo git clone "$REPO_URL" "$REPO_DIR"
+                sudo chown -R ubuntu:ubuntu "$REPO_DIR"
               fi
             fi
 
             cd "$REPO_DIR"
-            echo "--- pulling latest code ---"
+            echo "--- pulling latest ---"
             git fetch origin main
             git reset --hard origin/main
 
+            # ── Run ec2-setup if /opt/nanobot not initialised yet ────────────────
+            if [ ! -f "/opt/nanobot/config.json" ]; then
+              echo "--- running first-time setup ---"
+              sudo bash deploy/ec2-setup.sh
+            fi
+
+            # ── Build & restart stack ────────────────────────────────────────────
             echo "--- building & restarting ---"
             docker compose build --pull
             docker compose up -d --remove-orphans
