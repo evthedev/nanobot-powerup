@@ -1,0 +1,23 @@
+# Copy to terraform.tfvars and fill in your values.
+# terraform.tfvars is gitignored — never commit it.
+
+aws_region    = "ap-southeast-2"
+project_name  = "nanobot"
+
+# Name of an existing EC2 key pair (create one in AWS Console → EC2 → Key Pairs)
+key_pair_name = "my-key-pair"
+
+# t3.small (2 vCPU / 2GB RAM) is fine for a PoC — ~$15/month
+# Upgrade to t3.medium (~$30/month) only if you're running Playwright heavily
+instance_type = "t3.small"
+
+# Your Git repo URL (fork of nanobot-powerup)
+repo_url    = "https://github.com/YOUR_USERNAME/nanobot-powerup.git"
+repo_branch = "main"
+
+# Restrict SSH to your IP for better security (find yours at https://ifconfig.me)
+# allowed_ssh_cidrs = ["1.2.3.4/32"]
+
+# EBS volume sizes (GB)
+root_volume_size_gb = 20
+data_volume_size_gb = 10

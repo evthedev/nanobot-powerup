@@ -20,3 +20,10 @@ poetry.lock
 .pytest_cache/
 botpy.log
 tests/
+
+# Terraform
+deploy/terraform/terraform.tfvars
+deploy/terraform/.terraform/
+deploy/terraform/.terraform.lock.hcl
+deploy/terraform/terraform.tfstate
+deploy/terraform/terraform.tfstate.backup
