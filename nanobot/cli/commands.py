@@ -441,10 +441,12 @@ def gateway(
             chat_id=chat_id,
         )
 
+    import os as _os
+    _hb_interval = int(_os.environ.get("NANOBOT_HEARTBEAT_INTERVAL", 30 * 60))
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
         on_heartbeat=on_heartbeat,
-        interval_s=30 * 60,  # 30 minutes
+        interval_s=_hb_interval,
         enabled=True
     )
     
