@@ -131,29 +131,29 @@ class ScreenshotPagesTool(Tool):
 
                     logger.info("screenshot_pages: navigating to {} → {}", label, url)
                     try:
-                    await page.goto(url, timeout=25_000, wait_until="domcontentloaded")
-                    await _asyncio.sleep(wait_sec)
-                    # Dismiss modal/popup dialogs (Booking.com sign-in, DuckDuckGo upgrade, etc.)
-                    try:
-                        await page.keyboard.press("Escape")
-                        await _asyncio.sleep(0.3)
-                    except Exception:
-                        pass
-                    try:
-                        # JS fallback: hide overlay/modal/popup elements that obscure content
-                        await page.evaluate(
-                            "document.querySelectorAll("
-                            "'[class*=\"popup\"], [class*=\"modal\"], [class*=\"overlay\"],"
-                            " [id*=\"popup\"], [id*=\"modal\"], [id*=\"overlay\"],"
-                            " [role=\"dialog\"]'"
-                            ").forEach(el => {"
-                            "  const r = el.getBoundingClientRect();"
-                            "  if (r.width > 100 && r.height > 100) el.style.display = 'none';"
-                            "})"
-                        )
-                        await _asyncio.sleep(0.3)
-                    except Exception:
-                        pass
+                        await page.goto(url, timeout=25_000, wait_until="domcontentloaded")
+                        await _asyncio.sleep(wait_sec)
+                        # Dismiss modal/popup dialogs (Booking.com sign-in, DuckDuckGo upgrade)
+                        try:
+                            await page.keyboard.press("Escape")
+                            await _asyncio.sleep(0.3)
+                        except Exception:
+                            pass
+                        try:
+                            # JS fallback: hide large overlay/modal/popup elements
+                            await page.evaluate(
+                                "document.querySelectorAll("
+                                "'[class*=\"popup\"], [class*=\"modal\"], [class*=\"overlay\"],"
+                                " [id*=\"popup\"], [id*=\"modal\"], [id*=\"overlay\"],"
+                                " [role=\"dialog\"]'"
+                                ").forEach(el => {"
+                                "  const r = el.getBoundingClientRect();"
+                                "  if (r.width > 100 && r.height > 100) el.style.display = 'none';"
+                                "})"
+                            )
+                            await _asyncio.sleep(0.3)
+                        except Exception:
+                            pass
                         content = (await page.inner_text("body"))[:5000]
                         await page.screenshot(path=filepath, type="png", full_page=False)
                         ok = True
