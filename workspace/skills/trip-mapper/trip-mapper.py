@@ -141,9 +141,13 @@ def main() -> None:
 
     download_image(static_map_url, image_path, maps_key)
 
-    print(f"IMAGE:{image_path}")
-    print(f"IMAGE_URL:{image_url}")
-    print(f"URL:{directions_url}")
+    # Output ready-to-embed markdown so the agent doesn't have to parse key:value lines.
+    # Just copy these lines verbatim into the response.
+    print("✅ Trip map generated. Copy this EXACT markdown into your response:")
+    print(f"![Trip Map]({image_url})")
+    print(f"[Open in Google Maps]({directions_url})")
+    print()
+    print(f"IMAGE_PATH:{image_path}")
     print("STOPS:")
     for i, (name, lat, lng) in enumerate(stops, 1):
         print(f"  {i}. {name} ({lat:.4f}, {lng:.4f})")

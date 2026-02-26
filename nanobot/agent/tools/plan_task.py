@@ -171,7 +171,8 @@ For any travel itinerary with 3+ distinct visit locations:
 1. TRIP MAPPER — always add to step_1 batch alongside web_search calls:
    {"tool":"exec","args":{"command":"python3 ~/.nanobot/workspace/skills/trip-mapper/trip-mapper.py \"Location 1, City\" \"Location 2, City\" \"Location 3, City\" ..."}}
    Use specific names with city (e.g. "Haeundae Beach, Busan" — never just "Haeundae").
-   Embed IMAGE_URL as inline image and URL as "[Open in Google Maps](...)" link in the response.
+   The output contains a ready-to-embed markdown image line and a Google Maps link line —
+   copy both VERBATIM into your response. Do NOT use the label names (IMAGE_URL, URL) as values.
    Add to success criteria: "Trip map image embedded + clickable Google Maps link included".
 
 2. PER-LOCATION SCREENSHOTS — count all named locations in the itinerary:

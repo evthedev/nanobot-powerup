@@ -166,7 +166,11 @@ class ScreenshotPagesTool(Tool):
 
         try:
             async with async_playwright() as pw:
-                browser = await pw.chromium.launch(headless=False)
+                # Use headless mode when no display is available (EC2/CI).
+                # Google URLs are already blocked/redirected so headed mode isn't needed
+                # to defeat Google's CAPTCHA — headless works fine for all other sources.
+                _headless = not bool(os.environ.get("DISPLAY"))
+                browser = await pw.chromium.launch(headless=_headless)
                 page = await browser.new_page()
 
                 for entry in pages[:5]:
