@@ -60,6 +60,7 @@ class AgentLoop:
         max_tokens: int = 4096,
         memory_window: int = 50,
         brave_api_key: str | None = None,
+        tavily_api_key: str | None = None,
         yelp_api_key: str | None = None,
         exec_config: ExecToolConfig | None = None,
         cron_service: CronService | None = None,
@@ -77,6 +78,7 @@ class AgentLoop:
         self.max_tokens = max_tokens
         self.memory_window = memory_window
         self.brave_api_key = brave_api_key
+        self.tavily_api_key = tavily_api_key
         self.yelp_api_key = yelp_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
@@ -93,6 +95,7 @@ class AgentLoop:
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             brave_api_key=brave_api_key,
+            tavily_api_key=tavily_api_key,
             yelp_api_key=yelp_api_key,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
@@ -124,7 +127,7 @@ class AgentLoop:
             timeout=self.exec_config.timeout,
             restrict_to_workspace=self.restrict_to_workspace,
         ))
-        self.tools.register(WebSearchTool(api_key=self.brave_api_key))
+        self.tools.register(WebSearchTool(api_key=self.brave_api_key, tavily_api_key=self.tavily_api_key))
         self.tools.register(WebFetchTool())
         self.tools.register(RedditSearchTool())
         self.tools.register(TrustpilotSearchTool())
@@ -133,7 +136,7 @@ class AgentLoop:
         self.tools.register(SpawnTool(manager=self.subagents))
         screenshots_dir = str(self.workspace / "screenshots")
         self.tools.register(ScreenshotPagesTool(manager=self.subagents, screenshots_dir=screenshots_dir))
-        self.tools.register(PlanTaskTool(provider=self.provider))
+        self.tools.register(PlanTaskTool(provider=self.provider, subagent_manager=self.subagents))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 
@@ -177,10 +180,6 @@ class AgentLoop:
         if spawn_tool := self.tools.get("spawn"):
             if isinstance(spawn_tool, SpawnTool):
                 spawn_tool.set_context(channel, chat_id)
-
-        if rs_tool := self.tools.get("review_screenshots"):
-            if isinstance(rs_tool, ReviewScreenshotsTool):
-                rs_tool.set_context(channel, chat_id)
 
         if cron_tool := self.tools.get("cron"):
             if isinstance(cron_tool, CronTool):
@@ -267,9 +266,8 @@ class AgentLoop:
                     "reddit_search", "trustpilot_search", "yelp_search",
                     "web_search", "web_fetch",
                     "read_file", "list_files", "list_directory",
-                    # Screenshot tools spawn background subagents (non-blocking)
-                    # and can fire alongside search tools in the same round
-                    "review_screenshots", "travel_screenshots",
+                    # screenshot_pages runs Playwright I/O independently of searches
+                    "screenshot_pages",
                 }
                 calls_to_run = response.tool_calls
 
@@ -301,8 +299,9 @@ class AgentLoop:
                     # Run all calls concurrently (only reached when all are parallel-safe)
                     async def _run_one(tc) -> tuple:
                         args_str = json.dumps(tc.arguments, ensure_ascii=False)
-                        logger.info("Tool call: {}({})", tc.name, args_str[:200])
+                        logger.info("▶ Tool call: {}({})", tc.name, args_str[:300])
                         result = await self.tools.execute(tc.name, tc.arguments)
+                        logger.info("◀ Tool result [{}]: {}", tc.name, str(result)[:800])
                         return tc, result
 
                     results_pairs = await asyncio.gather(*[_run_one(tc) for tc in calls_to_run])
@@ -313,12 +312,88 @@ class AgentLoop:
                     for tool_call in calls_to_run:
                         tools_used.append(tool_call.name)
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                        logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
+                        logger.info("▶ Tool call: {}({})", tool_call.name, args_str[:300])
                         result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                        logger.info("◀ Tool result [{}]: {}", tool_call.name, str(result)[:800])
                         messages = self.context.add_tool_result(
                             messages, tool_call.id, tool_call.name, result
                         )
             else:
+                # Evaluation gate: if plan_task was called but evaluate was not, block
+                # the response and force the agent to evaluate before sending.
+                # Max 2 evaluate attempts per turn to prevent infinite retry loops.
+                plan_tool = self.tools.get("plan_task")
+                if (
+                    isinstance(plan_tool, PlanTaskTool)
+                    and plan_tool.has_pending_evaluation()
+                    and not plan_tool.evaluation_limit_reached()
+                ):
+                    candidate = self._strip_think(response.content)
+                    criteria_json = plan_tool.get_pending_criteria_json()
+                    logger.warning(
+                        "plan_task: ⛔ evaluation gate — blocking final response, "
+                        "forcing agent to call plan_task(mode='evaluate')"
+                    )
+                    messages = self.context.add_assistant_message(
+                        messages, candidate, [], reasoning_content=None,
+                    )
+                    messages = messages + [{
+                        "role": "user",
+                        "content": (
+                            "⛔ EVALUATION GATE: Your response was blocked. "
+                            "You created a plan with success criteria but did NOT call "
+                            "plan_task(mode='evaluate') to validate your draft against those criteria. "
+                            "You MUST call it now before your response will be sent.\n\n"
+                            f"Call: plan_task(mode='evaluate', "
+                            f"criteria_list={criteria_json}, "
+                            f"draft_response='<your full response above>')"
+                        ),
+                    }]
+                    continue  # re-enter the loop, agent must now call evaluate
+
+                if isinstance(plan_tool, PlanTaskTool) and plan_tool.evaluation_limit_reached():
+                    last_failed = plan_tool.get_last_failed()
+                    if last_failed and not plan_tool.disclosure_already_injected():
+                        failed_summary = "; ".join(
+                            f"#{r.get('criterion_number')} {r.get('criterion', '')[:60]}"
+                            for r in last_failed
+                        )
+                        logger.info(
+                            "plan_task: evaluation limit reached with {} unresolved criteria — "
+                            "forcing disclosure: {}",
+                            len(last_failed), failed_summary
+                        )
+                        plan_tool.mark_disclosure_injected()
+                        # Re-enter loop ONCE with explicit disclosure instruction
+                        candidate = self._strip_think(response.content)
+                        gap_lines = "\n".join(
+                            f"- Criterion #{r.get('criterion_number')}: {r.get('criterion', '')}"
+                            f" — {r.get('reason', '')}"
+                            for r in last_failed
+                        )
+                        messages = self.context.add_assistant_message(
+                            messages, candidate, [], reasoning_content=None,
+                        )
+                        messages = messages + [{
+                            "role": "user",
+                            "content": (
+                                "⚠️ DISCLOSURE REQUIRED before sending: Your response has unresolved gaps "
+                                "that were not fixable within the retry limit. You MUST acknowledge these "
+                                "transparently in your response — do not hide or skip them.\n\n"
+                                f"Unresolved gaps:\n{gap_lines}\n\n"
+                                "Rewrite your response to include an honest '⚠️ Limitations' section "
+                                "listing each gap and what the user should do to verify it themselves "
+                                "(e.g. check airline site for exact flight numbers). "
+                                "Then send the response."
+                            ),
+                        }]
+                        continue
+                    else:
+                        logger.info(
+                            "plan_task: evaluation limit reached — {} — allowing response through",
+                            "all criteria passed" if not last_failed else "disclosure already sent"
+                        )
+
                 final_content = self._strip_think(response.content)
                 break
 
@@ -442,6 +517,9 @@ class AgentLoop:
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
+        if plan_tool := self.tools.get("plan_task"):
+            if isinstance(plan_tool, PlanTaskTool):
+                plan_tool.reset_turn()
 
         initial_messages = self.context.build_messages(
             history=session.get_history(max_messages=self.memory_window),

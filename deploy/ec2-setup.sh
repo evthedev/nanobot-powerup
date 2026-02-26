@@ -50,7 +50,8 @@ fi
 # ── 2. Create /opt/nanobot data directory and initial config ─────────────────
 echo ""
 echo "Setting up $NANOBOT_DATA ..."
-mkdir -p "$NANOBOT_DATA"/{logs,workspace/screenshots,workspace/skills/review,sessions,memory}
+mkdir -p "$NANOBOT_DATA"/{logs,workspace/screenshots,sessions,memory}
+mkdir -p "$NANOBOT_DATA"/workspace/skills/{review,travel-research,trip-mapper,google-calendar,australian-news,memory,ping-test,recommendation-enhancement,reddit-api-access}
 
 CONFIG="$NANOBOT_DATA/config.json"
 if [ ! -f "$CONFIG" ]; then
@@ -60,7 +61,7 @@ if [ ! -f "$CONFIG" ]; then
   "agents": {
     "defaults": {
       "workspace": "/root/.nanobot/workspace",
-      "model": "anthropic/claude-sonnet-4-5",
+      "model": "google/gemini-3-flash-preview",
       "maxTokens": 8192,
       "temperature": 0.7,
       "maxToolIterations": 20
@@ -75,9 +76,10 @@ if [ ! -f "$CONFIG" ]; then
   },
   "gateway": { "host": "0.0.0.0", "port": 18790 },
   "tools": {
-    "web": { "search": { "apiKey": "REPLACE_WITH_BRAVE_KEY", "maxResults": 5 } },
+    "web": { "search": { "provider": "tavily", "tavilyApiKey": "REPLACE_WITH_TAVILY_KEY", "maxResults": 5 } },
     "exec": { "timeout": 600 },
     "restrictToWorkspace": false,
+    "google": { "mapsApiKey": "" },
     "mcpServers": {
       "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] }
     }
@@ -85,19 +87,21 @@ if [ ! -f "$CONFIG" ]; then
 }
 CONFIG_EOF
   echo ""
-  echo "⚠️  ACTION REQUIRED: Edit $CONFIG and replace:"
-  echo "   - REPLACE_WITH_OPENROUTER_KEY  → your OpenRouter API key"
-  echo "   - REPLACE_WITH_BRAVE_KEY       → your Brave Search API key"
+  echo "⚠️  API keys will be injected by the deploy workflow from GitHub Secrets."
   echo ""
 fi
 
-# Copy review skill
-SKILL_SRC="$REPO_DIR/workspace/skills/review/SKILL.md"   # if it exists in repo
-SKILL_DST="$NANOBOT_DATA/workspace/skills/review/SKILL.md"
-if [ -f "$SKILL_SRC" ] && [ ! -f "$SKILL_DST" ]; then
-  cp "$SKILL_SRC" "$SKILL_DST"
-  echo "Copied review skill."
-fi
+# Sync all workspace files from repo (always runs — keeps skills up to date on every deploy)
+echo "Syncing workspace from repo..."
+for f in "$REPO_DIR/workspace"/*.md; do
+  [ -f "$f" ] && cp "$f" "$NANOBOT_DATA/workspace/" && echo "  $(basename $f)"
+done
+for skill_dir in "$REPO_DIR/workspace/skills"/*/; do
+  skill_name=$(basename "$skill_dir")
+  mkdir -p "$NANOBOT_DATA/workspace/skills/$skill_name"
+  cp -r "$skill_dir"* "$NANOBOT_DATA/workspace/skills/$skill_name/" 2>/dev/null || true
+  echo "  skill: $skill_name"
+done
 
 # ── 3. Open firewall ports (if using ufw) ────────────────────────────────────
 if command -v ufw &>/dev/null; then

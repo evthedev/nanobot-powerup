@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './LogsPanel.css';
 
-const API = process.env.REACT_APP_API_URL || '';
+const API = 'http://localhost:3001';
 
 const FILTERS = [
   { id: 'all',      label: 'All' },
@@ -60,7 +60,7 @@ export default function LogsPanel({ mainModel }) {
         }
         setEntries(prev => {
           const next = [...prev, { ...entry, id: Date.now() + Math.random() }];
-          return next.length > 2000 ? next.slice(-2000) : next;
+          return next.length > 10000 ? next.slice(-10000) : next;
         });
       } catch {}
     };

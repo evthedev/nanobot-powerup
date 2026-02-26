@@ -6,9 +6,7 @@ import Settings from './components/Settings';
 import LogsPanel from './components/LogsPanel';
 import './App.css';
 
-// In dev: set REACT_APP_API_URL=http://localhost:3001 (bypasses CRA proxy buffering for SSE)
-// In prod: empty string → relative URLs served through Nginx on the same origin
-const API = process.env.REACT_APP_API_URL || '';
+const API = 'http://localhost:3001'; // Direct to Express — bypasses CRA proxy buffering
 
 export default function App() {
   const [conversations, setConversations] = useState([]);
@@ -160,7 +158,7 @@ export default function App() {
       let buffer = '';
       let finalMsgId = assistantTempId;
 
-      while (true) {
+      streamLoop: while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -194,6 +192,8 @@ export default function App() {
                 created_at: new Date().toISOString(),
                 streaming: true,
               }]);
+              // Re-show spinner for the incoming subagent message
+              setStreaming(true);
             } else if (event.type === 'done') {
               // Finalise the bubble identified by tempId (may be a later subagent bubble)
               const tid = event.tempId || assistantTempId;
@@ -203,12 +203,20 @@ export default function App() {
                   ? { ...m, id: finalMsgId, content: event.content, streaming: false }
                   : m
               ));
+              // Clear spinner immediately when message appears — don't wait for WS session to close.
+              // If a new_message event follows (subagent), setStreaming(true) will re-enable it.
+              setStreaming(false);
             } else if (event.type === 'error') {
               setMessages(prev => prev.map(m =>
                 m.id === assistantTempId
                   ? { ...m, content: `⚠️ ${event.error}`, streaming: false, error: true }
                   : m
               ));
+            } else if (event.type === 'stream_end') {
+              // Server signals stream is fully done — exit immediately rather than
+              // waiting for TCP connection close (can lag several seconds).
+              console.log('[stream] got stream_end → breaking streamLoop');
+              break streamLoop;
             }
           } catch {}
         }

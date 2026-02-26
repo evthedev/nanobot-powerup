@@ -39,6 +39,7 @@ class SubagentManager:
         temperature: float = 0.7,
         max_tokens: int = 4096,
         brave_api_key: str | None = None,
+        tavily_api_key: str | None = None,
         yelp_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
@@ -51,6 +52,7 @@ class SubagentManager:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.brave_api_key = brave_api_key
+        self.tavily_api_key = tavily_api_key
         self.yelp_api_key = yelp_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
@@ -61,7 +63,51 @@ class SubagentManager:
         """Receive MCP tool objects from the main agent for subagent use."""
         self._mcp_tools = tools
         logger.info("SubagentManager: received {} MCP tools for subagents", len(tools))
-    
+
+    async def run_sync(
+        self,
+        label: str,
+        system_prompt: str,
+        user_prompt: str,
+        model: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.1,
+    ) -> str:
+        """
+        Run a single synchronous LLM call that appears in the subagent log.
+
+        Unlike spawn() (fire-and-forget), this awaits the result and returns it
+        to the caller. Used by plan_task so its LLM calls appear in the subagent
+        panel instead of disappearing into the tool layer.
+        """
+        task_id = str(uuid.uuid4())[:8]
+        logger.info("Subagent [{}] starting task: {}", task_id, label)
+        try:
+            response = await self.provider.chat(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                tools=None,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            if response.usage:
+                u = response.usage
+                logger.info(
+                    "LLM usage | model={} tokens_in={} tokens_out={} total={}",
+                    model,
+                    u.get("prompt_tokens", 0),
+                    u.get("completion_tokens", 0),
+                    u.get("total_tokens", 0),
+                )
+            logger.info("Subagent [{}] completed successfully", task_id)
+            return response.content or ""
+        except Exception as exc:
+            logger.error("Subagent [{}] failed: {}", task_id, exc)
+            raise
+
     async def spawn(
         self,
         task: str,
@@ -130,7 +176,7 @@ class SubagentManager:
                 timeout=self.exec_config.timeout,
                 restrict_to_workspace=self.restrict_to_workspace,
             ))
-            tools.register(WebSearchTool(api_key=self.brave_api_key))
+            tools.register(WebSearchTool(api_key=self.brave_api_key, tavily_api_key=self.tavily_api_key))
             tools.register(WebFetchTool())
             tools.register(RedditSearchTool())
             tools.register(TrustpilotSearchTool())

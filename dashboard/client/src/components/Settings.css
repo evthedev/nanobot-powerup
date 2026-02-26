@@ -306,3 +306,21 @@
 .btn-danger-sm:hover {
   background: rgba(234, 67, 53, 0.08);
 }
+
+/* ─── btn-link ──────────────────────────────────────────────────────────── */
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.15s;
+}
+
+.btn-link:hover {
+  color: var(--text-primary);
+}

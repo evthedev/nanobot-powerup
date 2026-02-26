@@ -379,6 +379,14 @@ def gateway(
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
     
     config = load_config()
+
+    # Inject skill environment variables from config into the process environment
+    # so exec/shell tool subprocesses inherit them automatically.
+    _maps_key = getattr(getattr(config.tools, "google", None), "maps_api_key", None)
+    if _maps_key:
+        os.environ.setdefault("GOOGLE_GEOCODING_API_KEY", _maps_key)
+        os.environ.setdefault("GOOGLE_STATIC_MAPS_API_KEY", _maps_key)
+
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)

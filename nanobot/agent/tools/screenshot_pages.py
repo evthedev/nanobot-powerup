@@ -8,10 +8,35 @@ product reviews, restaurant lookups, news pages, or anything else.
 import os
 import re
 from typing import Any
+from urllib.parse import urlparse, parse_qs, urlencode, quote_plus
 
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
+
+
+def _rewrite_google_url(url: str) -> tuple[str, bool]:
+    """
+    Google detects headless browsers and serves a CAPTCHA — useless for screenshots.
+    Rewrite any google.com URL to DuckDuckGo by extracting the 'q' param.
+    Returns (rewritten_url, was_rewritten).
+    """
+    try:
+        parsed = urlparse(url)
+        host = parsed.netloc.lower().lstrip("www.")
+        if not (host == "google.com" or host.endswith(".google.com")):
+            return url, False
+        params = parse_qs(parsed.query)
+        query = (params.get("q") or params.get("query") or [""])[0].strip()
+        if query:
+            ddg = f"https://duckduckgo.com/?q={quote_plus(query)}&ia=web"
+        else:
+            # No query param — fall back to a generic Bing search using the path
+            path_hint = parsed.path.strip("/").replace("/", " ")
+            ddg = f"https://duckduckgo.com/?q={quote_plus(path_hint or 'web search')}&ia=web"
+        return ddg, True
+    except Exception:
+        return url, False
 
 _SCREENSHOTS_URL = os.environ.get("SCREENSHOTS_BASE_URL", "http://localhost:3001/api/screenshots")
 _SCREENSHOTS_DIR = os.path.expanduser("~/.nanobot/workspace/screenshots")
@@ -42,11 +67,19 @@ class ScreenshotPagesTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Navigates to a list of URLs using a real browser, captures a screenshot of each "
-            "page, and returns the extracted text content plus image URLs. Use this whenever "
-            "you need live visual proof or real data from a web page — travel prices, product "
-            "reviews, restaurant menus, ticket availability, hotel listings, etc. "
-            "Pass up to 5 URLs. Results arrive synchronously in the tool result."
+            "Navigates to URLs using a real browser, captures screenshots, and returns text "
+            "content + image URLs. Use for visual proof that a specific fact came from a real "
+            "source.\n\n"
+            "TWO TYPES OF SCREENSHOTS:\n"
+            "• TYPE A (prices/availability only): DuckDuckGo or Booking.com search results — "
+            "price cards appear inline. Use for flights, hotels, ticket prices.\n"
+            "• TYPE B (all factual claims about specific things): The ACTUAL SOURCE PAGE — "
+            "Wikipedia, TripAdvisor, official site, Reddit thread. A search results page "
+            "(DuckDuckGo link list) does NOT verify a claim about a place or product — it only "
+            "proves a search was typed. You MUST screenshot the actual Wikipedia/TripAdvisor/"
+            "official page that contains the information.\n\n"
+            "NEVER use google.com — redirects to CAPTCHA. "
+            "NEVER use DuckDuckGo/Bing for factual claims about places/products/events."
         )
 
     @property
@@ -122,6 +155,22 @@ class ScreenshotPagesTool(Tool):
                     label = re.sub(r"[^a-z0-9_-]", "-", entry.get("label", "page").lower()).strip("-")
                     wait_sec = float(entry.get("wait_seconds", 4))
 
+                    # Hard-redirect Google URLs to DuckDuckGo — Google serves CAPTCHA to headless browsers
+                    url, was_rewritten = _rewrite_google_url(url)
+                    if was_rewritten:
+                        logger.warning("screenshot_pages: ⛔ Google URL blocked — redirected to DuckDuckGo: {}", url)
+
+                    # Warn when a search-results page is used for a non-price label
+                    # (search results don't verify factual claims — source pages do)
+                    _is_search_results = any(h in url for h in ("duckduckgo.com", "bing.com/search", "bing.com/news"))
+                    _price_labels = {"flights", "hotels", "hotel", "flight", "tickets", "ticket", "price", "prices", "availability"}
+                    if _is_search_results and label not in _price_labels:
+                        logger.warning(
+                            "screenshot_pages: ⚠️ Search-results URL used for label='{}' — "
+                            "this verifies nothing. Use a source page (Wikipedia, TripAdvisor, "
+                            "official site) to actually verify factual claims. URL: {}", label, url
+                        )
+
                     filename = f"{safe_slug}-{label}.png"
                     filepath = f"{_SCREENSHOTS_DIR}/{filename}"
                     img_url = f"{_SCREENSHOTS_URL}/{filename}"
@@ -165,7 +214,15 @@ class ScreenshotPagesTool(Tool):
                         except Exception:
                             pass
 
-                    results.append({"label": label, "url": url, "img_url": img_url, "content": content, "ok": ok})
+                    results.append({
+                        "label": label,
+                        "url": url,
+                        "img_url": img_url,
+                        "content": content,
+                        "ok": ok,
+                        "rewritten": was_rewritten,
+                        "search_results_warning": _is_search_results and label not in _price_labels,
+                    })
 
                 await browser.close()
 
@@ -181,7 +238,12 @@ class ScreenshotPagesTool(Tool):
         ]
         for r in results:
             status = "✅" if r["ok"] else "⚠️ failed"
-            lines.append(f"- **{r['label']}** ({status}): {r['img_url']}\n")
+            rewrite_note = " ⚠️ [Google URL redirected to DuckDuckGo]" if r.get("rewritten") else ""
+            search_warn = (
+                " ❌ [SEARCH RESULTS PAGE — does not verify factual claims. "
+                "Re-screenshot using Wikipedia/TripAdvisor/official source page instead.]"
+            ) if r.get("search_results_warning") else ""
+            lines.append(f"- **{r['label']}** ({status}){rewrite_note}{search_warn}: {r['img_url']}\n")
 
         lines.append("\n")
         for r in results:

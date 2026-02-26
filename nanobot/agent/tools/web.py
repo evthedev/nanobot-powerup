@@ -1,5 +1,6 @@
 """Web tools: web_search and web_fetch."""
 
+import asyncio
 import html
 import json
 import os
@@ -8,12 +9,18 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from loguru import logger
 
 from nanobot.agent.tools.base import Tool
 
 # Shared constants
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
 MAX_REDIRECTS = 5  # Limit redirects to prevent DoS attacks
+
+# Global semaphore: limits concurrent web_search calls regardless of provider.
+# Brave free tier = 1 req/s; Tavily free = more generous but still avoid bursting.
+_SEARCH_SEMAPHORE = asyncio.Semaphore(2)
+_SEARCH_MIN_INTERVAL = 0.4  # seconds between releases
 
 
 def _strip_tags(text: str) -> str:
@@ -44,50 +51,106 @@ def _validate_url(url: str) -> tuple[bool, str]:
 
 
 class WebSearchTool(Tool):
-    """Search the web using Brave Search API."""
-    
+    """Search the web using Tavily (primary) or Brave (fallback).
+
+    Tavily is purpose-built for AI agents — higher rate limits, cleaner results.
+    Brave is used when no Tavily key is configured.
+
+    A shared semaphore limits concurrency to 2 in-flight requests at a time,
+    preventing 429s on free-tier plans when the agent fires parallel batches.
+    Requests that get 429 are retried once after a 1-second back-off.
+    """
+
     name = "web_search"
     description = "Search the web. Returns titles, URLs, and snippets."
     parameters = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Search query"},
-            "count": {"type": "integer", "description": "Results (1-10)", "minimum": 1, "maximum": 10}
+            "count": {"type": "integer", "description": "Results (1-10)", "minimum": 1, "maximum": 10},
         },
-        "required": ["query"]
+        "required": ["query"],
     }
-    
-    def __init__(self, api_key: str | None = None, max_results: int = 5):
-        self.api_key = api_key or os.environ.get("BRAVE_API_KEY", "")
+
+    def __init__(
+        self,
+        api_key: str | None = None,         # Brave API key (legacy / fallback)
+        tavily_api_key: str | None = None,   # Tavily API key (primary)
+        max_results: int = 5,
+    ):
+        self.brave_key = api_key or os.environ.get("BRAVE_API_KEY", "")
+        self.tavily_key = tavily_api_key or os.environ.get("TAVILY_API_KEY", "")
         self.max_results = max_results
-    
+
+    @property
+    def _provider(self) -> str:
+        return "tavily" if self.tavily_key else "brave"
+
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
-        if not self.api_key:
-            return "Error: BRAVE_API_KEY not configured"
-        
+        n = min(max(count or self.max_results, 1), 10)
+        async with _SEARCH_SEMAPHORE:
+            result = await self._search(query, n)
+            await asyncio.sleep(_SEARCH_MIN_INTERVAL)
+        return result
+
+    async def _search(self, query: str, n: int, _retry: bool = False) -> str:
         try:
-            n = min(max(count or self.max_results, 1), 10)
-            async with httpx.AsyncClient() as client:
-                r = await client.get(
-                    "https://api.search.brave.com/res/v1/web/search",
-                    params={"q": query, "count": n},
-                    headers={"Accept": "application/json", "X-Subscription-Token": self.api_key},
-                    timeout=10.0
-                )
-                r.raise_for_status()
-            
-            results = r.json().get("web", {}).get("results", [])
-            if not results:
-                return f"No results for: {query}"
-            
-            lines = [f"Results for: {query}\n"]
-            for i, item in enumerate(results[:n], 1):
-                lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
-                if desc := item.get("description"):
-                    lines.append(f"   {desc}")
-            return "\n".join(lines)
-        except Exception as e:
-            return f"Error: {e}"
+            if self._provider == "tavily":
+                return await self._tavily(query, n)
+            return await self._brave(query, n)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429 and not _retry:
+                logger.warning("web_search: 429 on '{}' — retrying after 1s", query[:60])
+                await asyncio.sleep(1.0)
+                return await self._search(query, n, _retry=True)
+            # On second 429 or other HTTP error, try the other provider if available
+            if exc.response.status_code == 429 and self.brave_key and self._provider == "brave":
+                return f"Rate limited — try again shortly. Query was: {query}"
+            return f"Error: {exc}"
+        except Exception as exc:  # pylint: disable=broad-except
+            return f"Error: {exc}"
+
+    async def _tavily(self, query: str, n: int) -> str:
+        if not self.tavily_key:
+            return "Error: TAVILY_API_KEY not configured"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(
+                "https://api.tavily.com/search",
+                json={"api_key": self.tavily_key, "query": query, "max_results": n, "search_depth": "basic"},
+                headers={"Content-Type": "application/json"},
+            )
+            r.raise_for_status()
+        results = r.json().get("results", [])
+        if not results:
+            return f"No results for: {query}"
+        lines = [f"Results for: {query}\n"]
+        for i, item in enumerate(results[:n], 1):
+            lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
+            if snippet := (item.get("content") or item.get("description") or "")[:200]:
+                lines.append(f"   {snippet}")
+        logger.debug("web_search[tavily]: {} results for '{}'", len(results), query[:60])
+        return "\n".join(lines)
+
+    async def _brave(self, query: str, n: int) -> str:
+        if not self.brave_key:
+            return "Error: No search API key configured (set TAVILY_API_KEY or BRAVE_API_KEY)"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.search.brave.com/res/v1/web/search",
+                params={"q": query, "count": n},
+                headers={"Accept": "application/json", "X-Subscription-Token": self.brave_key},
+            )
+            r.raise_for_status()
+        results = r.json().get("web", {}).get("results", [])
+        if not results:
+            return f"No results for: {query}"
+        lines = [f"Results for: {query}\n"]
+        for i, item in enumerate(results[:n], 1):
+            lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
+            if desc := item.get("description"):
+                lines.append(f"   {desc}")
+        logger.debug("web_search[brave]: {} results for '{}'", len(results), query[:60])
+        return "\n".join(lines)
 
 
 class WebFetchTool(Tool):

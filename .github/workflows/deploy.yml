@@ -48,9 +48,13 @@ jobs:
       # ── 2. SSH: idempotent setup + deploy (works on fresh or existing instance) ─
       - name: Deploy to EC2
         env:
-          EC2_HOST:             ${{ steps.tf.outputs.ec2_host }}
-          OPENROUTER_API_KEY:   ${{ secrets.OPENROUTER_API_KEY }}
-          TAVILY_API_KEY:       ${{ secrets.TAVILY_API_KEY }}
+          EC2_HOST:                 ${{ steps.tf.outputs.ec2_host }}
+          OPENROUTER_API_KEY:       ${{ secrets.OPENROUTER_API_KEY }}
+          BRAVE_API_KEY:            ${{ secrets.BRAVE_API_KEY }}
+          TAVILY_API_KEY:           ${{ secrets.TAVILY_API_KEY }}
+          GOOGLE_CLIENT_ID:         ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET:     ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_STATIC_MAPS_API_KEY: ${{ secrets.GOOGLE_STATIC_MAPS_API_KEY }}
         run: |
           printf '%s' "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2.pem
           chmod 600 /tmp/ec2.pem
@@ -64,7 +68,6 @@ jobs:
           done
 
           # Wait for Docker daemon (user_data installs it; may still be running)
-          # Use sudo for this check only — ubuntu isn't in docker group until setup runs
           echo "Waiting for Docker..."
           for i in $(seq 1 30); do
             $SSH 'sudo docker info &>/dev/null' 2>/dev/null && { echo "  Docker ready"; break; }
@@ -72,11 +75,11 @@ jobs:
           done
 
           # ── Phase 1: repo + first-time setup + inject API keys + docker group ───
-          # Pass secrets via `env` prefix — avoids needing AcceptEnv in sshd_config
-          # while keeping them out of the local shell's variable expansion (heredoc is single-quoted)
           $SSH env \
             OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
+            BRAVE_API_KEY="$BRAVE_API_KEY" \
             TAVILY_API_KEY="$TAVILY_API_KEY" \
+            GOOGLE_STATIC_MAPS_API_KEY="$GOOGLE_STATIC_MAPS_API_KEY" \
             bash << 'SETUP'
             set -euo pipefail
             REPO_DIR="/opt/nanobot-app"
@@ -102,7 +105,24 @@ jobs:
               sudo bash deploy/ec2-setup.sh
             fi
 
-            # Inject API keys from GitHub Secrets into config.json (only if provided)
+            # ── Sync workspace files (SOUL.md, skills) from repo → /opt/nanobot/workspace ──
+            echo "--- syncing workspace ---"
+            WORKSPACE_SRC="$REPO_DIR/workspace"
+            WORKSPACE_DST="/opt/nanobot/workspace"
+            # Sync top-level workspace .md files
+            for f in "$WORKSPACE_SRC"/*.md; do
+              [ -f "$f" ] && cp "$f" "$WORKSPACE_DST/" && echo "  synced $(basename $f)"
+            done
+            # Sync skills (never delete existing skills — only add/update)
+            for skill_dir in "$WORKSPACE_SRC"/skills/*/; do
+              skill_name=$(basename "$skill_dir")
+              mkdir -p "$WORKSPACE_DST/skills/$skill_name"
+              rsync -a "$skill_dir" "$WORKSPACE_DST/skills/$skill_name/" 2>/dev/null || \
+                cp -r "$skill_dir"* "$WORKSPACE_DST/skills/$skill_name/"
+              echo "  synced skill: $skill_name"
+            done
+
+            # ── Inject API keys into config.json ──────────────────────────────────
             echo "--- injecting API keys ---"
             python3 - << PYEOF
 import json, os
@@ -110,22 +130,50 @@ cfg_path = "/opt/nanobot/config.json"
 with open(cfg_path) as f:
     cfg = json.load(f)
 
-openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
-tavily_key     = os.environ.get("TAVILY_API_KEY", "")
+def set_nested(d, path, value):
+    """Set a value at a dotted path, creating dicts as needed."""
+    keys = path.split(".")
+    for k in keys[:-1]:
+        d = d.setdefault(k, {})
+    d[keys[-1]] = value
+
+openrouter_key       = os.environ.get("OPENROUTER_API_KEY", "")
+brave_key            = os.environ.get("BRAVE_API_KEY", "")
+tavily_key           = os.environ.get("TAVILY_API_KEY", "")
+maps_key             = os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", "")
 
 if openrouter_key and not openrouter_key.startswith("REPLACE"):
-    cfg.setdefault("providers", {}).setdefault("openrouter", {})["apiKey"] = openrouter_key
+    set_nested(cfg, "providers.openrouter.apiKey", openrouter_key)
     print(f"  openrouter key set ({len(openrouter_key)} chars)")
 
 if tavily_key and not tavily_key.startswith("REPLACE"):
-    search = cfg.setdefault("tools", {}).setdefault("web", {}).setdefault("search", {})
-    search["tavilyApiKey"] = tavily_key
-    search["provider"] = "tavily"
+    set_nested(cfg, "tools.web.search.provider", "tavily")
+    set_nested(cfg, "tools.web.search.tavilyApiKey", tavily_key)
     print(f"  tavily key set ({len(tavily_key)} chars)")
+elif brave_key and not brave_key.startswith("REPLACE"):
+    set_nested(cfg, "tools.web.search.apiKey", brave_key)
+    print(f"  brave key set (tavily not provided, using brave)")
+
+if maps_key and not maps_key.startswith("REPLACE"):
+    set_nested(cfg, "tools.google.mapsApiKey", maps_key)
+    print(f"  google maps key set ({len(maps_key)} chars)")
+
+# Always set the main agent model
+set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
+print("  agent model: google/gemini-3-flash-preview")
 
 with open(cfg_path, "w") as f:
     json.dump(cfg, f, indent=2)
 PYEOF
+
+            # ── Write .env for Google OAuth (dashboard reads these at runtime) ────
+            echo "--- writing .env ---"
+            cat > "$REPO_DIR/.env" << ENVEOF
+GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+GOOGLE_STATIC_MAPS_API_KEY=${GOOGLE_STATIC_MAPS_API_KEY:-}
+ENVEOF
+            echo "  .env written"
 
             # Ensure ubuntu is in docker group (idempotent)
             sudo usermod -aG docker ubuntu

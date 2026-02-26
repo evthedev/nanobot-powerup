@@ -243,9 +243,16 @@ class GatewayConfig(Base):
 
 
 class WebSearchConfig(Base):
-    """Web search tool configuration."""
+    """Web search tool configuration.
 
-    api_key: str = ""  # Brave Search API key
+    provider: "tavily" (recommended) or "brave".
+    Tavily is purpose-built for AI agents — higher rate limits, cleaner results.
+    Get a free key at https://tavily.com (1000 searches/month free).
+    """
+
+    provider: str = "brave"   # "tavily" | "brave"
+    api_key: str = ""          # Brave Search API key (legacy)
+    tavily_api_key: str = ""   # Tavily API key (preferred)
     max_results: int = 5
 
 
@@ -277,12 +284,35 @@ class YelpConfig(Base):
     api_key: str = ""
 
 
+class GoogleCredentialsConfig(Base):
+    """Google OAuth 2.0 token storage path.
+
+    Client ID and Secret are NOT stored here — they are supplied via the
+    GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET environment variables (GitHub Secrets
+    → docker-compose env on EC2, or shell env for local dev).
+    """
+
+    token_path: str = Field(default="~/.nanobot/google_calendar_token.json", alias="tokenPath")
+
+    model_config = {"populate_by_name": True}
+
+
+class GoogleConfig(Base):
+    """Google services configuration (Gmail, Calendar, Maps)."""
+
+    credentials: GoogleCredentialsConfig = Field(default_factory=GoogleCredentialsConfig)
+    maps_api_key: str = Field(default="", alias="mapsApiKey")
+
+    model_config = {"populate_by_name": True}
+
+
 class ToolsConfig(Base):
     """Tools configuration."""
 
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     yelp: YelpConfig = Field(default_factory=YelpConfig)
+    google: GoogleConfig = Field(default_factory=GoogleConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 

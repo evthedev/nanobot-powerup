@@ -202,8 +202,10 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
   // Set up SSE so the client sees updates as they arrive
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Connection', 'close');
   res.setHeader('X-Accel-Buffering', 'no');
+  // Disable Nagle algorithm so every res.write() is flushed to the OS immediately
+  if (res.socket) res.socket.setNoDelay(true);
 
   // Each nanobot "message" is streamed word-by-word and committed to the DB immediately,
   // so the bubble finalises as soon as the message arrives — not 90s later when WS closes.
@@ -277,6 +279,9 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
           if (msg.type === 'done') {
             clearTimeout(timer);
             ws.close();
+            // stream_end sent here (same event-loop tick as the last message write)
+            // so the browser's reader.read() receives it immediately, before any DB I/O.
+            res.write(`data: ${JSON.stringify({ type: 'stream_end' })}\n\n`);
             resolve();
           }
 
@@ -413,9 +418,10 @@ function parseLogLine(raw) {
 
   // Determine source type
   let type = 'system';
-  if (module.includes('agent.loop'))     type = 'main';
+  if (module.includes('agent.loop'))          type = 'main';
   else if (module.includes('agent.subagent')) type = 'subagent';
-  else if (module.includes('channels'))  type = 'channel';
+  else if (module.includes('tools.plan_task')) type = 'subagent';
+  else if (module.includes('channels'))       type = 'channel';
 
   // Extract model from spawn lines: "Spawned subagent [xxx] using some/model: task..."
   const modelMatch = msg.match(/using ([\w/.\-:]+):/);

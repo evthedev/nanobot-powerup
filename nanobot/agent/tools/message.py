@@ -43,7 +43,11 @@ class MessageTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Send a message to the user. Use this when you want to communicate something."
+        return (
+            "Send a message to the user on the same channel they used to contact you. "
+            "Do NOT pass channel or chat_id — they default to the current conversation. "
+            "Only supply channel/chat_id when explicitly asked to route to a different channel."
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -56,11 +60,11 @@ class MessageTool(Tool):
                 },
                 "channel": {
                     "type": "string",
-                    "description": "Optional: target channel (telegram, discord, etc.)"
+                    "description": "ONLY set when explicitly routing to a different channel (e.g. sending a WhatsApp notification while the user is on the web UI). Leave empty to reply on the current channel."
                 },
                 "chat_id": {
                     "type": "string",
-                    "description": "Optional: target chat/user ID"
+                    "description": "ONLY set when explicitly routing to a specific chat. Leave empty to reply to the current conversation."
                 },
                 "media": {
                     "type": "array",
