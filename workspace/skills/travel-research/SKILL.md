@@ -30,7 +30,7 @@ plan_task(
   mode="plan",
   goal="<paste the full user request including all dates, budget, preferences>",
   task_type="travel_itinerary",
-  available_tools="web_search, screenshot_pages, read_file, plan_task"
+  available_tools="web_search, screenshot_pages, exec, read_file, plan_task"
 )
 ```
 

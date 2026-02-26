@@ -112,17 +112,35 @@ TYPE B — SOURCE-PAGE SCREENSHOTS (required for ALL factual claims about specif
 🚫 DuckDuckGo/Bing search results CANNOT verify factual claims. Only source pages can.
 
 ════════════════════════════════════════════════════════
+SCREENSHOT BATCHING — HARD LIMIT: 5 PAGES PER CALL
+════════════════════════════════════════════════════════
+
+screenshot_pages accepts MAXIMUM 5 pages per call.
+For more than 5 locations, split into MULTIPLE calls in the SAME batch step — they run in
+parallel, so there's no speed or time penalty.
+
+Example — 15 named locations → step_2 has 3 simultaneous screenshot_pages calls:
+  call 1: {"tool":"screenshot_pages","args":{"slug":"locs-a","pages":[loc1,loc2,loc3,loc4,loc5]}}
+  call 2: {"tool":"screenshot_pages","args":{"slug":"locs-b","pages":[loc6,loc7,loc8,loc9,loc10]}}
+  call 3: {"tool":"screenshot_pages","args":{"slug":"locs-c","pages":[loc11,loc12,loc13,loc14,loc15]}}
+
+NEVER omit locations by reducing to fewer calls. EVERY named location needs its own screenshot.
+
+════════════════════════════════════════════════════════
 STEP STRUCTURE — MANDATORY FOR TASKS WITH SCREENSHOTS
 ════════════════════════════════════════════════════════
 
 For tasks with Type B screenshots (places, events, products, reviews), use 3 research steps:
 
   step_1 (batch): ALL web_search calls + ALL Type A screenshots (prices/availability)
+    + exec trip-mapper for travel itineraries (see TRAVEL ITINERARY RULES below)
     → web_search returns URLs of actual source pages for the next step
 
   step_2 (batch): ALL Type B source-page screenshots
     → Uses specific URLs: Wikipedia URLs where known, or "TOP_RESULT_FOR:<query>" where not
     → Agent extracts top URLs from step_1 search results and screenshots those actual pages
+    → For N named locations: generate ceil(N/5) separate screenshot_pages calls in this step
+    → Each call covers a different group of 5 locations
 
   step_3: plan_task(mode="evaluate", ...)
 
@@ -143,6 +161,28 @@ Rules:
 - The FINAL step is always write_response:
   {"id":"write_response","batch":false,"tools":[],
    "why":"Write complete response, embed all screenshots, fix any failed criteria."}
+
+════════════════════════════════════════════════════════
+TRAVEL ITINERARY RULES — MANDATORY
+════════════════════════════════════════════════════════
+
+For any travel itinerary with 3+ distinct visit locations:
+
+1. TRIP MAPPER — always add to step_1 batch alongside web_search calls:
+   {"tool":"exec","args":{"command":"python3 ~/.nanobot/workspace/skills/trip-mapper/trip-mapper.py \"Location 1, City\" \"Location 2, City\" \"Location 3, City\" ..."}}
+   Use specific names with city (e.g. "Haeundae Beach, Busan" — never just "Haeundae").
+   Embed IMAGE_URL as inline image and URL as "[Open in Google Maps](...)" link in the response.
+   Add to success criteria: "Trip map image embedded + clickable Google Maps link included".
+
+2. PER-LOCATION SCREENSHOTS — count all named locations in the itinerary:
+   Every day section has named attractions, restaurants, venues → count them ALL.
+   Generate enough screenshot_pages calls in step_2 to cover every single one (max 5 per call).
+   Example: 12-day itinerary with 20 named locations → 4 screenshot_pages calls in step_2 batch.
+   Each call uses a slug like "day1-3", "day4-6", "day7-9", "day10-12".
+
+3. SUCCESS CRITERIA for screenshots must enumerate the expected count:
+   GOOD: "TYPE B source-page screenshot for each of the 20 named locations (minimum 20 screenshots)"
+   BAD:  "screenshots for key venues" — too vague, evaluator cannot count
 
 ════════════════════════════════════════════════════════
 SUCCESS CRITERIA RULES
@@ -226,6 +266,22 @@ For each named place/venue/attraction/product/event in the draft:
 For prices (flights, hotels, tickets):
   - DuckDuckGo/Bing search result screenshots ARE acceptable (snippets show prices)
   - Booking.com search results ARE acceptable (hotel cards shown)
+
+════════════════════════════════════════════════════════
+TRAVEL ITINERARY SCREENSHOT COVERAGE
+════════════════════════════════════════════════════════
+
+For travel itinerary drafts: extract ALL named locations (attractions, restaurants, hotels,
+venues, beaches, temples, cultural sites, transport hubs mentioned as visit points).
+
+1. Count them: N named locations.
+2. Count screenshots from SCREENSHOT AUDIT: M screenshots.
+3. If M < N → FAIL the screenshot criterion.
+   Reason must list the SPECIFIC missing locations by name, e.g.:
+   "12 of 20 named locations lack screenshots. Missing: HYBE Building, Gyeongbokgung Palace,
+    Baekyang Elementary, Mandeok Village, BEXCO, Gamcheon Culture Village, ..."
+   Retry: screenshot_pages for the missing locations (up to 5 per call).
+4. Also check: trip map image embedded AND Google Maps link present → FAIL if missing.
 
 ════════════════════════════════════════════════════════
 COVERAGE RULES
