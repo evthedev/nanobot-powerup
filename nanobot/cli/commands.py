@@ -344,10 +344,14 @@ def gateway(
     if _pid_file.exists():
         try:
             existing_pid = int(_pid_file.read_text().strip())
-            # Check if that process is actually still alive
-            os.kill(existing_pid, 0)  # raises if dead
-            console.print(f"[red]Error:[/red] Gateway already running (PID {existing_pid}). Stop it first or delete {_pid_file}.")
-            sys.exit(1)
+            # In Docker every container restarts as PID 1 — if the stored PID
+            # equals our own PID the file is stale from a previous container run.
+            if existing_pid == os.getpid():
+                _pid_file.unlink(missing_ok=True)  # stale Docker restart
+            else:
+                os.kill(existing_pid, 0)  # raises ProcessLookupError if dead
+                console.print(f"[red]Error:[/red] Gateway already running (PID {existing_pid}). Stop it first or delete {_pid_file}.")
+                sys.exit(1)
         except (ProcessLookupError, ValueError):
             _pid_file.unlink(missing_ok=True)  # stale lock, remove it
     _pid_file.write_text(str(os.getpid()))
@@ -394,6 +398,7 @@ def gateway(
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
         brave_api_key=config.tools.web.search.api_key or None,
+        tavily_api_key=config.tools.web.search.tavily_api_key or None,
         yelp_api_key=config.tools.yelp.api_key or None,
         exec_config=config.tools.exec,
         cron_service=cron,
@@ -530,6 +535,7 @@ def agent(
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
         brave_api_key=config.tools.web.search.api_key or None,
+        tavily_api_key=config.tools.web.search.tavily_api_key or None,
         yelp_api_key=config.tools.yelp.api_key or None,
         exec_config=config.tools.exec,
         cron_service=cron,
@@ -982,6 +988,7 @@ def cron_run(
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
         brave_api_key=config.tools.web.search.api_key or None,
+        tavily_api_key=config.tools.web.search.tavily_api_key or None,
         yelp_api_key=config.tools.yelp.api_key or None,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,

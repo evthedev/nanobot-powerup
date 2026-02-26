@@ -23,7 +23,7 @@ try {
 
 // Nanobot web channel WebSocket endpoint
 const NANOBOT_WS = process.env.NANOBOT_WS || 'ws://127.0.0.1:18791';
-const NANOBOT_TIMEOUT_MS = 300_000; // 5 minutes — subagents can be slow
+const NANOBOT_TIMEOUT_MS = 600_000; // 10 minutes — planner + evaluator + research can be slow
 
 // ─── SQLite Database ────────────────────────────────────────────────────────
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'chat.db');
@@ -494,6 +494,161 @@ app.get('/api/logs/stream', (req, res) => {
     tail.kill();
   });
 });
+
+// ── Google OAuth (for nanobot service integrations: Calendar, Gmail) ─────────
+// Scopes the nanobot agent needs to manage Google services on your behalf.
+const GOOGLE_SCOPES = [
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.readonly',
+].join(' ');
+
+function getGoogleCreds() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const clientId     = cfg.tools?.google_calendar?.clientId;
+    const clientSecret = cfg.tools?.google_calendar?.clientSecret;
+    return { clientId, clientSecret };
+  } catch {
+    return {};
+  }
+}
+
+function buildRedirectUri(req) {
+  // Always HTTPS — we're behind nginx TLS termination
+  return `https://${req.headers.host}/api/google/auth/callback`;
+}
+
+// Simple in-memory state store (CSRF protection, 10-min TTL)
+const _oauthStates = new Map();
+function createState() {
+  const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  _oauthStates.set(state, Date.now());
+  setTimeout(() => _oauthStates.delete(state), 10 * 60 * 1000);
+  return state;
+}
+function consumeState(state) {
+  if (!_oauthStates.has(state)) return false;
+  _oauthStates.delete(state);
+  return true;
+}
+
+// GET /api/google/auth/start — redirect the browser to Google's consent screen
+app.get('/api/google/auth/start', (req, res) => {
+  const { clientId } = getGoogleCreds();
+  if (!clientId) {
+    return res.status(400).json({ error: 'Google Client ID not configured. Add it in Settings first.' });
+  }
+  const state = createState();
+  const params = new URLSearchParams({
+    client_id:     clientId,
+    redirect_uri:  buildRedirectUri(req),
+    response_type: 'code',
+    scope:         GOOGLE_SCOPES,
+    access_type:   'offline',   // get a refresh token
+    prompt:        'consent',   // always show consent screen so we always get refresh_token
+    state,
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+});
+
+// GET /api/google/auth/callback — Google redirects here with ?code=...
+app.get('/api/google/auth/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    return res.send(`<script>window.opener?.postMessage({type:'google_auth',error:'${error}'},'*');window.close();</script>
+      <p>Google auth failed: ${error}. You can close this tab.</p>`);
+  }
+
+  if (!consumeState(state)) {
+    return res.status(400).send('<p>Invalid or expired OAuth state. Please try again.</p>');
+  }
+
+  const { clientId, clientSecret } = getGoogleCreds();
+  if (!clientId || !clientSecret) {
+    return res.status(400).send('<p>Google credentials not configured.</p>');
+  }
+
+  try {
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id:     clientId,
+        client_secret: clientSecret,
+        redirect_uri:  buildRedirectUri(req),
+        grant_type:    'authorization_code',
+      }),
+    });
+
+    const tokens = await tokenRes.json();
+    if (tokens.error) throw new Error(tokens.error_description || tokens.error);
+
+    // Persist tokens inside config.json under tools.google_calendar.tokens
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch {}
+    cfg.tools = cfg.tools || {};
+    cfg.tools.google_calendar = cfg.tools.google_calendar || {};
+    cfg.tools.google_calendar.tokens = {
+      access_token:  tokens.access_token,
+      refresh_token: tokens.refresh_token || cfg.tools.google_calendar.tokens?.refresh_token,
+      expiry_date:   Date.now() + (tokens.expires_in || 3600) * 1000,
+      scope:         tokens.scope,
+    };
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+
+    // Close the popup and notify the opener (Settings panel)
+    res.send(`<!DOCTYPE html><html><body>
+      <p>✅ Google connected successfully! You can close this tab.</p>
+      <script>
+        if (window.opener) {
+          window.opener.postMessage({ type: 'google_auth', success: true }, '*');
+          setTimeout(() => window.close(), 1500);
+        }
+      </script>
+    </body></html>`);
+  } catch (err) {
+    console.error('Google OAuth error:', err.message);
+    res.status(500).send(`<p>OAuth failed: ${err.message}. <a href="javascript:window.close()">Close</a></p>`);
+  }
+});
+
+// GET /api/google/auth/status — returns whether tokens are stored and non-expired
+app.get('/api/google/auth/status', (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const tokens = cfg.tools?.google_calendar?.tokens;
+    if (!tokens?.access_token) return res.json({ connected: false });
+    const expired = tokens.expiry_date && Date.now() > tokens.expiry_date;
+    res.json({
+      connected: true,
+      expired,
+      scope: tokens.scope,
+      expiry_date: tokens.expiry_date,
+    });
+  } catch {
+    res.json({ connected: false });
+  }
+});
+
+// DELETE /api/google/auth/revoke — remove stored tokens
+app.delete('/api/google/auth/revoke', (req, res) => {
+  try {
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch {}
+    if (cfg.tools?.google_calendar?.tokens) {
+      delete cfg.tools.google_calendar.tokens;
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Catch-all: serve React app (SPA fallback)
 app.get('*', (req, res) => {

@@ -18,6 +18,9 @@ jobs:
       # Terraform reads TF_VAR_* automatically as input variables
       TF_VAR_aws_region:     ${{ vars.AWS_REGION }}
       TF_VAR_key_pair_name:  ${{ secrets.EC2_KEY_PAIR_NAME }}
+      # App secrets — injected into /opt/nanobot/config.json during deploy
+      OPENROUTER_API_KEY:    ${{ secrets.OPENROUTER_API_KEY }}
+      BRAVE_API_KEY:         ${{ secrets.BRAVE_API_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +101,24 @@ jobs:
             # Ensure ubuntu is in docker group (idempotent)
             sudo usermod -aG docker ubuntu
           SETUP
+
+          # ── Phase 1.5: inject API keys into config.json (base64 avoids shell injection) ─
+          # Only patches keys that are set — leaves everything else untouched
+          OR_B64=$(printf '%s' "$OPENROUTER_API_KEY" | base64 -w0)
+          BR_B64=$(printf '%s' "$BRAVE_API_KEY"       | base64 -w0)
+          $SSH python3 - "$OR_B64" "$BR_B64" << 'INJECT'
+import sys, json, base64, pathlib
+cfg_path = pathlib.Path('/opt/nanobot/config.json')
+cfg = json.loads(cfg_path.read_text())
+or_key = base64.b64decode(sys.argv[1]).decode().strip()
+br_key = base64.b64decode(sys.argv[2]).decode().strip()
+if or_key:
+    cfg.setdefault('providers', {}).setdefault('openrouter', {})['apiKey'] = or_key
+if br_key:
+    cfg.setdefault('tools', {}).setdefault('web', {}).setdefault('search', {})['apiKey'] = br_key
+cfg_path.write_text(json.dumps(cfg, indent=2))
+print(f"  config.json patched (openrouter={'set' if or_key else 'skipped'}, brave={'set' if br_key else 'skipped'})")
+INJECT
 
           # ── Phase 2: docker ops in a fresh SSH session (group membership now active) ─
           $SSH bash << 'DEPLOY'
