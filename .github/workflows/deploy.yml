@@ -123,6 +123,10 @@ jobs:
             echo "--- injecting API keys ---"
             python3 "$REPO_DIR/deploy/inject_keys.py"
 
+            # ── Migrate DB: replace any old hardcoded localhost URLs ───────────────
+            echo "--- migrating DB ---"
+            DB_PATH=/opt/nanobot/chat.db python3 "$REPO_DIR/deploy/migrate_db.py"
+
             # ── Write .env for Google OAuth (dashboard reads these at runtime) ────
             echo "--- writing .env ---"
             printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\nGOOGLE_STATIC_MAPS_API_KEY=%s\n' \
