@@ -6,7 +6,9 @@ import Settings from './components/Settings';
 import LogsPanel from './components/LogsPanel';
 import './App.css';
 
-const API = 'http://localhost:3001'; // Direct to Express — bypasses CRA proxy buffering
+// Empty string = relative paths → works in prod (nginx proxies /api/* to dashboard)
+// and in local dev when using `npm start` with the proxy set in package.json.
+const API = process.env.REACT_APP_API_URL || '';
 
 export default function App() {
   const [conversations, setConversations] = useState([]);
