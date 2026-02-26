@@ -105,6 +105,9 @@ jobs:
               sudo bash deploy/ec2-setup.sh
             fi
 
+            # Ensure /opt/nanobot is writable by ubuntu (fix root-owned dirs from ec2-setup.sh)
+            sudo chown -R ubuntu:ubuntu /opt/nanobot
+
             # ── Sync workspace files (SOUL.md, skills) from repo → /opt/nanobot/workspace ──
             echo "--- syncing workspace ---"
             WORKSPACE_SRC="$REPO_DIR/workspace"

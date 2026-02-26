@@ -52,6 +52,8 @@ echo ""
 echo "Setting up $NANOBOT_DATA ..."
 mkdir -p "$NANOBOT_DATA"/{logs,workspace/screenshots,sessions,memory}
 mkdir -p "$NANOBOT_DATA"/workspace/skills/{review,travel-research,trip-mapper,google-calendar,australian-news,memory,ping-test,recommendation-enhancement,reddit-api-access}
+# Give the deploy user (ubuntu) ownership so subsequent syncs don't need sudo
+chown -R ubuntu:ubuntu "$NANOBOT_DATA"
 
 CONFIG="$NANOBOT_DATA/config.json"
 if [ ! -f "$CONFIG" ]; then
