@@ -142,7 +142,7 @@ jobs:
             cd /opt/nanobot-app
             echo "--- building & restarting ---"
             docker compose build --pull
-            docker compose up -d --remove-orphans
+            docker compose up -d --remove-orphans --force-recreate
             docker image prune -f
             echo "--- stack status ---"
             docker compose ps
