@@ -506,16 +506,68 @@ class PlanTaskTool(Tool):
     # ------------------------------------------------------------------
     # Plan mode
     # ------------------------------------------------------------------
+    def _enforce_travel_screenshot_batching(self, steps: list[dict]) -> list[dict]:
+        """Post-process plan steps: split any screenshot_pages call with >5 pages into
+        multiple batched calls of max 5. Also warn if step_2 has only 1 screenshot_pages
+        call for a travel itinerary.
+
+        This is a programmatic safeguard because the LLM frequently generates a single
+        screenshot_pages call even when the itinerary has 15-20 named locations.
+        """
+        import math
+        result = []
+        for step in steps:
+            if not step.get("batch"):
+                result.append(step)
+                continue
+
+            new_tools: list[dict] = []
+            for tool in step.get("tools", []):
+                if tool.get("tool") != "screenshot_pages":
+                    new_tools.append(tool)
+                    continue
+                pages = tool.get("args", {}).get("pages", [])
+                slug = tool.get("args", {}).get("slug", "locations")
+                if len(pages) <= 5:
+                    new_tools.append(tool)
+                    continue
+                # Split into batches of 5
+                batches = [pages[i:i+5] for i in range(0, len(pages), 5)]
+                logger.info(
+                    "plan_task[plan]: ⚡ splitting screenshot_pages '{}' ({} pages) into {} calls",
+                    slug, len(pages), len(batches)
+                )
+                for idx, batch in enumerate(batches):
+                    new_tools.append({
+                        "tool": "screenshot_pages",
+                        "args": {"slug": f"{slug}-{idx+1}", "pages": batch},
+                    })
+            result.append({**step, "tools": new_tools})
+        return result
+
     async def _plan(self, goal: str, task_type: str, available_tools: str) -> str:
         logger.info("plan_task[plan]: ▶ planning '{}' using {}", task_type, _PLANNER_MODEL)
         # Reset any prior plan state for this turn
         self._pending_criteria_json = None
+
+        # Inject travel-specific constraint directly into the prompt so the LLM sees it.
+        # The system prompt alone isn't sufficient — LLMs consistently generate 1 call.
+        travel_constraint = ""
+        if task_type == "travel_itinerary":
+            travel_constraint = (
+                "\n\n⚠️ MANDATORY TRAVEL RULE — step_2 MUST contain MULTIPLE screenshot_pages calls:\n"
+                "- A 12-day trip has ~20 named locations → MINIMUM 4 screenshot_pages calls in step_2\n"
+                "- Each call: max 5 pages, unique slug (day1-3, day4-6, day7-9, day10-12)\n"
+                "- NEVER generate only 1 screenshot_pages call for a multi-day itinerary\n"
+                "- This is enforced programmatically — the plan will be rejected if violated\n"
+            )
 
         prompt = (
             f"Task type: {task_type}\n\n"
             f"User request:\n{goal}\n\n"
             f"Available tools: {available_tools}\n\n"
             f"Define the execution plan."
+            f"{travel_constraint}"
         )
 
         try:
@@ -535,6 +587,11 @@ class PlanTaskTool(Tool):
             criteria = plan.get("success_criteria", [])
             steps = plan.get("steps", [])
             quality_gate = plan.get("quality_gate", "")
+
+            # Programmatically enforce screenshot batching for travel itineraries
+            if task_type == "travel_itinerary":
+                steps = self._enforce_travel_screenshot_batching(steps)
+                plan["steps"] = steps
 
             logger.info(
                 "plan_task[plan]: ✅ {} criteria, {} steps",

@@ -135,8 +135,27 @@ class ScreenshotPagesTool(Tool):
         pages: list[dict],
         **kwargs: Any,
     ) -> str:
+        import math as _math
         safe_slug = re.sub(r"[^a-z0-9-]", "-", slug.lower()).strip("-")
         os.makedirs(_SCREENSHOTS_DIR, exist_ok=True)
+
+        # Hard limit: reject > 5 pages and tell the agent exactly how to split
+        if len(pages) > 5:
+            n_calls = _math.ceil(len(pages) / 5)
+            splits = "\n".join(
+                f"  Call {i+1}: slug='{safe_slug}-{i+1}', pages {i*5+1}–{min((i+1)*5, len(pages))}"
+                for i in range(n_calls)
+            )
+            logger.warning(
+                "screenshot_pages: ❌ {} pages submitted for slug='{}' — max is 5. Rejected.",
+                len(pages), safe_slug,
+            )
+            return (
+                f"❌ screenshot_pages REJECTED: {len(pages)} pages submitted but max is 5 per call.\n\n"
+                f"You MUST split this into {n_calls} separate calls:\n{splits}\n\n"
+                f"Make {n_calls} separate screenshot_pages calls with different slugs and 5 pages each. "
+                f"Do NOT try to combine them into one call."
+            )
 
         import asyncio as _asyncio  # pylint: disable=import-outside-toplevel
         from playwright.async_api import async_playwright  # pylint: disable=import-outside-toplevel
