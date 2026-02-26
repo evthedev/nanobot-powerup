@@ -515,8 +515,10 @@ function getGoogleCreds() {
 }
 
 function buildRedirectUri(req) {
-  // Always HTTPS — we're behind nginx TLS termination
-  return `https://${req.headers.host}/api/google/auth/callback`;
+  // Use http for localhost (Google allows it); always HTTPS behind nginx in prod
+  const host = req.headers.host || '';
+  const proto = host.startsWith('localhost') || host.startsWith('127.') ? 'http' : 'https';
+  return `${proto}://${host}/api/google/auth/callback`;
 }
 
 // Simple in-memory state store (CSRF protection, 10-min TTL)
