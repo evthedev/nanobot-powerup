@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './LogsPanel.css';
 
-const API = 'http://localhost:3001';
+const API = process.env.REACT_APP_API_URL || '';
 
 const FILTERS = [
   { id: 'all',      label: 'All' },

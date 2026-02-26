@@ -7,7 +7,7 @@ Usage:
 
 Output (stdout):
     IMAGE:/path/to/trip-map.png
-    IMAGE_URL:http://localhost:3001/api/screenshots/trip-map.png
+    IMAGE_URL:/api/screenshots/trip-map.png
     URL:https://www.google.com/maps/dir/...
     STOPS:
     1. Paris, France (48.8566, 2.3522)
@@ -23,7 +23,7 @@ import requests
 _SCREENSHOTS_DIR = os.path.expanduser(
     os.environ.get("SCREENSHOTS_DIR", "~/.nanobot/workspace/screenshots")
 )
-_SCREENSHOTS_URL = os.environ.get("SCREENSHOTS_BASE_URL", "http://localhost:3001/api/screenshots")
+_SCREENSHOTS_URL = os.environ.get("SCREENSHOTS_BASE_URL", "/api/screenshots")
 
 
 def get_env(name: str) -> str:

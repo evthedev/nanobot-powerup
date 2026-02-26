@@ -29,7 +29,7 @@ exec: python3 ~/.nanobot/workspace/skills/trip-mapper/trip-mapper.py "Stop 1" "S
 The script prints to stdout:
 ```
 IMAGE:/path/to/trip-map.png
-IMAGE_URL:http://localhost:3001/api/screenshots/trip-map.png
+IMAGE_URL:/api/screenshots/trip-map.png
 URL:https://www.google.com/maps/dir/...
 STOPS:
   1. Gamcheon Culture Village, Busan (35.0970, 129.0147)

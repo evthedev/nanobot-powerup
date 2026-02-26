@@ -38,7 +38,7 @@ def _rewrite_google_url(url: str) -> tuple[str, bool]:
     except Exception:
         return url, False
 
-_SCREENSHOTS_URL = os.environ.get("SCREENSHOTS_BASE_URL", "http://localhost:3001/api/screenshots")
+_SCREENSHOTS_URL = os.environ.get("SCREENSHOTS_BASE_URL", "/api/screenshots")
 _SCREENSHOTS_DIR = os.path.expanduser("~/.nanobot/workspace/screenshots")
 
 

@@ -95,7 +95,7 @@ When the user explicitly asks for **screenshots** of research (e.g. "show screen
 spawn task: |
   Navigate to <URL> with mcp_playwright_browser_navigate.
   Wait 3s. Take screenshot saved to /Users/ev/.nanobot/workspace/screenshots/<slug>.png.
-  Reply with: ![Label](http://localhost:3001/api/screenshots/<slug>.png)
+  Reply with: ![Label](/api/screenshots/<slug>.png)
 ```
 
 Do this for every cited source — flights, hotels, review sites, news articles, etc.
