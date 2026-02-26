@@ -233,17 +233,22 @@ class ScreenshotPagesTool(Tool):
         lines = [
             f"## screenshot_pages results for '{safe_slug}'\n",
             f"Captured {sum(1 for r in results if r['ok'])}/{len(results)} pages successfully.\n",
-            "Use the image URLs and page content below. Embed the images in your response.\n",
             "\n### Image URLs\n",
+            "⚠️ CRITICAL: Only embed URLs marked ✅ USABLE — those files were saved to disk.\n"
+            "DO NOT embed ❌ FAILED URLs — those files do NOT exist and will show as broken images.\n\n",
         ]
         for r in results:
-            status = "✅" if r["ok"] else "⚠️ failed"
-            rewrite_note = " ⚠️ [Google URL redirected to DuckDuckGo]" if r.get("rewritten") else ""
+            rewrite_note = " [Google URL redirected to DuckDuckGo]" if r.get("rewritten") else ""
             search_warn = (
                 " ❌ [SEARCH RESULTS PAGE — does not verify factual claims. "
                 "Re-screenshot using Wikipedia/TripAdvisor/official source page instead.]"
             ) if r.get("search_results_warning") else ""
-            lines.append(f"- **{r['label']}** ({status}){rewrite_note}{search_warn}: {r['img_url']}\n")
+            if r["ok"]:
+                lines.append(f"- **{r['label']}** ✅ USABLE{rewrite_note}{search_warn}: `{r['img_url']}`\n")
+            else:
+                lines.append(
+                    f"- **{r['label']}** ❌ FAILED — file NOT saved — DO NOT EMBED: `{r['img_url']}`\n"
+                )
 
         lines.append("\n")
         for r in results:
@@ -256,8 +261,10 @@ class ScreenshotPagesTool(Tool):
                 lines.append("```\n(failed to load)\n```\n\n")
 
         lines.append(
-            "Extract all relevant data (prices, names, availability, etc.) from the content "
-            "above and include it in your response. Embed all images.\n"
+            "Extract all relevant data (prices, names, availability, etc.) from the content above. "
+            "Embed ONLY the ✅ USABLE image URLs in your response — never the ❌ FAILED ones.\n"
+            "For any ❌ FAILED page, retry with a different URL (e.g. Wikipedia or TripAdvisor) "
+            "rather than embedding a broken URL.\n"
         )
 
         return "".join(lines)
