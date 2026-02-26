@@ -5,7 +5,7 @@ Pings a host 3 times and reports latency (min/avg/max/stddev).
 ## Usage
 
 ```bash
-python3 /Users/ev/.nanobot/workspace/skills/ping-test/ping_test.py [host]
+python3 ~/.nanobot/workspace/skills/ping-test/ping_test.py [host]
 ```
 
 - Default host: `google.com`
@@ -15,10 +15,10 @@ python3 /Users/ev/.nanobot/workspace/skills/ping-test/ping_test.py [host]
 
 ```bash
 # Ping google.com (default)
-python3 /Users/ev/.nanobot/workspace/skills/ping-test/ping_test.py
+python3 ~/.nanobot/workspace/skills/ping-test/ping_test.py
 
 # Ping a custom host
-python3 /Users/ev/.nanobot/workspace/skills/ping-test/ping_test.py cloudflare.com
+python3 ~/.nanobot/workspace/skills/ping-test/ping_test.py cloudflare.com
 ```
 
 ## Output

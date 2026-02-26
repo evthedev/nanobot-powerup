@@ -83,9 +83,11 @@ When the user asks you to add a recurring/periodic task, update `HEARTBEAT.md` i
 
 ## Environment
 
-This agent runs on **macOS**. The workspace is `/Users/ev/.nanobot/workspace/`.
-**Never use `/root/` paths** — that is a Docker path and does not exist here.
-All workspace scripts are at `/Users/ev/.nanobot/workspace/<script>.py`.
+The workspace path is `~/.nanobot/workspace/` (expands to the correct home directory on each system).
+All workspace scripts are at `~/.nanobot/workspace/<script>.py`.
+All skills are at `~/.nanobot/workspace/skills/<skill-name>/`.
+
+**Always use `~` in exec commands** — never hardcode `/Users/ev/` or `/root/`.
 
 ## Screenshots on Demand
 
@@ -94,7 +96,7 @@ When the user explicitly asks for **screenshots** of research (e.g. "show screen
 ```
 spawn task: |
   Navigate to <URL> with mcp_playwright_browser_navigate.
-  Wait 3s. Take screenshot saved to /Users/ev/.nanobot/workspace/screenshots/<slug>.png.
+  Wait 3s. Take screenshot saved to ~/.nanobot/workspace/screenshots/<slug>.png.
   Reply with: ![Label](/api/screenshots/<slug>.png)
 ```
 

@@ -12,10 +12,10 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
-SCREENSHOTS_DIR = Path("/Users/ev/.nanobot/workspace/skills/travel-research/screenshots")
+SCREENSHOTS_DIR = Path.home() / ".nanobot/workspace/skills/travel-research/screenshots"
 SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-RESEARCH_DIR = Path("/Users/ev/.nanobot/workspace/skills/travel-research")
+RESEARCH_DIR = Path.home() / ".nanobot/workspace/skills/travel-research"
 
 
 def get_screenshot_path(topic: str, source: str) -> str:

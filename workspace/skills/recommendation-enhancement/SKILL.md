@@ -14,7 +14,7 @@ Enhance recommendation capabilities by incorporating user preferences, calendar 
 When providing recommendations that cite web sources, this skill now:
 1. Navigates to each cited URL using the Playwright browser tool
 2. Takes a full-page or viewport screenshot of the source
-3. Saves screenshots to `/Users/ev/.nanobot/workspace/skills/travel-research/screenshots/`
+3. Saves screenshots to `~/.nanobot/workspace/skills/travel-research/screenshots/`
 4. Attaches screenshots to the final recommendation message via the `message` tool
 
 ## Usage
