@@ -140,12 +140,14 @@ jobs:
           $SSH bash << 'DEPLOY'
             set -euo pipefail
             cd /opt/nanobot-app
+            # Remove local dev override so it never pollutes the EC2 environment
+            rm -f docker-compose.override.yml
             echo "--- building & restarting ---"
-            docker compose build --pull
-            docker compose up -d --remove-orphans --force-recreate
+            docker compose -f docker-compose.yml build --pull
+            docker compose -f docker-compose.yml up -d --remove-orphans --force-recreate
             docker image prune -f
             echo "--- stack status ---"
-            docker compose ps
+            docker compose -f docker-compose.yml ps
           DEPLOY
 
           rm -f /tmp/ec2.pem
