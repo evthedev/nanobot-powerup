@@ -60,7 +60,7 @@ if [ ! -f "$CONFIG" ]; then
   "agents": {
     "defaults": {
       "workspace": "/root/.nanobot/workspace",
-      "model": "openai/gpt-4o-mini",
+      "model": "anthropic/claude-sonnet-4-5",
       "maxTokens": 8192,
       "temperature": 0.7,
       "maxToolIterations": 20
