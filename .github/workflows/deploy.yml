@@ -99,13 +99,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            # First-time initialisation (creates /opt/nanobot/config.json)
-            if [ ! -f "/opt/nanobot/config.json" ]; then
-              echo "--- running first-time setup ---"
-              sudo bash deploy/ec2-setup.sh
-            fi
-
-            # Ensure /opt/nanobot is writable by ubuntu (fix root-owned dirs from ec2-setup.sh)
+            # Ensure /opt/nanobot is writable by ubuntu (user_data runs as root)
             sudo chown -R ubuntu:ubuntu /opt/nanobot
 
             # ── Sync workspace files (SOUL.md, skills) from repo → /opt/nanobot/workspace ──

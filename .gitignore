@@ -21,6 +21,12 @@ poetry.lock
 botpy.log
 tests/
 
+# Node / dashboard
+node_modules/
+*.db
+*.db-shm
+*.db-wal
+
 # Terraform
 deploy/terraform/terraform.tfvars
 deploy/terraform/.terraform/

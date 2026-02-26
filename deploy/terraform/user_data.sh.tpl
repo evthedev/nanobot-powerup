@@ -68,8 +68,46 @@ else
   git -C "$REPO_DIR" pull
 fi
 
-# ── Run the existing ec2-setup.sh (creates /opt/nanobot structure + config) ───
-bash "$REPO_DIR/deploy/ec2-setup.sh"
+# ── Create /opt/nanobot structure + default config ────────────────────────────
+NANOBOT_DATA="/opt/nanobot"
+mkdir -p "$NANOBOT_DATA"/{logs,workspace/screenshots,sessions,memory}
+mkdir -p "$NANOBOT_DATA"/workspace/skills/{review,travel-research,trip-mapper,google-calendar,australian-news,memory,ping-test,recommendation-enhancement,reddit-api-access}
+
+if [ ! -f "$NANOBOT_DATA/config.json" ]; then
+  cat > "$NANOBOT_DATA/config.json" << 'CONFIG_EOF'
+{
+  "agents": {
+    "defaults": {
+      "workspace": "/root/.nanobot/workspace",
+      "model": "google/gemini-3-flash-preview",
+      "maxTokens": 8192,
+      "temperature": 0.7,
+      "maxToolIterations": 20
+    }
+  },
+  "channels": {
+    "web": { "enabled": true, "port": 18791, "allowFrom": [] },
+    "telegram": { "enabled": false, "token": "", "allowFrom": [] }
+  },
+  "providers": {
+    "openrouter": { "apiKey": "REPLACE_WITH_OPENROUTER_KEY" }
+  },
+  "gateway": { "host": "0.0.0.0", "port": 18790 },
+  "tools": {
+    "web": { "search": { "provider": "tavily", "tavilyApiKey": "REPLACE_WITH_TAVILY_KEY", "maxResults": 5 } },
+    "exec": { "timeout": 600 },
+    "restrictToWorkspace": false,
+    "google": { "mapsApiKey": "" },
+    "mcpServers": {
+      "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] }
+    }
+  }
+}
+CONFIG_EOF
+fi
+
+# Give ubuntu ownership so GitHub Actions can write without sudo
+chown -R ubuntu:ubuntu "$NANOBOT_DATA"
 
 echo ""
 echo "=== Setup complete ==="
