@@ -14,6 +14,7 @@ Output (stdout):
     ...
 """
 
+import json
 import os
 import sys
 from urllib.parse import quote_plus
@@ -26,12 +27,32 @@ _SCREENSHOTS_DIR = os.path.expanduser(
 _SCREENSHOTS_URL = os.environ.get("SCREENSHOTS_BASE_URL", "/api/screenshots")
 
 
-def get_env(name: str) -> str:
-    val = os.environ.get(name, "").strip()
-    if not val:
-        print(f"Error: {name} not set", file=sys.stderr)
-        sys.exit(1)
-    return val
+def get_maps_api_key() -> str:
+    """Return the Google Static Maps API key.
+
+    Checks environment variable first, then falls back to nanobot's config.json.
+    On EC2 the key lives in config.json (injected by deploy), not in the container env.
+    """
+    key = os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", "").strip()
+    if key:
+        return key
+
+    config_path = os.path.expanduser("~/.nanobot/config.json")
+    try:
+        with open(config_path) as f:
+            cfg = json.load(f)
+        key = cfg.get("tools", {}).get("google", {}).get("mapsApiKey", "").strip()
+        if key:
+            return key
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    print(
+        "Error: GOOGLE_STATIC_MAPS_API_KEY not set "
+        "(tried env var and ~/.nanobot/config.json)",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def geocode(stop: str) -> tuple[float, float]:
@@ -108,7 +129,7 @@ def main() -> None:
         print("Error: Maximum 25 stops allowed", file=sys.stderr)
         sys.exit(1)
 
-    maps_key = get_env("GOOGLE_STATIC_MAPS_API_KEY")
+    maps_key = get_maps_api_key()
 
     stops: list[tuple[str, float, float]] = []
     skipped: list[str] = []
