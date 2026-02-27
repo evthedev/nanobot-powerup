@@ -456,11 +456,13 @@ rm -f docker-compose.override.yml
 
 ### Syncing skills to local gateway
 
-The gateway reads skills from `~/.nanobot/workspace/skills/`. After editing files in `workspace/skills/`, sync them:
+Skills are version-controlled in `workspace/skills/` (the repo). The running gateway reads from `~/.nanobot/workspace/skills/` (local instance). After editing files in the repo, push them to the running gateway:
 
 ```bash
 rsync -a workspace/ ~/.nanobot/workspace/
 ```
+
+You can edit `~/.nanobot/workspace/skills/` directly for quick experiments, but those changes won't persist — the next EC2 deploy overwrites them from the repo. Always commit skill changes back to `workspace/skills/`.
 
 ### Gateway log
 
@@ -477,9 +479,9 @@ tail -f ~/.nanobot/logs/gateway.log
 | Component | Spec |
 |-----------|------|
 | Instance | `t3.small`, Ubuntu 24.04 LTS |
-| Root EBS | 20 GB |
-| Data EBS | 10 GB, mounted at `/opt/nanobot` (survives instance replacement) |
-| Elastic IP | `13.54.226.177` |
+| Root EBS | 20 GB — OS disk, replaced with the instance |
+| Data EBS | 10 GB, mounted at `/opt/nanobot` — separate persistent disk that survives instance replacement. EBS (Elastic Block Store) is AWS's virtual hard drive that can be detached from one EC2 instance and re-attached to another. |
+| Elastic IP | `13.54.226.177` → [`ec2-13-54-226-177.ap-southeast-2.compute.amazonaws.com`](https://ec2-13-54-226-177.ap-southeast-2.compute.amazonaws.com) |
 | Region | ap-southeast-2 (Sydney) |
 | Terraform state | S3 bucket |
 
@@ -496,14 +498,25 @@ Run `deploy/bootstrap.sh` **once** from a local machine with AWS CLI + GitHub CL
 On every push to `main`:
 
 ```
-1. Terraform init + apply          → provisions/updates EC2 + Elastic IP
-2. SSH Phase 1 (ubuntu user):
+1. Terraform init + apply
+   │
+   ├── init: GitHub Actions runners are ephemeral (fresh VM per run). init re-downloads
+   │         the AWS provider and configures the S3 state backend. Fast (~5s), idempotent.
+   │
+   └── apply: checks the S3 state file; makes zero changes if infra hasn't drifted.
+              Only acts when EC2/VPC/IP config has actually changed.
+
+2. SSH Phase 1 (ubuntu user)
+   │  Terraform only provisions infrastructure — it doesn't deploy code.
+   │  SSH is needed to run git pull and docker compose inside the instance.
+   │
    a. git pull latest main
    b. rsync workspace/*.md + skills/ → /opt/nanobot/workspace/
    c. python3 deploy/inject_keys.py   → injects API keys into config.json
    d. python3 deploy/migrate_db.py    → fixes any old localhost:3001 URLs in chat.db
    e. write /opt/nanobot-app/.env     → GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, MAPS_KEY
-3. SSH Phase 2 (docker group):
+
+3. SSH Phase 2 (docker group — separate session so group membership is active)
    a. docker compose build --pull
    b. docker compose up -d --force-recreate
    c. docker image prune -f
@@ -548,12 +561,12 @@ Volume mount: all containers share `/opt/nanobot:/root/.nanobot`
 ### Dashboard access
 
 ```
-URL:      https://13.54.226.177/
+URL:      https://ec2-13-54-226-177.ap-southeast-2.compute.amazonaws.com/
 Username: nanobot
 Password: (see deploy/nginx/.htpasswd — set during bootstrap)
 ```
 
-Screenshots are served **without auth** at `https://13.54.226.177/api/screenshots/<file>.png`.
+Screenshots are served **without auth** at `https://ec2-13-54-226-177.ap-southeast-2.compute.amazonaws.com/api/screenshots/<file>.png`.
 
 ---
 
