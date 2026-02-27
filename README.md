@@ -1,929 +1,664 @@
-<div align="center">
-  <img src="nanobot_logo.png" alt="nanobot" width="500">
-  <h1>nanobot: Ultra-Lightweight Personal AI Assistant</h1>
-  <p>
-    <a href="https://pypi.org/project/nanobot-ai/"><img src="https://img.shields.io/pypi/v/nanobot-ai" alt="PyPI"></a>
-    <a href="https://pepy.tech/project/nanobot-ai"><img src="https://static.pepy.tech/badge/nanobot-ai" alt="Downloads"></a>
-    <img src="https://img.shields.io/badge/python-≥3.11-blue" alt="Python">
-    <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-    <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/Feishu-Group-E9DBFC?style=flat&logo=feishu&logoColor=white" alt="Feishu"></a>
-    <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/WeChat-Group-C5EAB4?style=flat&logo=wechat&logoColor=white" alt="WeChat"></a>
-    <a href="https://discord.gg/MnCvHqpUGB"><img src="https://img.shields.io/badge/Discord-Community-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
-  </p>
-</div>
+# nanobot-powerup
 
-🐈 **nanobot** is an **ultra-lightweight** personal AI assistant inspired by [OpenClaw](https://github.com/openclaw/openclaw) 
+A fully self-hosted, production-deployed personal AI assistant built on top of [nanobot-ai](https://github.com/HKUDS/nanobot). Adds a web dashboard, cloud deployment (AWS EC2), a Planner-Executor-Evaluator research pipeline, screenshot-backed verification, trip mapping, and a suite of custom skills.
 
-⚡️ Delivers core agent functionality in just **~4,000** lines of code — **99% smaller** than Clawdbot's 430k+ lines.
+---
 
-📏 Real-time line count: **3,806 lines** (run `bash core_agent_lines.sh` to verify anytime)
+## Table of Contents
 
-## 📢 News
+1. [What This Is](#what-this-is)
+2. [Architecture](#architecture)
+3. [Directory Structure](#directory-structure)
+4. [Core Configuration](#core-configuration)
+5. [Agent Loop & Tool Orchestration](#agent-loop--tool-orchestration)
+6. [Built-in Tools](#built-in-tools)
+7. [Custom Tools](#custom-tools)
+8. [Skills](#skills)
+9. [Planner-Executor-Evaluator Pattern](#planner-executor-evaluator-pattern)
+10. [Chat Dashboard](#chat-dashboard)
+11. [Local Development](#local-development)
+12. [Production Deployment (AWS EC2)](#production-deployment-aws-ec2)
+13. [Secrets & Environment Variables](#secrets--environment-variables)
+14. [Key Design Decisions & Quirks](#key-design-decisions--quirks)
+15. [Known Bugs Fixed](#known-bugs-fixed)
 
-- **2026-02-21** 🎉 Released **v0.1.4.post1** — new providers, media support across channels, and major stability improvements. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post1) for details.
-- **2026-02-20** 🐦 Feishu now receives multimodal files from users. More reliable memory under the hood.
-- **2026-02-19** ✨ Slack now sends files, Discord splits long messages, and subagents work in CLI mode.
-- **2026-02-18** ⚡️ nanobot now supports VolcEngine, MCP custom auth headers, and Anthropic prompt caching.
-- **2026-02-17** 🎉 Released **v0.1.4** — MCP support, progress streaming, new providers, and multiple channel improvements. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4) for details.
-- **2026-02-16** 🦞 nanobot now integrates a [ClawHub](https://clawhub.ai) skill — search and install public agent skills.
-- **2026-02-15** 🔑 nanobot now supports OpenAI Codex provider with OAuth login support.
-- **2026-02-14** 🔌 nanobot now supports MCP! See [MCP section](#mcp-model-context-protocol) for details.
-- **2026-02-13** 🎉 Released **v0.1.3.post7** — includes security hardening and multiple improvements. **Please upgrade to the latest version to address security issues**. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post7) for more details.
-- **2026-02-12** 🧠 Redesigned memory system — Less code, more reliable. Join the [discussion](https://github.com/HKUDS/nanobot/discussions/566) about it!
-- **2026-02-11** ✨ Enhanced CLI experience and added MiniMax support!
+---
 
-<details>
-<summary>Earlier news</summary>
+## What This Is
 
-- **2026-02-10** 🎉 Released **v0.1.3.post6** with improvements! Check the updates [notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post6) and our [roadmap](https://github.com/HKUDS/nanobot/discussions/431).
-- **2026-02-09** 💬 Added Slack, Email, and QQ support — nanobot now supports multiple chat platforms!
-- **2026-02-08** 🔧 Refactored Providers—adding a new LLM provider now takes just 2 simple steps! Check [here](#providers).
-- **2026-02-07** 🚀 Released **v0.1.3.post5** with Qwen support & several key improvements! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post5) for details.
-- **2026-02-06** ✨ Added Moonshot/Kimi provider, Discord integration, and enhanced security hardening!
-- **2026-02-05** ✨ Added Feishu channel, DeepSeek provider, and enhanced scheduled tasks support!
-- **2026-02-04** 🚀 Released **v0.1.3.post4** with multi-provider & Docker support! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post4) for details.
-- **2026-02-03** ⚡ Integrated vLLM for local LLM support and improved natural language task scheduling!
-- **2026-02-02** 🎉 nanobot officially launched! Welcome to try 🐈 nanobot!
+`nanobot-powerup` wraps the upstream `nanobot-ai` Python package with:
 
-</details>
+- **Web chat dashboard** — React + Express, SSE streaming, live log panel, settings UI, Google OAuth flow
+- **Production stack** — Docker Compose (gateway + dashboard + nginx), AWS EC2, Terraform, GitHub Actions CI/CD
+- **Research pipeline** — `plan_task` tool implements a Planner → Executor → Evaluator loop using `google/gemini-3-flash-preview` on OpenRouter
+- **Screenshot verification** — `screenshot_pages` uses headless Playwright to capture real pages as visual proof embedded in responses
+- **Trip mapping** — `trip-mapper` skill geocodes stops and generates Google Static Maps images with numbered pins
+- **Skills system** — Markdown-defined workflows (`SKILL.md`) the agent reads and executes, stored in `~/.nanobot/workspace/skills/`
+- **Long-term memory** — `MEMORY.md` (facts) + `HISTORY.md` (event log), auto-consolidated after 50 messages
+- **Heartbeat** — Periodic tasks checked every 30 min (morning brief, calendar, etc.)
 
-## Key Features of nanobot:
+The agent model is `google/gemini-3-flash-preview` via OpenRouter.
 
-🪶 **Ultra-Lightweight**: Just ~4,000 lines of core agent code — 99% smaller than Clawdbot.
+---
 
-🔬 **Research-Ready**: Clean, readable code that's easy to understand, modify, and extend for research.
-
-⚡️ **Lightning Fast**: Minimal footprint means faster startup, lower resource usage, and quicker iterations.
-
-💎 **Easy-to-Use**: One-click to deploy and you're ready to go.
-
-## 🏗️ Architecture
-
-<p align="center">
-  <img src="nanobot_arch.png" alt="nanobot architecture" width="800">
-</p>
-
-## ✨ Features
-
-<table align="center">
-  <tr align="center">
-    <th><p align="center">📈 24/7 Real-Time Market Analysis</p></th>
-    <th><p align="center">🚀 Full-Stack Software Engineer</p></th>
-    <th><p align="center">📅 Smart Daily Routine Manager</p></th>
-    <th><p align="center">📚 Personal Knowledge Assistant</p></th>
-  </tr>
-  <tr>
-    <td align="center"><p align="center"><img src="case/search.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/code.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/scedule.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/memory.gif" width="180" height="400"></p></td>
-  </tr>
-  <tr>
-    <td align="center">Discovery • Insights • Trends</td>
-    <td align="center">Develop • Deploy • Scale</td>
-    <td align="center">Schedule • Automate • Organize</td>
-    <td align="center">Learn • Memory • Reasoning</td>
-  </tr>
-</table>
-
-## 📦 Install
-
-**Install from source** (latest features, recommended for development)
-
-```bash
-git clone https://github.com/HKUDS/nanobot.git
-cd nanobot
-pip install -e .
-```
-
-**Install with [uv](https://github.com/astral-sh/uv)** (stable, fast)
-
-```bash
-uv tool install nanobot-ai
-```
-
-**Install from PyPI** (stable)
-
-```bash
-pip install nanobot-ai
-```
-
-## 🚀 Quick Start
-
-> [!TIP]
-> Set your API key in `~/.nanobot/config.json`.
-> Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global) · [Brave Search](https://brave.com/search/api/) (optional, for web search)
-
-**1. Initialize**
-
-```bash
-nanobot onboard
-```
-
-**2. Configure** (`~/.nanobot/config.json`)
-
-Add or merge these **two parts** into your config (other options have defaults).
-
-*Set your API key* (e.g. OpenRouter, recommended for global users):
-```json
-{
-  "providers": {
-    "openrouter": {
-      "apiKey": "sk-or-v1-xxx"
-    }
-  }
-}
-```
-
-*Set your model*:
-```json
-{
-  "agents": {
-    "defaults": {
-      "model": "anthropic/claude-opus-4-5"
-    }
-  }
-}
-```
-
-**3. Chat**
-
-```bash
-nanobot agent
-```
-
-That's it! You have a working AI assistant in 2 minutes.
-
-## 💬 Chat Apps
-
-Connect nanobot to your favorite chat platform.
-
-| Channel | What you need |
-|---------|---------------|
-| **Telegram** | Bot token from @BotFather |
-| **Discord** | Bot token + Message Content intent |
-| **WhatsApp** | QR code scan |
-| **Feishu** | App ID + App Secret |
-| **Mochat** | Claw token (auto-setup available) |
-| **DingTalk** | App Key + App Secret |
-| **Slack** | Bot token + App-Level token |
-| **Email** | IMAP/SMTP credentials |
-| **QQ** | App ID + App Secret |
-
-<details>
-<summary><b>Telegram</b> (Recommended)</summary>
-
-**1. Create a bot**
-- Open Telegram, search `@BotFather`
-- Send `/newbot`, follow prompts
-- Copy the token
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"]
-    }
-  }
-}
-```
-
-> You can find your **User ID** in Telegram settings. It is shown as `@yourUserId`.
-> Copy this value **without the `@` symbol** and paste it into the config file.
-
-
-**3. Run**
-
-```bash
-nanobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>Mochat (Claw IM)</b></summary>
-
-Uses **Socket.IO WebSocket** by default, with HTTP polling fallback.
-
-**1. Ask nanobot to set up Mochat for you**
-
-Simply send this message to nanobot (replace `xxx@xxx` with your real email):
+## Architecture
 
 ```
-Read https://raw.githubusercontent.com/HKUDS/MoChat/refs/heads/main/skills/nanobot/skill.md and register on MoChat. My Email account is xxx@xxx Bind me as your owner and DM me on MoChat.
+ User (browser / Telegram)
+        │
+        ▼
+  ┌─────────────┐   HTTPS/WSS   ┌─────────────────────────────┐
+  │    nginx    │◄──────────────│   EC2 t3.small (Ubuntu 24)  │
+  │ (port 80/443│               │                             │
+  │  basic auth)│               │  ┌────────────────────────┐ │
+  └──────┬──────┘               │  │  nanobot-gateway        │ │
+         │ proxy_pass           │  │  (Python, port 18791 WS)│ │
+         ▼                      │  │  • AgentLoop            │ │
+  ┌─────────────┐               │  │  • ToolRegistry         │ │
+  │  dashboard  │──WebSocket───►│  │  • MemoryStore          │ │
+  │  (Node 20,  │               │  │  • CronScheduler        │ │
+  │   port 3001)│               │  │  • HeartbeatService     │ │
+  │  Express API│               │  └────────────────────────┘ │
+  │  React SPA  │               │                             │
+  └─────────────┘               │  /opt/nanobot (EBS volume)  │
+                                │  ├── config.json            │
+                                │  ├── workspace/             │
+                                │  │   ├── AGENTS.md          │
+                                │  │   ├── HEARTBEAT.md       │
+                                │  │   ├── memory/            │
+                                │  │   ├── screenshots/       │
+                                │  │   └── skills/            │
+                                │  └── chat.db (SQLite)       │
+                                └─────────────────────────────┘
 ```
 
-nanobot will automatically register, configure `~/.nanobot/config.json`, and connect to Mochat.
+**Data flow for a chat message:**
 
-**2. Restart gateway**
+1. Browser POSTs to `dashboard /api/conversations/:id/messages`
+2. Dashboard forwards via WebSocket to `nanobot-gateway:18791`
+3. Agent loop calls LLM → gets tool calls → executes tools (possibly parallel)
+4. Tool results feed back into next LLM call
+5. Final response streams back via SSE (`delta` events) to browser
+6. Dashboard commits message to SQLite; browser renders streaming cursor
 
-```bash
-nanobot gateway
+---
+
+## Directory Structure
+
+```
+nanobot-powerup/
+├── nanobot/                    # Upstream nanobot-ai source (pip-installed in dev)
+│   └── agent/
+│       ├── loop.py             # Core agent loop
+│       └── tools/              # All tool implementations
+│           ├── plan_task.py    # ★ Custom: Planner + Evaluator
+│           ├── screenshot_pages.py  # ★ Custom: Playwright screenshots
+│           ├── web.py          # web_search (Tavily/Brave) + web_fetch
+│           ├── shell.py        # exec (shell commands)
+│           ├── filesystem.py   # read/write/edit/list files
+│           ├── message.py      # send messages to users
+│           ├── spawn.py        # spawn subagents
+│           ├── cron.py         # schedule tasks
+│           ├── reddit.py       # reddit_search
+│           ├── trustpilot.py   # trustpilot_search
+│           ├── yelp.py         # yelp_search
+│           └── mcp.py          # MCP client (Playwright, etc.)
+│
+├── workspace/                  # Synced to /opt/nanobot/workspace/ on EC2
+│   ├── AGENTS.md               # Agent personality + tool selection guide
+│   ├── HEARTBEAT.md            # Periodic task list (checked every 30 min)
+│   ├── memory/                 # MEMORY.md + HISTORY.md
+│   └── skills/
+│       ├── travel-research/    # ★ Multi-day trip planner
+│       ├── trip-mapper/        # ★ Google Static Maps generator
+│       ├── review/             # Product/restaurant review skill
+│       ├── google-calendar/    # Calendar read/write
+│       ├── australian-news/    # News digest
+│       ├── recommendation-enhancement/
+│       ├── reddit-api-access/
+│       ├── memory/
+│       └── ping-test/
+│
+├── dashboard/
+│   ├── server/index.js         # Express API + SSE streaming + WebSocket proxy
+│   ├── client/src/             # React SPA (ChatWindow, LogsPanel, Settings)
+│   └── Dockerfile              # Multi-stage: React build → Express serve
+│
+├── deploy/
+│   ├── nginx/nginx.conf        # Reverse proxy, HTTPS, basic auth, SSE config
+│   ├── nginx/.htpasswd         # Hashed credentials (username: nanobot)
+│   ├── terraform/              # IaC: EC2 + VPC + EBS + Elastic IP
+│   ├── inject_keys.py          # Injects GitHub Secrets → config.json post-deploy
+│   ├── migrate_db.py           # One-time: fix hardcoded localhost URLs in chat.db
+│   └── bootstrap.sh            # First-time AWS setup (S3, key pair, IAM, secrets)
+│
+├── .github/workflows/
+│   └── deploy.yml              # Terraform + SSH deploy on push to main
+│
+├── docker-compose.yml          # Local + prod: gateway + dashboard + nginx
+├── Dockerfile                  # Gateway: Python 3.12 + Node 20 + Chromium
+└── .env                        # Google OAuth creds (not committed to prod)
 ```
 
-That's it — nanobot handles the rest!
+---
 
-<br>
+## Core Configuration
 
-<details>
-<summary>Manual configuration (advanced)</summary>
+All runtime config lives at `~/.nanobot/config.json` (EC2: `/opt/nanobot/config.json`).
 
-If you prefer to configure manually, add the following to `~/.nanobot/config.json`:
-
-> Keep `claw_token` private. It should only be sent in `X-Claw-Token` header to your Mochat API endpoint.
-
-```json
-{
-  "channels": {
-    "mochat": {
-      "enabled": true,
-      "base_url": "https://mochat.io",
-      "socket_url": "https://mochat.io",
-      "socket_path": "/socket.io",
-      "claw_token": "claw_xxx",
-      "agent_user_id": "6982abcdef",
-      "sessions": ["*"],
-      "panels": ["*"],
-      "reply_delay_mode": "non-mention",
-      "reply_delay_ms": 120000
-    }
-  }
-}
-```
-
-
-
-</details>
-
-</details>
-
-<details>
-<summary><b>Discord</b></summary>
-
-**1. Create a bot**
-- Go to https://discord.com/developers/applications
-- Create an application → Bot → Add Bot
-- Copy the bot token
-
-**2. Enable intents**
-- In the Bot settings, enable **MESSAGE CONTENT INTENT**
-- (Optional) Enable **SERVER MEMBERS INTENT** if you plan to use allow lists based on member data
-
-**3. Get your User ID**
-- Discord Settings → Advanced → enable **Developer Mode**
-- Right-click your avatar → **Copy User ID**
-
-**4. Configure**
-
-```json
-{
-  "channels": {
-    "discord": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"]
-    }
-  }
-}
-```
-
-**5. Invite the bot**
-- OAuth2 → URL Generator
-- Scopes: `bot`
-- Bot Permissions: `Send Messages`, `Read Message History`
-- Open the generated invite URL and add the bot to your server
-
-**6. Run**
-
-```bash
-nanobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>WhatsApp</b></summary>
-
-Requires **Node.js ≥18**.
-
-**1. Link device**
-
-```bash
-nanobot channels login
-# Scan QR with WhatsApp → Settings → Linked Devices
-```
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "whatsapp": {
-      "enabled": true,
-      "allowFrom": ["+1234567890"]
-    }
-  }
-}
-```
-
-**3. Run** (two terminals)
-
-```bash
-# Terminal 1
-nanobot channels login
-
-# Terminal 2
-nanobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>Feishu (飞书)</b></summary>
-
-Uses **WebSocket** long connection — no public IP required.
-
-**1. Create a Feishu bot**
-- Visit [Feishu Open Platform](https://open.feishu.cn/app)
-- Create a new app → Enable **Bot** capability
-- **Permissions**: Add `im:message` (send messages)
-- **Events**: Add `im.message.receive_v1` (receive messages)
-  - Select **Long Connection** mode (requires running nanobot first to establish connection)
-- Get **App ID** and **App Secret** from "Credentials & Basic Info"
-- Publish the app
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "feishu": {
-      "enabled": true,
-      "appId": "cli_xxx",
-      "appSecret": "xxx",
-      "encryptKey": "",
-      "verificationToken": "",
-      "allowFrom": []
-    }
-  }
-}
-```
-
-> `encryptKey` and `verificationToken` are optional for Long Connection mode.
-> `allowFrom`: Leave empty to allow all users, or add `["ou_xxx"]` to restrict access.
-
-**3. Run**
-
-```bash
-nanobot gateway
-```
-
-> [!TIP]
-> Feishu uses WebSocket to receive messages — no webhook or public IP needed!
-
-</details>
-
-<details>
-<summary><b>QQ (QQ单聊)</b></summary>
-
-Uses **botpy SDK** with WebSocket — no public IP required. Currently supports **private messages only**.
-
-**1. Register & create bot**
-- Visit [QQ Open Platform](https://q.qq.com) → Register as a developer (personal or enterprise)
-- Create a new bot application
-- Go to **开发设置 (Developer Settings)** → copy **AppID** and **AppSecret**
-
-**2. Set up sandbox for testing**
-- In the bot management console, find **沙箱配置 (Sandbox Config)**
-- Under **在消息列表配置**, click **添加成员** and add your own QQ number
-- Once added, scan the bot's QR code with mobile QQ → open the bot profile → tap "发消息" to start chatting
-
-**3. Configure**
-
-> - `allowFrom`: Leave empty for public access, or add user openids to restrict. You can find openids in the nanobot logs when a user messages the bot.
-> - For production: submit a review in the bot console and publish. See [QQ Bot Docs](https://bot.q.qq.com/wiki/) for the full publishing flow.
-
-```json
-{
-  "channels": {
-    "qq": {
-      "enabled": true,
-      "appId": "YOUR_APP_ID",
-      "secret": "YOUR_APP_SECRET",
-      "allowFrom": []
-    }
-  }
-}
-```
-
-**4. Run**
-
-```bash
-nanobot gateway
-```
-
-Now send a message to the bot from QQ — it should respond!
-
-</details>
-
-<details>
-<summary><b>DingTalk (钉钉)</b></summary>
-
-Uses **Stream Mode** — no public IP required.
-
-**1. Create a DingTalk bot**
-- Visit [DingTalk Open Platform](https://open-dev.dingtalk.com/)
-- Create a new app -> Add **Robot** capability
-- **Configuration**:
-  - Toggle **Stream Mode** ON
-- **Permissions**: Add necessary permissions for sending messages
-- Get **AppKey** (Client ID) and **AppSecret** (Client Secret) from "Credentials"
-- Publish the app
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "dingtalk": {
-      "enabled": true,
-      "clientId": "YOUR_APP_KEY",
-      "clientSecret": "YOUR_APP_SECRET",
-      "allowFrom": []
-    }
-  }
-}
-```
-
-> `allowFrom`: Leave empty to allow all users, or add `["staffId"]` to restrict access.
-
-**3. Run**
-
-```bash
-nanobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>Slack</b></summary>
-
-Uses **Socket Mode** — no public URL required.
-
-**1. Create a Slack app**
-- Go to [Slack API](https://api.slack.com/apps) → **Create New App** → "From scratch"
-- Pick a name and select your workspace
-
-**2. Configure the app**
-- **Socket Mode**: Toggle ON → Generate an **App-Level Token** with `connections:write` scope → copy it (`xapp-...`)
-- **OAuth & Permissions**: Add bot scopes: `chat:write`, `reactions:write`, `app_mentions:read`
-- **Event Subscriptions**: Toggle ON → Subscribe to bot events: `message.im`, `message.channels`, `app_mention` → Save Changes
-- **App Home**: Scroll to **Show Tabs** → Enable **Messages Tab** → Check **"Allow users to send Slash commands and messages from the messages tab"**
-- **Install App**: Click **Install to Workspace** → Authorize → copy the **Bot Token** (`xoxb-...`)
-
-**3. Configure nanobot**
-
-```json
-{
-  "channels": {
-    "slack": {
-      "enabled": true,
-      "botToken": "xoxb-...",
-      "appToken": "xapp-...",
-      "groupPolicy": "mention"
-    }
-  }
-}
-```
-
-**4. Run**
-
-```bash
-nanobot gateway
-```
-
-DM the bot directly or @mention it in a channel — it should respond!
-
-> [!TIP]
-> - `groupPolicy`: `"mention"` (default — respond only when @mentioned), `"open"` (respond to all channel messages), or `"allowlist"` (restrict to specific channels).
-> - DM policy defaults to open. Set `"dm": {"enabled": false}` to disable DMs.
-
-</details>
-
-<details>
-<summary><b>Email</b></summary>
-
-Give nanobot its own email account. It polls **IMAP** for incoming mail and replies via **SMTP** — like a personal email assistant.
-
-**1. Get credentials (Gmail example)**
-- Create a dedicated Gmail account for your bot (e.g. `my-nanobot@gmail.com`)
-- Enable 2-Step Verification → Create an [App Password](https://myaccount.google.com/apppasswords)
-- Use this app password for both IMAP and SMTP
-
-**2. Configure**
-
-> - `consentGranted` must be `true` to allow mailbox access. This is a safety gate — set `false` to fully disable.
-> - `allowFrom`: Leave empty to accept emails from anyone, or restrict to specific senders.
-> - `smtpUseTls` and `smtpUseSsl` default to `true` / `false` respectively, which is correct for Gmail (port 587 + STARTTLS). No need to set them explicitly.
-> - Set `"autoReplyEnabled": false` if you only want to read/analyze emails without sending automatic replies.
-
-```json
-{
-  "channels": {
-    "email": {
-      "enabled": true,
-      "consentGranted": true,
-      "imapHost": "imap.gmail.com",
-      "imapPort": 993,
-      "imapUsername": "my-nanobot@gmail.com",
-      "imapPassword": "your-app-password",
-      "smtpHost": "smtp.gmail.com",
-      "smtpPort": 587,
-      "smtpUsername": "my-nanobot@gmail.com",
-      "smtpPassword": "your-app-password",
-      "fromAddress": "my-nanobot@gmail.com",
-      "allowFrom": ["your-real-email@gmail.com"]
-    }
-  }
-}
-```
-
-
-**3. Run**
-
-```bash
-nanobot gateway
-```
-
-</details>
-
-## 🌐 Agent Social Network
-
-🐈 nanobot is capable of linking to the agent social network (agent community). **Just send one message and your nanobot joins automatically!**
-
-| Platform | How to Join (send this message to your bot) |
-|----------|-------------|
-| [**Moltbook**](https://www.moltbook.com/) | `Read https://moltbook.com/skill.md and follow the instructions to join Moltbook` |
-| [**ClawdChat**](https://clawdchat.ai/) | `Read https://clawdchat.ai/skill.md and follow the instructions to join ClawdChat` |
-
-Simply send the command above to your nanobot (via CLI or any chat channel), and it will handle the rest.
-
-## ⚙️ Configuration
-
-Config file: `~/.nanobot/config.json`
-
-### Providers
-
-> [!TIP]
-> - **Groq** provides free voice transcription via Whisper. If configured, Telegram voice messages will be automatically transcribed.
-> - **Zhipu Coding Plan**: If you're on Zhipu's coding plan, set `"apiBase": "https://open.bigmodel.cn/api/coding/paas/v4"` in your zhipu provider config.
-> - **MiniMax (Mainland China)**: If your API key is from MiniMax's mainland China platform (minimaxi.com), set `"apiBase": "https://api.minimaxi.com/v1"` in your minimax provider config.
-> - **VolcEngine Coding Plan**: If you're on VolcEngine's coding plan, set `"apiBase": "https://ark.cn-beijing.volces.com/api/coding/v3"` in your volcengine provider config.
-
-| Provider | Purpose | Get API Key |
-|----------|---------|-------------|
-| `custom` | Any OpenAI-compatible endpoint (direct, no LiteLLM) | — |
-| `openrouter` | LLM (recommended, access to all models) | [openrouter.ai](https://openrouter.ai) |
-| `anthropic` | LLM (Claude direct) | [console.anthropic.com](https://console.anthropic.com) |
-| `openai` | LLM (GPT direct) | [platform.openai.com](https://platform.openai.com) |
-| `deepseek` | LLM (DeepSeek direct) | [platform.deepseek.com](https://platform.deepseek.com) |
-| `groq` | LLM + **Voice transcription** (Whisper) | [console.groq.com](https://console.groq.com) |
-| `gemini` | LLM (Gemini direct) | [aistudio.google.com](https://aistudio.google.com) |
-| `minimax` | LLM (MiniMax direct) | [platform.minimax.io](https://platform.minimax.io) |
-| `aihubmix` | LLM (API gateway, access to all models) | [aihubmix.com](https://aihubmix.com) |
-| `siliconflow` | LLM (SiliconFlow/硅基流动) | [siliconflow.cn](https://siliconflow.cn) |
-| `volcengine` | LLM (VolcEngine/火山引擎) | [volcengine.com](https://www.volcengine.com) |
-| `dashscope` | LLM (Qwen) | [dashscope.console.aliyun.com](https://dashscope.console.aliyun.com) |
-| `moonshot` | LLM (Moonshot/Kimi) | [platform.moonshot.cn](https://platform.moonshot.cn) |
-| `zhipu` | LLM (Zhipu GLM) | [open.bigmodel.cn](https://open.bigmodel.cn) |
-| `vllm` | LLM (local, any OpenAI-compatible server) | — |
-| `openai_codex` | LLM (Codex, OAuth) | `nanobot provider login openai-codex` |
-| `github_copilot` | LLM (GitHub Copilot, OAuth) | `nanobot provider login github-copilot` |
-
-<details>
-<summary><b>OpenAI Codex (OAuth)</b></summary>
-
-Codex uses OAuth instead of API keys. Requires a ChatGPT Plus or Pro account.
-
-**1. Login:**
-```bash
-nanobot provider login openai-codex
-```
-
-**2. Set model** (merge into `~/.nanobot/config.json`):
 ```json
 {
   "agents": {
     "defaults": {
-      "model": "openai-codex/gpt-5.1-codex"
-    }
-  }
-}
-```
-
-**3. Chat:**
-```bash
-nanobot agent -m "Hello!"
-```
-
-> Docker users: use `docker run -it` for interactive OAuth login.
-
-</details>
-
-<details>
-<summary><b>Custom Provider (Any OpenAI-compatible API)</b></summary>
-
-Connects directly to any OpenAI-compatible endpoint — LM Studio, llama.cpp, Together AI, Fireworks, Azure OpenAI, or any self-hosted server. Bypasses LiteLLM; model name is passed as-is.
-
-```json
-{
-  "providers": {
-    "custom": {
-      "apiKey": "your-api-key",
-      "apiBase": "https://api.your-provider.com/v1"
+      "model": "google/gemini-3-flash-preview",
+      "workspace": "/root/.nanobot/workspace",
+      "maxTokens": 8192,
+      "temperature": 0.7,
+      "maxToolIterations": 20
     }
   },
-  "agents": {
-    "defaults": {
-      "model": "your-model-name"
-    }
-  }
-}
-```
-
-> For local servers that don't require a key, set `apiKey` to any non-empty string (e.g. `"no-key"`).
-
-</details>
-
-<details>
-<summary><b>vLLM (local / OpenAI-compatible)</b></summary>
-
-Run your own model with vLLM or any OpenAI-compatible server, then add to config:
-
-**1. Start the server** (example):
-```bash
-vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
-```
-
-**2. Add to config** (partial — merge into `~/.nanobot/config.json`):
-
-*Provider (key can be any non-empty string for local):*
-```json
-{
+  "channels": {
+    "web": { "enabled": true, "port": 18791 },
+    "telegram": { "enabled": false, "token": "", "allowFrom": [] }
+  },
   "providers": {
-    "vllm": {
-      "apiKey": "dummy",
-      "apiBase": "http://localhost:8000/v1"
-    }
-  }
-}
-```
-
-*Model:*
-```json
-{
-  "agents": {
-    "defaults": {
-      "model": "meta-llama/Llama-3.1-8B-Instruct"
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><b>Adding a New Provider (Developer Guide)</b></summary>
-
-nanobot uses a **Provider Registry** (`nanobot/providers/registry.py`) as the single source of truth.
-Adding a new provider only takes **2 steps** — no if-elif chains to touch.
-
-**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `nanobot/providers/registry.py`:
-
-```python
-ProviderSpec(
-    name="myprovider",                   # config field name
-    keywords=("myprovider", "mymodel"),  # model-name keywords for auto-matching
-    env_key="MYPROVIDER_API_KEY",        # env var for LiteLLM
-    display_name="My Provider",          # shown in `nanobot status`
-    litellm_prefix="myprovider",         # auto-prefix: model → myprovider/model
-    skip_prefixes=("myprovider/",),      # don't double-prefix
-)
-```
-
-**Step 2.** Add a field to `ProvidersConfig` in `nanobot/config/schema.py`:
-
-```python
-class ProvidersConfig(BaseModel):
-    ...
-    myprovider: ProviderConfig = ProviderConfig()
-```
-
-That's it! Environment variables, model prefixing, config matching, and `nanobot status` display will all work automatically.
-
-**Common `ProviderSpec` options:**
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| `litellm_prefix` | Auto-prefix model names for LiteLLM | `"dashscope"` → `dashscope/qwen-max` |
-| `skip_prefixes` | Don't prefix if model already starts with these | `("dashscope/", "openrouter/")` |
-| `env_extras` | Additional env vars to set | `(("ZHIPUAI_API_KEY", "{api_key}"),)` |
-| `model_overrides` | Per-model parameter overrides | `(("kimi-k2.5", {"temperature": 1.0}),)` |
-| `is_gateway` | Can route any model (like OpenRouter) | `True` |
-| `detect_by_key_prefix` | Detect gateway by API key prefix | `"sk-or-"` |
-| `detect_by_base_keyword` | Detect gateway by API base URL | `"openrouter"` |
-| `strip_model_prefix` | Strip existing prefix before re-prefixing | `True` (for AiHubMix) |
-
-</details>
-
-
-### MCP (Model Context Protocol)
-
-> [!TIP]
-> The config format is compatible with Claude Desktop / Cursor. You can copy MCP server configs directly from any MCP server's README.
-
-nanobot supports [MCP](https://modelcontextprotocol.io/) — connect external tool servers and use them as native agent tools.
-
-Add MCP servers to your `config.json`:
-
-```json
-{
+    "openrouter": { "apiKey": "sk-or-..." }
+  },
+  "gateway": { "host": "0.0.0.0", "port": 18790 },
   "tools": {
+    "exec": { "timeout": 600 },
+    "restrictToWorkspace": false,
+    "web": {
+      "search": {
+        "provider": "tavily",
+        "tavilyApiKey": "tvly-..."
+      }
+    },
+    "google": {
+      "mapsApiKey": "AIza...",
+      "calendar": {
+        "clientId": "...",
+        "clientSecret": "...",
+        "tokens": { "access_token": "...", "refresh_token": "..." }
+      }
+    },
     "mcpServers": {
-      "filesystem": {
+      "playwright": {
         "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
-      },
-      "my-remote-mcp": {
-        "url": "https://example.com/mcp/",
-        "headers": {
-          "Authorization": "Bearer xxxxx"
-        }
+        "args": ["@playwright/mcp@latest", "--output-dir", "/root/.nanobot/workspace/screenshots"]
       }
     }
   }
 }
 ```
 
-Two transport modes are supported:
+**Key points:**
+- `mapsApiKey` is read by `trip-mapper.py` via `config.json` fallback (not from container env vars)
+- `tools.web.search.provider` switches between `"tavily"` (default, paid) and `"brave"` (fallback)
+- `restrictToWorkspace: false` — exec is unrestricted; agent can write anywhere under `~`
+- MCP Playwright server is wired up; its tools go to **subagents only**, not the main agent
 
-| Mode | Config | Example |
-|------|--------|---------|
-| **Stdio** | `command` + `args` | Local process via `npx` / `uvx` |
-| **HTTP** | `url` + `headers` (optional) | Remote endpoint (`https://mcp.example.com/sse`) |
+---
 
-MCP tools are automatically discovered and registered on startup. The LLM can use them alongside built-in tools — no extra configuration needed.
+## Agent Loop & Tool Orchestration
 
+`nanobot/agent/loop.py` is the core processing engine:
 
+### Sequential vs Parallel execution
 
+| Condition | Behaviour |
+|-----------|-----------|
+| All requested tools are read-only (`web_search`, `read_file`, `screenshot_pages`, etc.) | Run all **in parallel** (batch mode) |
+| Mix of read-only + side-effect (`spawn`, `message`, `write_file`, etc.) | Run first tool only, defer rest |
+| `spawn` present | Run `spawn` first, always |
 
-### Security
+### Evaluation gate
 
-> [!TIP]
-> For production deployments, set `"restrictToWorkspace": true` in your config to sandbox the agent.
+When `plan_task(mode="plan")` is called, the loop **blocks the final response** until `plan_task(mode="evaluate")` is also called (max 2 evaluation attempts). If the limit is hit with unresolved criteria, the agent must explicitly disclose the gaps.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `tools.restrictToWorkspace` | `false` | When `true`, restricts **all** agent tools (shell, file read/write/edit, list) to the workspace directory. Prevents path traversal and out-of-scope access. |
-| `channels.*.allowFrom` | `[]` (allow all) | Whitelist of user IDs. Empty = allow everyone; non-empty = only listed users can interact. |
+### Memory consolidation
 
+Triggers automatically when session exceeds 50 messages. Compresses old messages into `memory/MEMORY.md` and `memory/HISTORY.md` via an async background task. Doesn't block message processing.
 
-## CLI Reference
+### Special commands
 
-| Command | Description |
-|---------|-------------|
-| `nanobot onboard` | Initialize config & workspace |
-| `nanobot agent -m "..."` | Chat with the agent |
-| `nanobot agent` | Interactive chat mode |
-| `nanobot agent --no-markdown` | Show plain-text replies |
-| `nanobot agent --logs` | Show runtime logs during chat |
-| `nanobot gateway` | Start the gateway |
-| `nanobot status` | Show status |
-| `nanobot provider login openai-codex` | OAuth login for providers |
-| `nanobot channels login` | Link WhatsApp (scan QR) |
-| `nanobot channels status` | Show channel status |
+- `/new` — clears session and triggers memory consolidation
 
-Interactive mode exits: `exit`, `quit`, `/exit`, `/quit`, `:q`, or `Ctrl+D`.
+---
 
-<details>
-<summary><b>Scheduled Tasks (Cron)</b></summary>
+## Built-in Tools
+
+| Tool | Description |
+|------|-------------|
+| `web_search` | Tavily (primary) or Brave (fallback). Semaphore limits to 2 concurrent calls. Retries once on 429. |
+| `web_fetch` | Fetches URL, extracts readable content via `readability`. Max 50k chars. |
+| `exec` | Shell commands. Deny list blocks `rm -rf`, `format`, `dd`, etc. 600s timeout. 10k output limit. |
+| `read_file` / `write_file` / `edit_file` / `list_dir` | File operations. `edit_file` uses difflib for fuzzy matching. |
+| `message` | Sends messages to the current user channel. Suppresses duplicate main-agent reply. |
+| `spawn` | Creates background subagents. Takes priority in scheduling. Results delivered via `message`. |
+| `reddit_search` | Reddit JSON API (no key). Subreddit filter, sort, time window. |
+| `trustpilot_search` | Extracts `__NEXT_DATA__` from Trustpilot pages. Returns trust scores + reviews. |
+| `yelp_search` | Yelp Fusion API. Requires `YELP_API_KEY`. Location, category, price, open_now. |
+| `cron` | Add/list/remove scheduled jobs. Supports cron expressions, intervals, one-shot `at` times. |
+
+---
+
+## Custom Tools
+
+### `screenshot_pages`
+
+Takes screenshots of up to **5 URLs per call** using headless Playwright. Saves PNG files to `~/.nanobot/workspace/screenshots/` where they're served at `/api/screenshots/`.
+
+**Hard rules:**
+- **Max 5 pages per call** — rejects oversized calls with explicit split instructions:
+  ```
+  ❌ screenshot_pages REJECTED: 20 pages submitted but max is 5 per call.
+  You MUST split this into 4 separate calls: Call 1: pages 1–5 ...
+  ```
+- **Google URLs blocked** — auto-redirected to DuckDuckGo (Google detects headless browsers)
+- **Headless mode** — detects `$DISPLAY` env var; uses `headless=True` on EC2 (no X server), `headless=False` locally
+- **Usability markers** — output marks each result as `✅ USABLE` or `❌ FAILED — DO NOT EMBED`
+- **Search results warning** — flags DuckDuckGo/Bing URLs used for non-price labels
+
+### `plan_task`
+
+Two-mode orchestration tool using `google/gemini-3-flash-preview`:
+
+- **`mode="plan"`** — generates a structured execution plan with success criteria, batched steps, and quality gate. Called by skills before research begins.
+- **`mode="evaluate"`** — checks a draft response against the plan's criteria. Returns `pass` or `retry` with per-criterion feedback and specific retry instructions.
+
+**Travel-specific enforcement:**
+- Injects constraint into planner prompt: "MINIMUM 4 screenshot_pages calls for a 12-day trip"
+- `_enforce_travel_screenshot_batching()` post-processes plan JSON to split any >5-page call
+- Evaluator counts named locations in draft, checks screenshot coverage, fails if M < N
+
+---
+
+## Skills
+
+Skills are Markdown files (`SKILL.md`) in `~/.nanobot/workspace/skills/<name>/`. The agent reads them when a matching intent is detected and follows the instructions.
+
+**Always use `~/.nanobot/workspace/` paths** in skill commands — never hardcode `/Users/ev/` or `/root/`.
+
+### `travel-research`
+
+Full trip-planning workflow. Triggers on travel requests. Calls `plan_task(mode="plan")` with `available_tools="web_search, screenshot_pages, exec, read_file, plan_task"`, then the agent executes the plan.
+
+Expected output per trip: flights (Type A screenshots), hotels (Type A), per-location screenshots (Type B, one per named place), trip map (trip-mapper), Google Maps link, no deferral phrases.
+
+### `trip-mapper`
+
+Geocodes a list of stop names and generates a Google Static Maps image with numbered red pins and a blue route line.
 
 ```bash
-# Add a job
-nanobot cron add --name "daily" --message "Good morning!" --cron "0 9 * * *"
-nanobot cron add --name "hourly" --message "Check status" --every 3600
-
-# List jobs
-nanobot cron list
-
-# Remove a job
-nanobot cron remove <job_id>
+python3 ~/.nanobot/workspace/skills/trip-mapper/trip-mapper.py \
+  "Haeundae Beach, Busan" "Gamcheon Culture Village, Busan" "Gyeongbokgung Palace, Seoul"
 ```
 
-</details>
+**Output (ready-to-embed markdown):**
+```
+✅ Trip map generated. Copy this EXACT markdown into your response:
+![Trip Map](/api/screenshots/trip-map.png)
+[Open in Google Maps](https://www.google.com/maps/dir/35.1586,129.1605/35.0963,129.0088/...)
 
-## 🐳 Docker
+IMAGE_PATH:/root/.nanobot/workspace/screenshots/trip-map.png
+STOPS:
+  1. Haeundae Beach, Busan (35.1586, 129.1605)
+  ...
+```
 
-> [!TIP]
-> The `-v ~/.nanobot:/root/.nanobot` flag mounts your local config directory into the container, so your config and workspace persist across container restarts.
+API key source: `$GOOGLE_STATIC_MAPS_API_KEY` env var → fallback to `~/.nanobot/config.json tools.google.mapsApiKey` (required on EC2 where container env doesn't have the key).
 
-### Docker Compose
+Geocoding: Nominatim (OpenStreetMap, free) first, then Google Geocoding API if `GOOGLE_GEOCODING_API_KEY` is set. Max 25 stops.
+
+### `review`
+
+Product/restaurant/service review research. Uses `plan_task` for structured evaluation with screenshots.
+
+### `google-calendar`
+
+Read and write Google Calendar events. Requires OAuth tokens stored in `config.json`. Auth flow initiated via dashboard Settings → Google Auth.
+
+### `australian-news`
+
+Fetches and summarises Australian news headlines.
+
+### `recommendation-enhancement`
+
+Enriches a draft recommendation with additional screenshots and source verification.
+
+---
+
+## Planner-Executor-Evaluator Pattern
+
+```
+User request
+    │
+    ▼
+plan_task(mode="plan")         ← Gemini plans steps + criteria
+    │ Returns: criteria list
+    │          numbered steps with batch flags
+    │          quality gate
+    ▼
+Agent executes steps
+  Step 1 (batch): web_search × N + screenshot_pages × 1-2
+  Step 2 (batch): screenshot_pages × 3-4  (Type B source pages)
+  Step 3 (batch): exec trip-mapper  (travel only)
+    │
+    ▼
+plan_task(mode="evaluate")     ← Gemini checks draft vs criteria
+    │
+    ├── verdict=pass → write_response (final)
+    │
+    └── verdict=retry → agent takes more screenshots, retries
+              (max 2 evaluation attempts)
+              If limit hit: agent must disclose gaps explicitly
+```
+
+### Screenshot taxonomy
+
+| Type | Purpose | URL pattern | Example |
+|------|---------|-------------|---------|
+| **Type A** | Price/availability evidence | Search results OK | `flights-syd-sel.png` → DuckDuckGo search |
+| **Type B** | Factual claim verification | Source pages required | `hybe-insight.png` → Wikipedia/TripAdvisor |
+
+Google URLs are **always banned** — auto-redirected to DuckDuckGo.
+
+---
+
+## Chat Dashboard
+
+### Backend (`dashboard/server/index.js`)
+
+- **Database**: SQLite3 (`better-sqlite3`, WAL mode) at `DB_PATH` (`/root/.nanobot/chat.db`)
+- **Tables**: `conversations`, `messages`, `system_stats`
+- **WebSocket proxy**: Connects to `ws://nanobot-gateway:18791`, 10-minute idle timeout
+- **SSE streaming**: `/api/conversations/:id/messages` (POST) streams `delta` / `done` / `stream_end` events
+- **Log streaming**: `/api/logs/stream` — `tail -F` the gateway log, parses loguru format, tags each line with `level`, `source` (`main`/`sub`/`sys`), model name, token counts
+- **Config API**: `/api/config` GET/POST — deep merge into `config.json`
+- **Screenshots**: `/api/screenshots/:file` — serves from `~/.nanobot/workspace/screenshots/` (no auth on nginx)
+- **Google OAuth**: `/api/google/auth/start` + `/api/google/auth/callback` — PKCE-style state with 10-min TTL
+
+### Frontend (`dashboard/client/src/`)
+
+- React SPA, relative API URLs in prod (`REACT_APP_API_URL=""`)
+- `ChatWindow.js` — ReactMarkdown with GFM, streaming cursor, auto-scroll
+- `LogsPanel.js` — live log viewer with tab filtering (main / subagent / system)
+- `Settings.js` — deep-merge config editor with model/key management
+- SSE events: `delta` (streaming chunk), `new_message` (subagent bubble), `done` (message complete), `stream_end` (close SSE)
+
+### nginx config highlights
+
+```nginx
+# Screenshots: no basic auth so <img> tags load in any browser
+location /api/screenshots/ {
+  auth_basic off;
+  proxy_pass http://dashboard:3001;
+}
+
+# Chat POST: rate-limited (5 req/min, burst 20)
+location ~ ^/api/conversations/.*/chat$ {
+  limit_req zone=login burst=20 nodelay;
+}
+
+# SSE: never buffered
+location /api/logs/stream {
+  proxy_buffering off;
+  proxy_read_timeout 24h;
+}
+
+# Chat messages: long timeout for slow research
+location /api/conversations/ {
+  proxy_read_timeout 10m;
+}
+```
+
+---
+
+## Local Development
+
+### Prerequisites
+
+- Python ≥ 3.11, Node.js ≥ 18, `uv` package manager
+- `nanobot-ai` installed: `pip install -e .` (from repo root)
+- `~/.nanobot/config.json` with `openrouter.apiKey`, `tavilyApiKey`
+
+### Start services
 
 ```bash
-docker compose run --rm nanobot-cli onboard   # first-time setup
-vim ~/.nanobot/config.json                     # add API keys
-docker compose up -d nanobot-gateway           # start gateway
+# Terminal 1 — nanobot gateway (Python, port 18791 WS)
+nanobot gateway
+
+# Terminal 2 — dashboard server (Node, port 3001)
+cd dashboard && npm install && npm start
+
+# Terminal 3 — React dev server (port 3000)
+cd dashboard/client && npm install && npm start
 ```
+
+Or use Docker Compose (requires building first):
 
 ```bash
-docker compose run --rm nanobot-cli agent -m "Hello!"   # run CLI
-docker compose logs -f nanobot-gateway                   # view logs
-docker compose down                                      # stop
+docker compose up -d
 ```
 
-### Docker
+### docker-compose.override.yml (local only)
+
+A `docker-compose.override.yml` is **gitignored** and must never be committed. It can mount local source code into the containers for development. The EC2 deploy explicitly deletes it:
 
 ```bash
-# Build the image
-docker build -t nanobot .
-
-# Initialize config (first time only)
-docker run -v ~/.nanobot:/root/.nanobot --rm nanobot onboard
-
-# Edit config on host to add API keys
-vim ~/.nanobot/config.json
-
-# Run gateway (connects to enabled channels, e.g. Telegram/Discord/Mochat)
-docker run -v ~/.nanobot:/root/.nanobot -p 18790:18790 nanobot gateway
-
-# Or run a single command
-docker run -v ~/.nanobot:/root/.nanobot --rm nanobot agent -m "Hello!"
-docker run -v ~/.nanobot:/root/.nanobot --rm nanobot status
+rm -f docker-compose.override.yml
 ```
 
-## 📁 Project Structure
+### Syncing skills to local gateway
 
-```
-nanobot/
-├── agent/          # 🧠 Core agent logic
-│   ├── loop.py     #    Agent loop (LLM ↔ tool execution)
-│   ├── context.py  #    Prompt builder
-│   ├── memory.py   #    Persistent memory
-│   ├── skills.py   #    Skills loader
-│   ├── subagent.py #    Background task execution
-│   └── tools/      #    Built-in tools (incl. spawn)
-├── skills/         # 🎯 Bundled skills (github, weather, tmux...)
-├── channels/       # 📱 Chat channel integrations
-├── bus/            # 🚌 Message routing
-├── cron/           # ⏰ Scheduled tasks
-├── heartbeat/      # 💓 Proactive wake-up
-├── providers/      # 🤖 LLM providers (OpenRouter, etc.)
-├── session/        # 💬 Conversation sessions
-├── config/         # ⚙️ Configuration
-└── cli/            # 🖥️ Commands
+The gateway reads skills from `~/.nanobot/workspace/skills/`. After editing files in `workspace/skills/`, sync them:
+
+```bash
+rsync -a workspace/ ~/.nanobot/workspace/
 ```
 
-## 🤝 Contribute & Roadmap
+### Gateway log
 
-PRs welcome! The codebase is intentionally small and readable. 🤗
+```bash
+tail -f ~/.nanobot/logs/gateway.log
+```
 
-**Roadmap** — Pick an item and [open a PR](https://github.com/HKUDS/nanobot/pulls)!
+---
 
-- [ ] **Multi-modal** — See and hear (images, voice, video)
-- [ ] **Long-term memory** — Never forget important context
-- [ ] **Better reasoning** — Multi-step planning and reflection
-- [ ] **More integrations** — Calendar and more
-- [ ] **Self-improvement** — Learn from feedback and mistakes
+## Production Deployment (AWS EC2)
 
-### Contributors
+### Infrastructure
 
-<a href="https://github.com/HKUDS/nanobot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=HKUDS/nanobot&max=100&columns=12&updated=20260210" alt="Contributors" />
-</a>
+| Component | Spec |
+|-----------|------|
+| Instance | `t3.small`, Ubuntu 24.04 LTS |
+| Root EBS | 20 GB |
+| Data EBS | 10 GB, mounted at `/opt/nanobot` (survives instance replacement) |
+| Elastic IP | `13.54.226.177` |
+| Region | ap-southeast-2 (Sydney) |
+| Terraform state | S3 bucket |
 
+### First-time setup
 
-## ⭐ Star History
+Run `deploy/bootstrap.sh` **once** from a local machine with AWS CLI + GitHub CLI configured. It:
+1. Creates S3 bucket for Terraform state
+2. Generates EC2 key pair, uploads to AWS, saves private key to GitHub secret `EC2_SSH_KEY`
+3. Creates IAM user with EC2 + S3 permissions, saves keys to GitHub secrets
+4. Sets all required GitHub secrets/variables
 
-<div align="center">
-  <a href="https://star-history.com/#HKUDS/nanobot&Date">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=HKUDS/nanobot&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=HKUDS/nanobot&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=HKUDS/nanobot&type=Date" style="border-radius: 15px; box-shadow: 0 0 30px rgba(0, 217, 255, 0.3);" />
-    </picture>
-  </a>
-</div>
+### Deployment flow (GitHub Actions → `deploy.yml`)
 
-<p align="center">
-  <em> Thanks for visiting ✨ nanobot!</em><br><br>
-  <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.nanobot&style=for-the-badge&color=00d4ff" alt="Views">
-</p>
+On every push to `main`:
 
+```
+1. Terraform init + apply          → provisions/updates EC2 + Elastic IP
+2. SSH Phase 1 (ubuntu user):
+   a. git pull latest main
+   b. rsync workspace/*.md + skills/ → /opt/nanobot/workspace/
+   c. python3 deploy/inject_keys.py   → injects API keys into config.json
+   d. python3 deploy/migrate_db.py    → fixes any old localhost:3001 URLs in chat.db
+   e. write /opt/nanobot-app/.env     → GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, MAPS_KEY
+3. SSH Phase 2 (docker group):
+   a. docker compose build --pull
+   b. docker compose up -d --force-recreate
+   c. docker image prune -f
+```
 
-<p align="center">
-  <sub>nanobot is for educational, research, and technical exchange purposes only</sub>
-</p>
+### Volume layout on EC2
+
+```
+/opt/nanobot/           ← EBS data volume (persistent across deploys)
+├── config.json         ← Runtime config + injected API keys
+├── chat.db             ← SQLite conversation history
+├── logs/gateway.log    ← Agent log (rotated by loguru)
+└── workspace/
+    ├── AGENTS.md
+    ├── HEARTBEAT.md
+    ├── memory/
+    │   ├── MEMORY.md
+    │   └── HISTORY.md
+    ├── screenshots/    ← Saved PNG files, served at /api/screenshots/
+    └── skills/
+        ├── travel-research/
+        ├── trip-mapper/
+        └── ...
+
+/opt/nanobot-app/       ← Git repo (replaced on each deploy)
+├── .env                ← Google OAuth credentials (written by deploy.yml)
+├── docker-compose.yml
+├── workspace/          ← Synced to /opt/nanobot/workspace/ during deploy
+└── ...
+```
+
+### Docker containers
+
+| Container | Image | Purpose |
+|-----------|-------|---------|
+| `nanobot-gateway` | `./Dockerfile` | Python agent, Playwright, WebSocket server (port 18791 internal) |
+| `nanobot-dashboard` | `./dashboard/Dockerfile` | Express API + React static (port 3001 internal) |
+| `nanobot-nginx` | `nginx:alpine` | HTTPS + basic auth + reverse proxy (ports 80, 443) |
+
+Volume mount: all containers share `/opt/nanobot:/root/.nanobot`
+
+### Dashboard access
+
+```
+URL:      https://13.54.226.177/
+Username: nanobot
+Password: (see deploy/nginx/.htpasswd — set during bootstrap)
+```
+
+Screenshots are served **without auth** at `https://13.54.226.177/api/screenshots/<file>.png`.
+
+---
+
+## Secrets & Environment Variables
+
+### GitHub Secrets (set by bootstrap.sh)
+
+| Secret | Used by |
+|--------|---------|
+| `AWS_ACCESS_KEY_ID` | Terraform |
+| `AWS_SECRET_ACCESS_KEY` | Terraform |
+| `EC2_SSH_KEY` | SSH deploy |
+| `EC2_KEY_PAIR_NAME` | Terraform |
+| `TF_STATE_BUCKET` | Terraform S3 backend |
+| `OPENROUTER_API_KEY` | LLM via OpenRouter |
+| `TAVILY_API_KEY` | Web search (primary) |
+| `BRAVE_API_KEY` | Web search (fallback) |
+| `GOOGLE_STATIC_MAPS_API_KEY` | trip-mapper + static map images |
+| `GOOGLE_CLIENT_ID` | Google OAuth (Calendar) |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth (Calendar) |
+
+### GitHub Variables
+
+| Variable | Value |
+|----------|-------|
+| `AWS_REGION` | `ap-southeast-2` |
+
+### Container environment variables
+
+The `nanobot-gateway` container only receives:
+- `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium`
+- `PLAYWRIGHT_BROWSERS_PATH=/usr/bin`
+
+**All other keys** (OpenRouter, Tavily, Maps, etc.) are injected into `config.json` by `inject_keys.py`, not passed as env vars. Tools that need them read from `config.json`.
+
+---
+
+## Key Design Decisions & Quirks
+
+### 1. Playwright runs headless on EC2
+
+`screenshot_pages` detects `$DISPLAY` env var:
+```python
+_headless = not bool(os.environ.get("DISPLAY"))
+browser = await pw.chromium.launch(headless=_headless)
+```
+EC2 has no X server → headless. Local Mac has `DISPLAY` → headed (needed for some sites that detect headless).
+
+### 2. Google Maps API key in config.json, not env var
+
+`trip-mapper.py` reads the key in this order:
+1. `$GOOGLE_STATIC_MAPS_API_KEY` env var (works locally)
+2. `~/.nanobot/config.json → tools.google.mapsApiKey` (required on EC2 where container env is minimal)
+
+### 3. `screenshot_pages` hard-limits 5 pages per call
+
+Any call with >5 pages is **immediately rejected** with explicit split instructions. The agent must make multiple calls. This prevents silent truncation where pages 6+ were dropped with no feedback.
+
+### 4. trip-mapper outputs ready-to-embed markdown
+
+Previous format (`IMAGE_URL:/api/screenshots/trip-map.png`) caused the agent to copy the label `IMAGE_URL` literally into responses. Now outputs:
+```
+✅ Trip map generated. Copy this EXACT markdown into your response:
+![Trip Map](/api/screenshots/trip-map.png)
+[Open in Google Maps](https://www.google.com/maps/dir/...)
+```
+
+### 5. Screenshot URLs use relative paths
+
+All screenshot URLs in chat responses use `/api/screenshots/` (relative), not `http://localhost:3001/api/screenshots/`. `migrate_db.py` patches historical messages on every deploy.
+
+### 6. AGENTS.md uses `~` paths, not hardcoded home directories
+
+`workspace/AGENTS.md` previously said `The workspace is /Users/ev/.nanobot/workspace/`. This caused the EC2 agent to use the wrong path (home is `/root` inside the container). All paths now use `~/.nanobot/workspace/`.
+
+### 7. Planner-Evaluator for travel uses programmatic enforcement
+
+The LLM planner reliably generates only 1 `screenshot_pages` call even when asked for 4. Two safeguards:
+- Prompt injection: `"MINIMUM 4 screenshot_pages calls for a 12-day trip"`
+- Post-processor: `_enforce_travel_screenshot_batching()` splits >5-page calls in the generated plan JSON
+
+### 8. Nginx rate limiting is endpoint-specific
+
+Server-level rate limiting (`limit_req` on the whole server block) was blocking image asset loads in the browser. Rate limiting is now only on the chat POST endpoint.
+
+### 9. docker-compose.override.yml must never reach EC2
+
+Local development uses a `docker-compose.override.yml` to mount source code. `deploy.yml` explicitly deletes it:
+```bash
+rm -f docker-compose.override.yml
+```
+
+### 10. Workspace sync is additive only
+
+The deploy script syncs skills with `rsync -a` (no `--delete`). This means skills created directly on EC2 are preserved across deploys. Only files that exist in the repo are updated.
+
+---
+
+## Known Bugs Fixed
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| `screenshot_pages` crashed on EC2 with "Missing X server" | `headless=False` requires display | Auto-detect `$DISPLAY`, use `headless=True` when absent |
+| `trip-mapper.py` exited silently with "GOOGLE_STATIC_MAPS_API_KEY not set" | EC2 container has no env var for the key | Read from `config.json` as fallback |
+| Agent embedded `![Map](IMAGE_URL)` literally | `trip-mapper` output was `IMAGE_URL:/api/screenshots/...` — agent copied the label | Output changed to ready-to-embed markdown lines |
+| Only 5 of 20 named locations had screenshots | `screenshot_pages` silently dropped pages 6+ when >5 submitted | Hard-reject >5 pages with split instructions |
+| Map still not generating even with all fixes | Planner LLM generated only 1 screenshot_pages call | Prompt injection + `_enforce_travel_screenshot_batching()` post-processor |
+| Old chat images broken in prod after URL format change | Messages stored `http://localhost:3001/api/screenshots/...` | `migrate_db.py` patches on every deploy |
+| Images intermittently failing to load in browser | nginx server-level `limit_req` throttled all requests including image assets | Move rate limiting to chat endpoint only |
+| Agent used `/Users/ev/.nanobot/` on EC2 | `AGENTS.md` said "This agent runs on macOS. Never use /root/ paths." | All workspace paths now use `~` |
+| Sushi request returned no response (silent failure) | `screenshot_pages` X server crash caused unhandled exception that prevented any DB write | Fixed by headless mode detection |
+| Agent hallucinated screenshot URLs for missing locations | Agent inferred filenames based on labels without actually capturing them | `✅ USABLE` / `❌ FAILED` markers + hard rejection |
