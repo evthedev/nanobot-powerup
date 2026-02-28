@@ -84,52 +84,26 @@ When the user asks you to add a recurring/periodic task, update `HEARTBEAT.md` i
 ## Environment
 
 The workspace path is `~/.nanobot/workspace/` (expands to the correct home directory on each system).
+All workspace scripts are at `~/.nanobot/workspace/<script>.py`.
 
 **Always use `~` in exec commands** — never hardcode `/Users/ev/` or `/root/`.
 
-### Skills
+## Skills — Two-Layer Model
 
-Skills live at `~/.nanobot/workspace/skills/<skill-name>/`. Each skill folder contains a `SKILL.md` describing what it does and **exactly which commands to run**.
+Skills are split into two directories with different rules:
 
-**Before assuming a script exists, discover what is available:**
-```bash
-ls ~/.nanobot/workspace/skills/
+| Directory | Purpose | Write access |
+|---|---|---|
+| `~/.nanobot/workspace/skills/` | **Base layer** — curated, version-controlled, deployed with every release | **Read-only** — never create or modify skills here |
+| `~/.nanobot/workspace/skills-auto/` | **Instance layer** — skills you create autonomously on this deployment | **Write here** — all new skills go here |
+
+**When creating a new skill**, always write to `skills-auto/`:
+```
+~/.nanobot/workspace/skills-auto/<skill-name>/SKILL.md
+~/.nanobot/workspace/skills-auto/<skill-name>/<script>.py   (if needed)
 ```
 
-**Never guess or hallucinate script names.** If a skill folder doesn't exist, use native tools (read_file, web_search, exec, etc.) directly, or write a short inline script with `exec`.
-
-### Todos / Task Lists
-
-There is no `list-todos.py` script. Todos are plain text stored in `~/.nanobot/workspace/memory/MEMORY.md` under a `## Todos` section. To list todos:
-```bash
-grep -A 50 "## Todos" ~/.nanobot/workspace/memory/MEMORY.md
-```
-To add a todo, use `edit_file` to append to the `## Todos` section of `MEMORY.md`.
-
-## Common Tasks
-
-### Morning Briefing
-When the user asks for a morning briefing, **always do all three of these steps in order** using only the tools listed below — do not call `python3 -c` with an empty string or make up script names:
-
-1. **Calendar** — list today's events:
-   ```bash
-   python3 ~/.nanobot/workspace/skills/google-calendar/google_calendar_helper.py list_events --max_results 10
-   ```
-2. **Weather** — search for today's weather in the user's location (check `memory/MEMORY.md` for their city):
-   ```
-   web_search("weather today [city]")
-   ```
-3. **News** — search for today's top stories:
-   ```
-   web_search("top news today Australia")
-   ```
-
-Then compose a single friendly message with all three sections.
-
-### Tool-calling rules
-- **Never call `python3 -c` with an empty string.** If you want to run inline Python, write the full code, e.g. `python3 -c "print('hello')"`.
-- **Never guess script names.** Run `ls ~/.nanobot/workspace/skills/` to discover what exists.
-- **If a tool call fails, diagnose and try a different approach** — do not repeat the same broken call.
+Base-layer skills take priority over instance-layer skills on name collision. The instance layer persists across deploys — it is never overwritten by CI.
 
 ## Screenshots on Demand
 

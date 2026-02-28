@@ -33,7 +33,7 @@ A fully self-hosted, production-deployed personal AI assistant built on top of [
 - **Research pipeline** — `plan_task` tool implements a Planner → Executor → Evaluator loop using `google/gemini-3-flash-preview` on OpenRouter
 - **Screenshot verification** — `screenshot_pages` uses headless Playwright to capture real pages as visual proof embedded in responses
 - **Trip mapping** — `trip-mapper` skill geocodes stops and generates Google Static Maps images with numbered pins
-- **Skills system** — Markdown-defined workflows (`SKILL.md`) the agent reads and executes, stored in `~/.nanobot/workspace/skills/`
+- **Skills system** — two-layer model: base skills (`workspace/skills/`, version-controlled, deployed) + instance skills (`skills-auto/`, agent-written, persists per deployment)
 - **Long-term memory** — `MEMORY.md` (facts) + `HISTORY.md` (event log), auto-consolidated after 50 messages
 - **Heartbeat** — Periodic tasks checked every 30 min (morning brief, calendar, etc.)
 
@@ -276,7 +276,16 @@ Two-mode orchestration tool using `google/gemini-3-flash-preview`:
 
 ## Skills
 
-Skills are Markdown files (`SKILL.md`) in `~/.nanobot/workspace/skills/<name>/`. The agent reads them when a matching intent is detected and follows the instructions.
+Skills are Markdown files (`SKILL.md`) the agent reads when a matching intent is detected. They follow a **two-layer model**:
+
+| Layer | Directory | Who writes it | Deploy behaviour |
+|---|---|---|---|
+| **Base** | `~/.nanobot/workspace/skills/` | You (version-controlled in `./workspace/skills/`) | Synced from repo on every deploy |
+| **Instance** | `~/.nanobot/workspace/skills-auto/` | The agent autonomously | Never touched by deploy — persists on EBS/local |
+
+Priority order at runtime: base > instance > built-in. A base-layer skill wins on name collision, so the agent cannot accidentally override a curated skill.
+
+**When the agent creates a new skill** it writes to `skills-auto/`. To promote a good autonomous skill to the base (so it ships with future deployments), copy it to `workspace/skills/` in the repo and commit.
 
 **Always use `~/.nanobot/workspace/` paths** in skill commands — never hardcode `/Users/ev/` or `/root/`.
 
@@ -456,13 +465,13 @@ rm -f docker-compose.override.yml
 
 ### Syncing skills to local gateway
 
-Skills are version-controlled in `workspace/skills/` (the repo). The running gateway reads from `~/.nanobot/workspace/skills/` (local instance). After editing files in the repo, push them to the running gateway:
+After editing base-layer skills in `workspace/skills/` (the repo), push them to the running local gateway:
 
 ```bash
 rsync -a workspace/ ~/.nanobot/workspace/
 ```
 
-You can edit `~/.nanobot/workspace/skills/` directly for quick experiments, but those changes won't persist — the next EC2 deploy overwrites them from the repo. Always commit skill changes back to `workspace/skills/`.
+This only touches the base layer (`skills/`). The instance layer (`skills-auto/`) is never touched by this command or by the EC2 deploy. Autonomous skills the agent creates persist independently on each instance.
 
 ### Gateway log
 

@@ -110,7 +110,8 @@ jobs:
             for f in "$WORKSPACE_SRC"/*.md; do
               [ -f "$f" ] && cp "$f" "$WORKSPACE_DST/" && echo "  synced $(basename $f)"
             done
-            # Sync skills (never delete existing skills — only add/update)
+            # Sync base-layer skills from repo → instance.
+            # NEVER touches skills-auto/ — that is the instance layer and belongs to the agent.
             for skill_dir in "$WORKSPACE_SRC"/skills/*/; do
               skill_name=$(basename "$skill_dir")
               mkdir -p "$WORKSPACE_DST/skills/$skill_name"
@@ -118,6 +119,8 @@ jobs:
                 cp -r "$skill_dir"* "$WORKSPACE_DST/skills/$skill_name/"
               echo "  synced skill: $skill_name"
             done
+            # Ensure instance layer directory exists so the agent can write to it immediately
+            mkdir -p "$WORKSPACE_DST/skills-auto"
 
             # ── Inject API keys into config.json ──────────────────────────────────
             echo "--- injecting API keys ---"
