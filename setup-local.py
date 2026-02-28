@@ -142,6 +142,13 @@ def main():
     brave_key = input("  Brave Search API Key: ").strip()
     maps_key = input("  Google Static Maps API Key (for trip-mapper): ").strip()
     
+    # Telegram
+    print("\n--- Telegram (Optional: chat with nanobot via Telegram) ---")
+    print("  1. Message @BotFather on Telegram")
+    print("  2. Send /newbot and follow the prompts")
+    print("  3. Copy the bot token it gives you (format: 123456789:ABC...)")
+    telegram_token = input("  Telegram Bot Token: ").strip()
+
     # Google OAuth (for Calendar)
     print("\n--- Google OAuth (Optional: for Calendar integration) ---")
     print("  Note: You must add 'http://localhost:3001/api/google/auth/callback' to ")
@@ -168,6 +175,12 @@ def main():
     # Tokens are written here by the dashboard OAuth flow.
     set_nested(cfg, "tools.google_calendar.clientId", google_client_id)
     set_nested(cfg, "tools.google_calendar.clientSecret", google_client_secret)
+    
+    # Telegram
+    if telegram_token:
+        set_nested(cfg, "channels.telegram.enabled", True)
+        set_nested(cfg, "channels.telegram.token", telegram_token)
+        print("  ✓ Telegram bot token set, channel enabled.")
     
     # Core system settings
     set_nested(cfg, "channels.web.enabled", True)

@@ -7,7 +7,8 @@ const API = process.env.REACT_APP_API_URL || '';
 
 export default function TelegramView({ onToggleSidebar, sidebarOpen }) {
   const [messages, setMessages] = useState([]);
-  const [status, setStatus] = useState(null);
+  const [status, setStatus] = useState(null);       // null = loading, object = loaded
+  const [statusLoaded, setStatusLoaded] = useState(false);
   const [connected, setConnected] = useState(false);
   const messagesEndRef = useRef(null);
   const lastIdRef = useRef(0);
@@ -21,8 +22,8 @@ export default function TelegramView({ onToggleSidebar, sidebarOpen }) {
   useEffect(() => {
     fetch(`${API}/api/telegram/status`)
       .then(r => r.json())
-      .then(s => setStatus(s))
-      .catch(() => setStatus({ enabled: false, hasToken: false }));
+      .then(s => { setStatus(s); setStatusLoaded(true); })
+      .catch(() => { setStatus({ enabled: false, hasToken: false }); setStatusLoaded(true); });
 
     fetch(`${API}/api/telegram/messages`)
       .then(r => r.json())
@@ -40,8 +41,13 @@ export default function TelegramView({ onToggleSidebar, sidebarOpen }) {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  // SSE stream for live messages
+  // SSE stream for live messages.
+  // The server emits `id:` fields — the browser automatically sends Last-Event-ID
+  // on reconnect, so the server can resume from the right position without gaps.
   useEffect(() => {
+    // Pass current lastId as a fallback for the very first connection (before
+    // any Last-Event-ID is established). On subsequent auto-reconnects the
+    // browser uses the Last-Event-ID header instead.
     const url = `${API}/api/telegram/stream?lastId=${lastIdRef.current}`;
     const es = new EventSource(url);
     eventSourceRef.current = es;
@@ -52,12 +58,11 @@ export default function TelegramView({ onToggleSidebar, sidebarOpen }) {
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
+        lastIdRef.current = msg.id;
         setMessages(prev => {
-          // Avoid duplicates
           if (prev.some(m => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
-        lastIdRef.current = msg.id;
       } catch {}
     };
 
@@ -90,7 +95,7 @@ export default function TelegramView({ onToggleSidebar, sidebarOpen }) {
             {connected ? 'live' : 'connecting…'}
           </div>
         </div>
-        {status && !status.enabled && (
+        {statusLoaded && status && !status.enabled && (
           <div className="telegram-warning">⚠ Bot not enabled in config</div>
         )}
       </div>
@@ -99,9 +104,11 @@ export default function TelegramView({ onToggleSidebar, sidebarOpen }) {
       <div className="telegram-messages">
         {messages.length === 0 ? (
           <div className="telegram-empty">
-            {status?.enabled
-              ? 'No messages yet — send a message to your Telegram bot to get started.'
-              : 'Telegram is not enabled. Add your bot token in Settings.'}
+            {!statusLoaded
+              ? 'Loading…'
+              : status?.enabled
+                ? 'No messages yet — send a message to your Telegram bot to get started.'
+                : 'Telegram is not enabled. Add your bot token in Settings.'}
           </div>
         ) : (
           messages.map(msg => (

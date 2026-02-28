@@ -17,6 +17,7 @@ export default function Settings({ onClose }) {
     maps_api_key:             '',
     main_llm:                 '',
     whatsapp_allowed_numbers: '',
+    telegram_token:           '',
   });
 
   const loadConfig = useCallback(async () => {
@@ -33,6 +34,7 @@ export default function Settings({ onClose }) {
         maps_api_key:             cfg.tools?.google?.mapsApiKey           || '',
         main_llm:                 cfg.agents?.defaults?.model             || '',
         whatsapp_allowed_numbers: (cfg.channels?.whatsapp?.allowFrom || []).join(', '),
+        telegram_token:           cfg.channels?.telegram?.token           || '',
       });
     } catch (e) {
       setStatus({ type: 'error', msg: 'Failed to load config: ' + e.message });
@@ -231,6 +233,21 @@ export default function Settings({ onClose }) {
               id="maps_api_key"
               label="Google Maps API Key"
               readOnly
+            />
+          </section>
+
+          {/* Telegram */}
+          <section className="settings-section">
+            <h3>✈️ Telegram</h3>
+            <Field
+              id="telegram_token"
+              label="Bot Token"
+              readOnly
+              helpText={
+                fields.telegram_token
+                  ? `Bot is ${fields.telegram_token ? 'enabled' : 'disabled'}. Token set via config/deploy.`
+                  : 'No token configured. Run make setup or set TELEGRAM_BOT_TOKEN in deploy secrets.'
+              }
             />
           </section>
 

@@ -726,6 +726,8 @@ app.get('/api/telegram/status', (req, res) => {
 });
 
 // GET /api/telegram/stream — SSE stream of new messages (1-second polling)
+// Uses SSE `id:` field so the browser sends Last-Event-ID on auto-reconnect,
+// allowing the server to resume from the correct position without missing messages.
 app.get('/api/telegram/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -735,8 +737,14 @@ app.get('/api/telegram/stream', (req, res) => {
 
   const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
 
-  // Start from the latest known ID (client can pass ?lastId=N for resumption)
-  let lastId = parseInt(req.query.lastId || '0', 10);
+  // Determine starting lastId:
+  // 1. Last-Event-ID header (browser sends this on auto-reconnect after error)
+  // 2. ?lastId= query param (explicit client-side position)
+  // 3. 0 → fall back to MAX(id) so we only push NEW messages
+  const headerLastId = parseInt(req.headers['last-event-id'] || '0', 10);
+  const queryLastId  = parseInt(req.query.lastId || '0', 10);
+  let lastId = headerLastId || queryLastId;
+
   if (!lastId) {
     try {
       const row = db.prepare('SELECT MAX(id) as maxId FROM telegram_messages').get();
@@ -750,7 +758,8 @@ app.get('/api/telegram/stream', (req, res) => {
         'SELECT * FROM telegram_messages WHERE id > ? ORDER BY id ASC LIMIT 50'
       ).all(lastId);
       for (const msg of msgs) {
-        res.write(`data: ${JSON.stringify(msg)}\n\n`);
+        // Include `id:` field so browser tracks position for reconnect
+        res.write(`id: ${msg.id}\ndata: ${JSON.stringify(msg)}\n\n`);
         lastId = msg.id;
       }
     } catch {}
