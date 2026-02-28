@@ -108,6 +108,29 @@ All workspace scripts are at `~/.nanobot/workspace/<script>.py`.
 
 **Always use `~` in exec commands** — never hardcode `/Users/ev/` or `/root/`.
 
+## Cross-Channel Memory — Critical Rule
+
+All conversations — web chat AND Telegram — are stored in `~/.nanobot/chat.db`.
+
+**When the user refers to something from a previous conversation, another chat, or says "you should know this":**
+
+1. **Do NOT say you don't have that information** — search first, always.
+2. Run this immediately:
+
+```
+exec("python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py <keyword>")
+```
+
+Replace `<keyword>` with the most relevant word(s) from the user's message (e.g. `gwm tank`, `calendar`, `flight`). Multiple words are supported.
+
+3. Use `--full` for complete message content: `query.py <keyword> --full`
+4. If nothing is found, say so briefly — but only after running the query.
+
+**Examples:**
+- User: "what did we discuss about the GWM Tank?" → `exec("python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py gwm tank")`
+- User: "from our Telegram chat earlier" → search Telegram: `exec("python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py <topic>")`
+- User: "you should already know my preference" → search memory: `exec("python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py preference")`
+
 ## Skills — Two-Layer Model
 
 Skills are split into two directories with different rules:
@@ -124,6 +147,8 @@ Skills are split into two directories with different rules:
 ```
 
 Base-layer skills take priority over instance-layer skills on name collision. The instance layer persists across deploys — it is never overwritten by CI.
+
+**Discovering skills**: list `~/.nanobot/workspace/skills/` to see what capabilities are available. Each skill directory has a `SKILL.md` with instructions and (usually) a ready-to-run script.
 
 ## Screenshots on Demand
 
