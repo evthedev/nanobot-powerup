@@ -21,14 +21,31 @@
 }
 
 @media (max-width: 768px) {
+  /* Use dynamic viewport height so browser chrome (address bar) doesn't clip the bottom */
+  html, body, #root {
+    height: 100dvh;
+  }
+
   /* Sidebar is position:fixed on mobile — remove from flex flow so main-area fills width */
   .app-layout {
     position: relative;
+    height: 100dvh;
   }
 
   .main-area {
     width: 100%;
     flex: 1;
+  }
+
+  /* ── Safe-area: push all top headers below the device status bar / notch ───── */
+  /* Applies to every panel that can be the topmost visible element on screen    */
+  .chat-header,
+  .welcome-topbar,
+  .telegram-header,
+  .logs-toolbar {
+    padding-top: max(12px, env(safe-area-inset-top));
+    height: calc(var(--header-height) + max(0px, env(safe-area-inset-top)));
+    box-sizing: border-box;
   }
 
   /* Dimming overlay behind the open sidebar */

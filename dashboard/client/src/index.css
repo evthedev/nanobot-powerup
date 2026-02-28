@@ -60,6 +60,9 @@
 
 html, body {
   height: 100%;
+  /* Use 100dvh on browsers that support it so the layout doesn't
+     extend behind iOS Safari's address bar / Android browser chrome */
+  height: 100dvh;
   overflow: hidden;
 }
 
