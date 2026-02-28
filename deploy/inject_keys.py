@@ -16,10 +16,11 @@ cfg_path = "/opt/nanobot/config.json"
 with open(cfg_path) as f:
     cfg = json.load(f)
 
-openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
-brave_key      = os.environ.get("BRAVE_API_KEY", "")
-tavily_key     = os.environ.get("TAVILY_API_KEY", "")
-maps_key       = os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", "")
+openrouter_key   = os.environ.get("OPENROUTER_API_KEY", "")
+brave_key        = os.environ.get("BRAVE_API_KEY", "")
+tavily_key       = os.environ.get("TAVILY_API_KEY", "")
+maps_key         = os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", "")
+telegram_token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
 if openrouter_key and not openrouter_key.startswith("REPLACE"):
     set_nested(cfg, "providers.openrouter.apiKey", openrouter_key)
@@ -36,6 +37,11 @@ elif brave_key and not brave_key.startswith("REPLACE"):
 if maps_key and not maps_key.startswith("REPLACE"):
     set_nested(cfg, "tools.google.mapsApiKey", maps_key)
     print(f"  google maps key set ({len(maps_key)} chars)")
+
+if telegram_token and not telegram_token.startswith("REPLACE"):
+    set_nested(cfg, "channels.telegram.enabled", True)
+    set_nested(cfg, "channels.telegram.token", telegram_token)
+    print(f"  telegram token set, bot enabled")
 
 set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
 print("  agent model: google/gemini-3-flash-preview")
