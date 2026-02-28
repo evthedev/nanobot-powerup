@@ -130,6 +130,15 @@ class WebChannel(BaseChannel):
                     await websocket.send(json.dumps({"type": "error", "content": "Missing session_id or content"}))
                     continue
 
+                # Cancel any pending done timer from a previous request on this session.
+                # Without this, a 90-s timer left over from the prior reply fires against
+                # the new connection (which shares the same session_id key), prematurely
+                # sending "done" to the dashboard and closing the connection before the
+                # agent for the new request has finished.
+                existing_timer = self._done_timers.pop(session_id, None)
+                if existing_timer:
+                    existing_timer.cancel()
+
                 # Register (or re-register) this WebSocket under the session_id
                 self._connections[session_id] = websocket
                 logger.info("Web channel inbound [{}]: {}", session_id, content[:120])
