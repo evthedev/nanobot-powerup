@@ -179,7 +179,12 @@ class ScreenshotPagesTool(Tool):
                 # Google URLs are already blocked/redirected so headed mode isn't needed
                 # to defeat Google's CAPTCHA — headless works fine for all other sources.
                 _headless = not bool(os.environ.get("DISPLAY"))
-                browser = await pw.chromium.launch(headless=_headless)
+                # When PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH is set (e.g. Docker with system
+                # Chromium), pass it explicitly so it applies to headless mode too.
+                # Without this, playwright 1.40+ falls back to headless_shell which
+                # is a separate binary that does not exist in the system chromium install.
+                _exec_path = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None
+                browser = await pw.chromium.launch(headless=_headless, executable_path=_exec_path)
                 page = await browser.new_page()
 
                 for entry in pages[:5]:
