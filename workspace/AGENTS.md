@@ -126,10 +126,13 @@ Replace `<keyword>` with the most relevant word(s) from the user's message (e.g.
 3. Use `--full` for complete message content: `query.py <keyword> --full`
 4. If nothing is found, say so briefly — but only after running the query.
 
+This works **in both directions** — from web chat you can read Telegram history, and from Telegram you can read web chat history. The script always searches both channels regardless of where you are currently running.
+
 **Examples:**
-- User: "what did we discuss about the GWM Tank?" → `exec("python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py gwm tank")`
-- User: "from our Telegram chat earlier" → search Telegram: `exec("python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py <topic>")`
-- User: "you should already know my preference" → search memory: `exec("python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py preference")`
+- (web chat) "what did we discuss about the GWM Tank?" → `exec("python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py gwm tank")`
+- (web chat) "what was said on Telegram today?" → `exec("python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py <topic>")`
+- (Telegram) "from our web chat earlier" → `exec("python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py <topic>")`
+- (any) "you should already know my preference" → `exec("python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py preference")`
 
 ## Skills — Two-Layer Model
 
