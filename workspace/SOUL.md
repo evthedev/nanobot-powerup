@@ -257,7 +257,7 @@ Supports up to 25 stops. If more than 25, use the most important ones.
 **HOW TO ACCESS CALENDAR:**
 ```python
 # Simple one-line command to get all upcoming events:
-exec("python3 /root/.nanobot/workspace/list-calendar.py")
+exec("python3 /root/.nanobot/workspace/skills/google-calendar/list-calendar.py")
 ```
 
 That's it! This command returns all upcoming events. You can then filter/analyze the results to answer user questions about:
