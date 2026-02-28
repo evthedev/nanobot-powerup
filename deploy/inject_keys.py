@@ -16,11 +16,13 @@ cfg_path = "/opt/nanobot/config.json"
 with open(cfg_path) as f:
     cfg = json.load(f)
 
-openrouter_key   = os.environ.get("OPENROUTER_API_KEY", "")
-brave_key        = os.environ.get("BRAVE_API_KEY", "")
-tavily_key       = os.environ.get("TAVILY_API_KEY", "")
-maps_key         = os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", "")
-telegram_token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+openrouter_key        = os.environ.get("OPENROUTER_API_KEY", "")
+brave_key             = os.environ.get("BRAVE_API_KEY", "")
+tavily_key            = os.environ.get("TAVILY_API_KEY", "")
+maps_key              = os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", "")
+telegram_token        = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+google_client_id      = os.environ.get("GOOGLE_CLIENT_ID", "")
+google_client_secret  = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
 if openrouter_key and not openrouter_key.startswith("REPLACE"):
     set_nested(cfg, "providers.openrouter.apiKey", openrouter_key)
@@ -42,6 +44,14 @@ if telegram_token and not telegram_token.startswith("REPLACE"):
     set_nested(cfg, "channels.telegram.enabled", True)
     set_nested(cfg, "channels.telegram.token", telegram_token)
     print(f"  telegram token set, bot enabled")
+
+if google_client_id and not google_client_id.startswith("REPLACE"):
+    set_nested(cfg, "tools.google_calendar.clientId", google_client_id)
+    print(f"  google client ID set")
+
+if google_client_secret and not google_client_secret.startswith("REPLACE"):
+    set_nested(cfg, "tools.google_calendar.clientSecret", google_client_secret)
+    print(f"  google client secret set")
 
 set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
 print("  agent model: google/gemini-3-flash-preview")

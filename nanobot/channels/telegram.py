@@ -268,6 +268,11 @@ class TelegramChannel(BaseChannel):
             logger.warning("Telegram bot not running")
             return
 
+        # Progress messages are typing-indicator hints intended for the web channel.
+        # Do NOT send or persist them — they contain raw tool-call descriptions.
+        if msg.metadata and msg.metadata.get("_progress"):
+            return
+
         self._stop_typing(msg.chat_id)
 
         try:

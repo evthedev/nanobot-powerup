@@ -81,6 +81,9 @@ jobs:
             BRAVE_API_KEY="$BRAVE_API_KEY" \
             TAVILY_API_KEY="$TAVILY_API_KEY" \
             GOOGLE_STATIC_MAPS_API_KEY="$GOOGLE_STATIC_MAPS_API_KEY" \
+            GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
+            GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
+            TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
             bash << 'SETUP'
             set -euo pipefail
             REPO_DIR="/opt/nanobot-app"
@@ -150,9 +153,12 @@ jobs:
             cd /opt/nanobot-app
             # Remove local dev override so it never pollutes the EC2 environment
             rm -f docker-compose.override.yml
-            echo "--- building & restarting ---"
+            echo "--- building ---"
             docker compose -f docker-compose.yml build --pull
-            docker compose -f docker-compose.yml up -d --remove-orphans --force-recreate
+            echo "--- stopping old containers (prevents name-conflict on recreate) ---"
+            docker compose -f docker-compose.yml down --remove-orphans
+            echo "--- starting fresh ---"
+            docker compose -f docker-compose.yml up -d
             docker image prune -f
             echo "--- stack status ---"
             docker compose -f docker-compose.yml ps
