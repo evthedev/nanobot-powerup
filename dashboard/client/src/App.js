@@ -135,6 +135,8 @@ function AppInner() {
       streaming: true
     }]);
 
+    let gotDone = false;
+
     try {
       const response = await fetch(`${API}/api/conversations/${convId}/messages`, {
         method: 'POST',
@@ -182,6 +184,7 @@ function AppInner() {
               }]);
               setStreaming(true);
             } else if (event.type === 'done') {
+              gotDone = true;
               const tid = event.tempId || assistantTempId;
               setMessages(prev => prev.map(m =>
                 m.id === tid
@@ -215,6 +218,21 @@ function AppInner() {
       ));
     } finally {
       setStreaming(false);
+
+      // Recovery: if the SSE stream closed without a confirmed `done` event, the
+      // connection dropped mid-response. Wait briefly then reload from DB — if the
+      // agent saved a reply it will surface; if not, temp bubbles are replaced by
+      // the clean DB state.
+      if (!gotDone) {
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+          const r = await fetch(`${API}/api/conversations/${convId}/messages`);
+          const freshMsgs = await r.json();
+          setMessages(freshMsgs);
+          fetchConversations();
+          fetchStats();
+        } catch {}
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
