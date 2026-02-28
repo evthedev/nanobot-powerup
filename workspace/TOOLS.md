@@ -239,6 +239,35 @@ Used exclusively during the **travel-research workflow** (Step 4). Do not call `
 
 ---
 
+## screenshot_pages
+
+Navigates to URLs using a real browser, captures screenshots, and returns text content + image URLs. Use this for any visual proof that a fact came from a real source.
+
+```
+screenshot_pages(
+  slug: str,    # Lowercase hyphenated identifier, e.g. "hooters-la-menu", "coldplay-tokyo"
+  pages: list   # Up to 5 pages. Each: {"url": str, "label": str, "wait_seconds": int (default 4)}
+) -> str
+```
+
+**Two screenshot types:**
+- **TYPE A** (prices/availability): DuckDuckGo or Booking.com search results — price cards appear inline. Use for flights, hotels, ticket prices.
+- **TYPE B** (factual claims): The ACTUAL SOURCE PAGE — Wikipedia, TripAdvisor, official site, Reddit thread. A search results page does NOT verify a claim about a place or product.
+
+**Reading the output:**
+- Lines marked `✅ USABLE` contain valid image URLs — embed these in your response as `![Label](url)`
+- Lines marked `❌ FAILED` — the file was not saved, do NOT embed these
+- Each page also returns extracted page text for you to summarise
+
+**Rules:**
+- Max 5 pages per call. Split into multiple calls with different slugs if needed.
+- Never use google.com — it serves a CAPTCHA to headless browsers (auto-redirected to DuckDuckGo)
+- Never use DuckDuckGo/Bing for factual claims — use the actual source page
+
+**Do NOT use `spawn` for screenshots** — spawn subagents are async and their messages arrive after your response is sent, so the image never appears inline. `screenshot_pages` is synchronous.
+
+---
+
 ## Adding Custom Tools
 
 To add custom tools:

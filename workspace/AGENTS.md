@@ -81,6 +81,26 @@ Task format examples:
 
 When the user asks you to add a recurring/periodic task, update `HEARTBEAT.md` instead of creating a one-time reminder. Keep the file small to minimize token usage.
 
+## Credentials & Config — Non-Negotiable Rule
+
+**`~/.nanobot/config.json` is the single source of truth for all credentials.**
+
+Before writing or running any script that requires authentication, API keys, or OAuth tokens:
+
+1. **Read `~/.nanobot/config.json` first** — always, no exceptions
+2. Find the credentials under `tools.<service_name>` (e.g. `tools.google_calendar`, `tools.web.search`, `tools.yelp`)
+3. **Never look for** `credentials.json`, `.env`, `token.json`, or any standalone credential file in the workspace or current directory — those do not exist by convention
+4. When writing Python scripts that need auth, load config like this:
+
+```python
+import json
+from pathlib import Path
+config = json.loads((Path.home() / ".nanobot/config.json").read_text())
+creds = config["tools"]["<service_name>"]
+```
+
+This rule applies to every script you write, every skill you create, and every inline `exec` command that touches an external service.
+
 ## Environment
 
 The workspace path is `~/.nanobot/workspace/` (expands to the correct home directory on each system).
@@ -107,13 +127,23 @@ Base-layer skills take priority over instance-layer skills on name collision. Th
 
 ## Screenshots on Demand
 
-When the user explicitly asks for **screenshots** of research (e.g. "show screenshots", "I don't want hallucinations", "visual evidence"), you **must** capture them using `spawn`:
+When the user explicitly asks for **screenshots** of research (e.g. "show screenshots", "I don't want hallucinations", "visual evidence"), you **must** use the `screenshot_pages` tool directly — **never use `spawn` for this**.
 
 ```
-spawn task: |
-  Navigate to <URL> with mcp_playwright_browser_navigate.
-  Wait 3s. Take screenshot saved to ~/.nanobot/workspace/screenshots/<slug>.png.
-  Reply with: ![Label](/api/screenshots/<slug>.png)
+screenshot_pages(
+  slug="<topic-slug>",        # e.g. "hooters-la-menu", "airbnb-review"
+  pages=[
+    {"url": "<source URL>", "label": "<snake_case_label>", "wait_seconds": 4}
+  ]
+)
 ```
 
-Do this for every cited source — flights, hotels, review sites, news articles, etc.
+After the tool returns, embed **only ✅ USABLE** image URLs in your response:
+
+```
+![Label](/api/screenshots/<slug>-<label>.png)
+```
+
+Do this for every cited source — menus, flights, hotels, review sites, news articles, etc.
+
+> **Why not `spawn`?** `spawn` subagents run asynchronously — their "Reply with" message arrives as a *separate* message after your response is already sent. The screenshot will never appear inline. `screenshot_pages` is synchronous and returns the URL immediately so you can embed it in the same response.

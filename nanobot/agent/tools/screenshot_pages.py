@@ -158,7 +158,16 @@ class ScreenshotPagesTool(Tool):
             )
 
         import asyncio as _asyncio  # pylint: disable=import-outside-toplevel
-        from playwright.async_api import async_playwright  # pylint: disable=import-outside-toplevel
+        try:
+            from playwright.async_api import async_playwright  # pylint: disable=import-outside-toplevel
+        except ImportError:
+            logger.error("screenshot_pages: playwright not installed")
+            return (
+                "❌ screenshot_pages FAILED: playwright Python package is not installed.\n\n"
+                "Self-heal by running this exec command, then retry screenshot_pages:\n"
+                "  exec: pip install playwright\n\n"
+                "Note: the Chromium binary is already available — no 'playwright install' needed."
+            )
 
         results: list[dict] = []  # {label, url, img_url, content, ok}
 

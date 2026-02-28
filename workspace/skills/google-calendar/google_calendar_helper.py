@@ -1,4 +1,4 @@
-"""Google Calendar helper — loads credentials from NanoBot config token path."""
+"""Google Calendar helper — loads credentials from ~/.nanobot/config.json (tools.google_calendar)."""
 import json
 from pathlib import Path
 from datetime import datetime, timezone
@@ -6,53 +6,52 @@ from datetime import datetime, timezone
 CONFIG_PATH = Path.home() / ".nanobot" / "config.json"
 
 
-def _get_token_path() -> Path:
-    config = json.loads(CONFIG_PATH.read_text())
-    google_cfg = config.get("tools", {}).get("google", {}).get("credentials", {})
-    raw = google_cfg.get("tokenPath", "~/.nanobot/google_calendar_token.json")
-    return Path(raw).expanduser()
+def _read_config() -> dict:
+    return json.loads(CONFIG_PATH.read_text())
 
 
 def _load_credentials():
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
 
-    config = json.loads(CONFIG_PATH.read_text())
-    google_cfg = config.get("tools", {}).get("google", {}).get("credentials", {})
-    client_id = google_cfg.get("clientId", "")
-    client_secret = google_cfg.get("clientSecret", "")
+    # Credentials live in ~/.nanobot/config.json under tools.google_calendar — always read here first.
+    config = _read_config()
+    gc_cfg = config.get("tools", {}).get("google_calendar", {})
 
-    token_path = _get_token_path()
-    if not token_path.exists():
-        raise FileNotFoundError(
-            f"Google token not found at {token_path}. "
-            "Please connect your Google account in the dashboard settings."
+    client_id = gc_cfg.get("clientId", "")
+    client_secret = gc_cfg.get("clientSecret", "")
+    token_data = gc_cfg.get("tokens", {})
+
+    if not token_data or not token_data.get("refresh_token"):
+        raise RuntimeError(
+            "No Google Calendar tokens found in ~/.nanobot/config.json under tools.google_calendar.tokens. "
+            "Please re-authenticate via the dashboard."
         )
 
-    token_data = json.loads(token_path.read_text())
+    scopes = token_data.get("scope", "")
+    scopes = scopes.split() if isinstance(scopes, str) else scopes
 
     creds = Credentials(
         token=token_data.get("access_token"),
         refresh_token=token_data.get("refresh_token"),
-        token_uri="https://oauth2.googleapis.com/token",
+        token_uri=token_data.get("token_uri", "https://oauth2.googleapis.com/token"),
         client_id=client_id or token_data.get("client_id", ""),
         client_secret=client_secret or token_data.get("client_secret", ""),
-        scopes=token_data.get("scope", "").split() if isinstance(token_data.get("scope"), str) else token_data.get("scope"),
+        scopes=scopes,
     )
 
     if not creds.valid:
         creds.refresh(Request())
-        # Persist refreshed token
-        updated = {
+        # Write refreshed tokens back to config.json so the source of truth stays current.
+        config["tools"]["google_calendar"]["tokens"].update({
             "access_token": creds.token,
             "refresh_token": creds.refresh_token,
             "token_uri": creds.token_uri,
             "client_id": creds.client_id,
             "client_secret": creds.client_secret,
             "scope": " ".join(creds.scopes) if creds.scopes else "",
-            "expires_in": 3599,
-        }
-        token_path.write_text(json.dumps(updated, indent=2))
+        })
+        CONFIG_PATH.write_text(json.dumps(config, indent=2))
 
     return creds
 
