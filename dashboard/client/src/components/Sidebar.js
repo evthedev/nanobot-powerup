@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { useLocation } from 'react-router-dom';
 import './Sidebar.css';
 
 export default function Sidebar({
@@ -14,9 +15,10 @@ export default function Sidebar({
   isOpen,
   onToggle,
   onSettings,
-  showLogs,
   onLogs,
 }) {
+  const location = useLocation();
+  const showLogs = location.pathname === '/logs';
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [hoveredId, setHoveredId] = useState(null);

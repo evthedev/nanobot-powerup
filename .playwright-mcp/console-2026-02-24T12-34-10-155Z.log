@@ -1,4 +1,0 @@
-[   53526ms] [ERROR] WebSocket connection to 'ws://localhost:3000/ws' failed:  @ http://localhost:3000/static/js/bundle.js:36233
-[   54585ms] [ERROR] WebSocket connection to 'ws://localhost:3000/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/static/js/bundle.js:36233
-[   56601ms] [ERROR] WebSocket connection to 'ws://localhost:3000/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/static/js/bundle.js:36233
-[   60659ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/main.2023d25ce8caba519faa.hot-update.json:0

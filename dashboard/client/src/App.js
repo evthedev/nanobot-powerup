@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import ChatWindow from './components/ChatWindow';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -6,11 +7,12 @@ import Settings from './components/Settings';
 import LogsPanel from './components/LogsPanel';
 import './App.css';
 
-// Empty string = relative paths → works in prod (nginx proxies /api/* to dashboard)
-// and in local dev when using `npm start` with the proxy set in package.json.
 const API = process.env.REACT_APP_API_URL || '';
 
-export default function App() {
+// ── Inner app — has access to router hooks ────────────────────────────────────
+function AppInner() {
+  const navigate = useNavigate();
+
   const [conversations, setConversations] = useState([]);
   const [activeConvId, setActiveConvId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -20,10 +22,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [serverOk, setServerOk] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [showLogs, setShowLogs] = useState(false);
   const [mainModel, setMainModel] = useState(null);
 
-  // ── Boot ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     checkHealth();
     fetchConversations();
@@ -68,25 +68,7 @@ export default function App() {
     } catch {}
   }
 
-  // ── Conversation actions ──────────────────────────────────────────────────
-  const createConversation = useCallback(async (initialMessage) => {
-    const r = await fetch(`${API}/api/conversations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'New Conversation' })
-    });
-    const conv = await r.json();
-    setConversations(prev => [conv, ...prev]);
-    setActiveConvId(conv.id);
-    setMessages([]);
-    if (initialMessage) {
-      await sendMessage(conv.id, initialMessage);
-    }
-    return conv;
-  }, []);
-
-  const selectConversation = useCallback(async (id) => {
-    setShowLogs(false);
+  const loadConversation = useCallback(async (id) => {
     setActiveConvId(id);
     setLoading(true);
     try {
@@ -100,15 +82,20 @@ export default function App() {
     }
   }, []);
 
+  const selectConversation = useCallback((id) => {
+    navigate(`/chat/${id}`);
+  }, [navigate]);
+
   const deleteConversation = useCallback(async (id) => {
     await fetch(`${API}/api/conversations/${id}`, { method: 'DELETE' });
     setConversations(prev => prev.filter(c => c.id !== id));
     if (activeConvId === id) {
       setActiveConvId(null);
       setMessages([]);
+      navigate('/');
     }
     fetchStats();
-  }, [activeConvId]);
+  }, [activeConvId, navigate]);
 
   const renameConversation = useCallback(async (id, title) => {
     await fetch(`${API}/api/conversations/${id}`, {
@@ -119,16 +106,14 @@ export default function App() {
     setConversations(prev => prev.map(c => c.id === id ? { ...c, title } : c));
   }, []);
 
-  // ── Message sending ───────────────────────────────────────────────────────
-  const sendMessage = useCallback(async (convId, content) => {
-    const targetId = convId || activeConvId;
-    if (!targetId || !content.trim()) return;
+  // sendMessageToConv is defined first so createConversation can reference it in deps
+  const sendMessageToConv = useCallback(async (convId, content) => {
+    if (!convId || !content.trim()) return;
 
-    // Optimistic user message
     const tempId = `temp-${Date.now()}`;
     const userMsg = {
       id: tempId,
-      conversation_id: targetId,
+      conversation_id: convId,
       role: 'user',
       content: content.trim(),
       created_at: new Date().toISOString()
@@ -136,20 +121,18 @@ export default function App() {
     setMessages(prev => [...prev, userMsg]);
     setStreaming(true);
 
-    // Streaming assistant placeholder (let so new_message can advance it)
     let assistantTempId = `assistant-temp-${Date.now()}`;
-    let assistantMsg = {
+    setMessages(prev => [...prev, {
       id: assistantTempId,
-      conversation_id: targetId,
+      conversation_id: convId,
       role: 'assistant',
       content: '',
       created_at: new Date().toISOString(),
       streaming: true
-    };
-    setMessages(prev => [...prev, assistantMsg]);
+    }]);
 
     try {
-      const response = await fetch(`${API}/api/conversations/${targetId}/messages`, {
+      const response = await fetch(`${API}/api/conversations/${convId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content.trim(), tempId: assistantTempId })
@@ -158,7 +141,6 @@ export default function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let finalMsgId = assistantTempId;
 
       streamLoop: while (true) {
         const { done, value } = await reader.read();
@@ -168,63 +150,56 @@ export default function App() {
         const lines = buffer.split('\n');
         buffer = lines.pop();
 
+        /* eslint-disable no-loop-func */
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           const raw = line.slice(6).trim();
           try {
             const event = JSON.parse(raw);
             if (event.type === 'delta') {
+              const tid = assistantTempId;
               setMessages(prev => prev.map(m =>
-                m.id === assistantTempId
-                  ? { ...m, content: m.content + event.content }
-                  : m
+                m.id === tid ? { ...m, content: m.content + event.content } : m
               ));
             } else if (event.type === 'new_message') {
-              // Subagent (or second agent turn) is about to stream — freeze the
-              // current bubble and add a fresh streaming placeholder.
+              const prevTid = assistantTempId;
               setMessages(prev => prev.map(m =>
-                m.id === assistantTempId ? { ...m, streaming: false } : m
+                m.id === prevTid ? { ...m, streaming: false } : m
               ));
               assistantTempId = event.tempId;
+              const nextTid = assistantTempId;
               setMessages(prev => [...prev, {
-                id: assistantTempId,
-                conversation_id: targetId,
+                id: nextTid,
+                conversation_id: convId,
                 role: 'assistant',
                 content: '',
                 created_at: new Date().toISOString(),
                 streaming: true,
               }]);
-              // Re-show spinner for the incoming subagent message
               setStreaming(true);
             } else if (event.type === 'done') {
-              // Finalise the bubble identified by tempId (may be a later subagent bubble)
               const tid = event.tempId || assistantTempId;
-              finalMsgId = event.messageId;
               setMessages(prev => prev.map(m =>
                 m.id === tid
-                  ? { ...m, id: finalMsgId, content: event.content, streaming: false }
+                  ? { ...m, id: event.messageId, content: event.content, streaming: false }
                   : m
               ));
-              // Clear spinner immediately when message appears — don't wait for WS session to close.
-              // If a new_message event follows (subagent), setStreaming(true) will re-enable it.
               setStreaming(false);
             } else if (event.type === 'error') {
+              const tid = assistantTempId;
               setMessages(prev => prev.map(m =>
-                m.id === assistantTempId
+                m.id === tid
                   ? { ...m, content: `⚠️ ${event.error}`, streaming: false, error: true }
                   : m
               ));
             } else if (event.type === 'stream_end') {
-              // Server signals stream is fully done — exit immediately rather than
-              // waiting for TCP connection close (can lag several seconds).
-              console.log('[stream] got stream_end → breaking streamLoop');
               break streamLoop;
             }
           } catch {}
         }
+        /* eslint-enable no-loop-func */
       }
 
-      // Refresh conversation list to get updated title/timestamp
       fetchConversations();
       fetchStats();
 
@@ -237,65 +212,124 @@ export default function App() {
     } finally {
       setStreaming(false);
     }
-  }, [activeConvId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // ── Handle new chat from welcome screen ──────────────────────────────────
-  const handleNewChat = useCallback(async (message) => {
-    await createConversation(message);
-  }, [createConversation]);
+  const createConversation = useCallback(async (initialMessage) => {
+    const r = await fetch(`${API}/api/conversations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'New Conversation' })
+    });
+    const conv = await r.json();
+    setConversations(prev => [conv, ...prev]);
+    navigate(`/chat/${conv.id}`);
+    setMessages([]);
+    if (initialMessage) {
+      await sendMessageToConv(conv.id, initialMessage);
+    }
+    return conv;
+  }, [navigate, sendMessageToConv]);
 
-  // ── Handle send from chat window ─────────────────────────────────────────
   const handleSend = useCallback(async (content) => {
     if (!activeConvId) {
       await createConversation(content);
     } else {
-      await sendMessage(activeConvId, content);
+      await sendMessageToConv(activeConvId, content);
     }
-  }, [activeConvId, createConversation, sendMessage]);
+  }, [activeConvId, createConversation, sendMessageToConv]);
 
-  const activeConv = conversations.find(c => c.id === activeConvId);
+  const handleNewChat = useCallback(async (message) => {
+    await createConversation(message);
+  }, [createConversation]);
+
+  const sidebarProps = {
+    conversations,
+    activeConvId,
+    onSelect: selectConversation,
+    onNew: () => navigate('/'),
+    onDelete: deleteConversation,
+    onRename: renameConversation,
+    stats,
+    serverOk,
+    isOpen: sidebarOpen,
+    onToggle: () => setSidebarOpen(p => !p),
+    onSettings: () => setShowSettings(true),
+    onLogs: () => navigate('/logs'),
+  };
 
   return (
     <div className={`app-layout ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}
-      <Sidebar
-        conversations={conversations}
-        activeConvId={activeConvId}
-        onSelect={selectConversation}
-        onNew={() => { setShowLogs(false); setActiveConvId(null); setMessages([]); }}
-        onDelete={deleteConversation}
-        onRename={renameConversation}
-        stats={stats}
-        serverOk={serverOk}
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(p => !p)}
-        onSettings={() => setShowSettings(true)}
-        showLogs={showLogs}
-        onLogs={() => setShowLogs(p => !p)}
-      />
+
+      <Sidebar {...sidebarProps} />
 
       <main className="main-area">
-        {showLogs ? (
-          <LogsPanel mainModel={mainModel} />
-        ) : activeConvId ? (
-          <ChatWindow
-            conversation={activeConv}
-            messages={messages}
-            onSend={handleSend}
-            streaming={streaming}
-            loading={loading}
-            onToggleSidebar={() => setSidebarOpen(p => !p)}
-            sidebarOpen={sidebarOpen}
+        <Routes>
+          <Route path="/logs" element={<LogsPanel mainModel={mainModel} />} />
+          <Route
+            path="/chat/:chatId"
+            element={
+              <ChatRoute
+                conversations={conversations}
+                activeConvId={activeConvId}
+                messages={messages}
+                loading={loading}
+                streaming={streaming}
+                onLoad={loadConversation}
+                onSend={handleSend}
+                onToggleSidebar={() => setSidebarOpen(p => !p)}
+                sidebarOpen={sidebarOpen}
+              />
+            }
           />
-        ) : (
-          <WelcomeScreen
-            onNewChat={handleNewChat}
-            stats={stats}
-            onToggleSidebar={() => setSidebarOpen(p => !p)}
-            sidebarOpen={sidebarOpen}
+          <Route
+            path="/"
+            element={
+              <WelcomeScreen
+                onNewChat={handleNewChat}
+                stats={stats}
+                onToggleSidebar={() => setSidebarOpen(p => !p)}
+                sidebarOpen={sidebarOpen}
+              />
+            }
           />
-        )}
+        </Routes>
       </main>
     </div>
+  );
+}
+
+// ── ChatRoute — loads messages when chatId changes ───────────────────────────
+function ChatRoute({ conversations, activeConvId, messages, loading, streaming, onLoad, onSend, onToggleSidebar, sidebarOpen }) {
+  const { chatId } = useParams();
+
+  useEffect(() => {
+    if (chatId && chatId !== activeConvId) {
+      onLoad(chatId);
+    }
+  }, [chatId, activeConvId, onLoad]);
+
+  const conv = conversations.find(c => c.id === chatId);
+
+  return (
+    <ChatWindow
+      conversation={conv}
+      messages={messages}
+      onSend={onSend}
+      streaming={streaming}
+      loading={loading}
+      onToggleSidebar={onToggleSidebar}
+      sidebarOpen={sidebarOpen}
+    />
+  );
+}
+
+// ── Root with BrowserRouter ───────────────────────────────────────────────────
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppInner />
+    </BrowserRouter>
   );
 }

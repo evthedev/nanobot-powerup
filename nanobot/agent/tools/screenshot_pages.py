@@ -185,7 +185,8 @@ class ScreenshotPagesTool(Tool):
                 # is a separate binary that does not exist in the system chromium install.
                 _exec_path = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None
                 browser = await pw.chromium.launch(headless=_headless, executable_path=_exec_path)
-                page = await browser.new_page()
+                # 1024px viewport keeps content readable while roughly halving file size vs 1280px
+                page = await browser.new_page(viewport={"width": 1024, "height": 768})
 
                 for entry in pages[:5]:
                     url = entry.get("url", "").strip()
@@ -208,7 +209,7 @@ class ScreenshotPagesTool(Tool):
                             "official site) to actually verify factual claims. URL: {}", label, url
                         )
 
-                    filename = f"{safe_slug}-{label}.png"
+                    filename = f"{safe_slug}-{label}.jpg"
                     filepath = f"{_SCREENSHOTS_DIR}/{filename}"
                     img_url = f"{_SCREENSHOTS_URL}/{filename}"
 
@@ -241,13 +242,13 @@ class ScreenshotPagesTool(Tool):
                         except Exception:
                             pass
                         content = (await page.inner_text("body"))[:5000]
-                        await page.screenshot(path=filepath, type="png", full_page=False)
+                        await page.screenshot(path=filepath, type="jpeg", quality=82, full_page=False)
                         ok = True
                         logger.info("screenshot_pages: ✅ {} saved → {}", label, filepath)
                     except Exception as exc:
                         logger.warning("screenshot_pages: ⚠️ {} failed: {}", label, exc)
                         try:
-                            await page.screenshot(path=filepath, type="png")
+                            await page.screenshot(path=filepath, type="jpeg", quality=82)
                         except Exception:
                             pass
 
