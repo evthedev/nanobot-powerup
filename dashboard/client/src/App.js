@@ -219,19 +219,41 @@ function AppInner() {
     } finally {
       setStreaming(false);
 
-      // Recovery: if the SSE stream closed without a confirmed `done` event, the
-      // connection dropped mid-response. Wait briefly then reload from DB — if the
-      // agent saved a reply it will surface; if not, temp bubbles are replaced by
-      // the clean DB state.
+      // Recovery: if the SSE stream closed without a confirmed `done` event the
+      // connection dropped mid-response. The agent may still be running and will
+      // save its reply to DB when it finishes. Poll the DB every few seconds
+      // (with exponential back-off) until a new assistant message appears or we
+      // reach the 10-minute ceiling.
       if (!gotDone) {
-        await new Promise(r => setTimeout(r, 1500));
+        const INTERVALS = [2, 3, 5, 8, 13, 21, 30, 30, 30, 30]; // seconds
+        const DEADLINE = Date.now() + 10 * 60 * 1000;
+        let lastAssistantId = null;
+
+        // Capture the last known assistant message id so we can detect new ones
         try {
-          const r = await fetch(`${API}/api/conversations/${convId}/messages`);
-          const freshMsgs = await r.json();
-          setMessages(freshMsgs);
-          fetchConversations();
-          fetchStats();
+          const seed = await fetch(`${API}/api/conversations/${convId}/messages`);
+          const seedMsgs = await seed.json();
+          setMessages(seedMsgs); // replace streaming temp bubbles with DB state
+          const last = [...seedMsgs].reverse().find(m => m.role === 'assistant');
+          lastAssistantId = last?.id ?? null;
         } catch {}
+
+        for (const delay of INTERVALS) {
+          if (Date.now() >= DEADLINE) break;
+          await new Promise(r => setTimeout(r, delay * 1000));
+          try {
+            const r = await fetch(`${API}/api/conversations/${convId}/messages`);
+            const freshMsgs = await r.json();
+            const newLast = [...freshMsgs].reverse().find(m => m.role === 'assistant');
+            if (newLast && newLast.id !== lastAssistantId) {
+              // A new assistant message arrived — surface it
+              setMessages(freshMsgs);
+              fetchConversations();
+              fetchStats();
+              break;
+            }
+          } catch { break; }
+        }
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
