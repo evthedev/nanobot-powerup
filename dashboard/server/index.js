@@ -64,6 +64,16 @@ db.exec(`
 
   INSERT OR IGNORE INTO system_stats (id, total_messages, total_conversations, last_active)
   VALUES (1, 0, 0, datetime('now'));
+
+  CREATE TABLE IF NOT EXISTS telegram_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    direction TEXT NOT NULL CHECK(direction IN ('inbound','outbound')),
+    chat_id TEXT NOT NULL,
+    sender_id TEXT DEFAULT '',
+    sender_name TEXT DEFAULT '',
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // ─── Middleware ─────────────────────────────────────────────────────────────
@@ -684,6 +694,72 @@ app.post('/api/google/disconnect', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Telegram ─────────────────────────────────────────────────────────────────
+
+// GET /api/telegram/messages — recent message history
+app.get('/api/telegram/messages', (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '200', 10), 500);
+    const msgs = db.prepare(
+      'SELECT * FROM telegram_messages ORDER BY id DESC LIMIT ?'
+    ).all(limit).reverse();
+    res.json(msgs);
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+// GET /api/telegram/status — whether Telegram is configured
+app.get('/api/telegram/status', (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const tg = cfg?.channels?.telegram || {};
+    res.json({
+      enabled: !!tg.enabled,
+      hasToken: !!(tg.token || '').trim(),
+    });
+  } catch {
+    res.json({ enabled: false, hasToken: false });
+  }
+});
+
+// GET /api/telegram/stream — SSE stream of new messages (1-second polling)
+app.get('/api/telegram/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (res.socket) res.socket.setNoDelay(true);
+
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
+
+  // Start from the latest known ID (client can pass ?lastId=N for resumption)
+  let lastId = parseInt(req.query.lastId || '0', 10);
+  if (!lastId) {
+    try {
+      const row = db.prepare('SELECT MAX(id) as maxId FROM telegram_messages').get();
+      lastId = row?.maxId || 0;
+    } catch {}
+  }
+
+  const poll = setInterval(() => {
+    try {
+      const msgs = db.prepare(
+        'SELECT * FROM telegram_messages WHERE id > ? ORDER BY id ASC LIMIT 50'
+      ).all(lastId);
+      for (const msg of msgs) {
+        res.write(`data: ${JSON.stringify(msg)}\n\n`);
+        lastId = msg.id;
+      }
+    } catch {}
+  }, 1000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    clearInterval(poll);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

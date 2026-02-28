@@ -15,8 +15,19 @@ module.exports = function (app) {
     createProxyMiddleware({
       target,
       changeOrigin: true,
-      xfwd: true,         // passes X-Forwarded-Host: localhost:3000 to Express
+      xfwd: true,
       logLevel: 'warn',
+      // Required for SSE (logs/stream, telegram/stream): disable response buffering
+      selfHandleResponse: false,
+      on: {
+        proxyRes: (proxyRes) => {
+          const ct = proxyRes.headers['content-type'] || '';
+          if (ct.includes('text/event-stream')) {
+            proxyRes.headers['cache-control'] = 'no-cache';
+            proxyRes.headers['x-accel-buffering'] = 'no';
+          }
+        },
+      },
     })
   );
 };

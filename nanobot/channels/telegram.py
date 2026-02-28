@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import re
+import sqlite3
+from pathlib import Path
 from loguru import logger
 from telegram import BotCommand, Update, ReplyParameters
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -13,6 +15,55 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import TelegramConfig
+
+_DB_PATH = str(Path.home() / ".nanobot" / "chat.db")
+
+def _ensure_telegram_table() -> None:
+    """Create telegram_messages table if it doesn't exist."""
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS telegram_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                direction TEXT NOT NULL CHECK(direction IN ('inbound','outbound')),
+                chat_id TEXT NOT NULL,
+                sender_id TEXT DEFAULT '',
+                sender_name TEXT DEFAULT '',
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning("telegram: could not ensure telegram_messages table: {}", e)
+
+
+def _persist_sync(direction: str, chat_id: str, content: str, sender_id: str = "", sender_name: str = "") -> None:
+    """Write a Telegram message to the shared SQLite database (called in executor)."""
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS telegram_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                direction TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                sender_id TEXT DEFAULT '',
+                sender_name TEXT DEFAULT '',
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute(
+            "INSERT INTO telegram_messages (direction, chat_id, sender_id, sender_name, content) VALUES (?, ?, ?, ?, ?)",
+            (direction, chat_id, sender_id, sender_name, content)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning("telegram: failed to persist message: {}", e)
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -132,7 +183,8 @@ class TelegramChannel(BaseChannel):
         if not self.config.token:
             logger.error("Telegram bot token not configured")
             return
-        
+
+        _ensure_telegram_table()
         self._running = True
         
         # Build the application with larger connection pool to avoid pool-timeout on long runs
@@ -279,6 +331,12 @@ class TelegramChannel(BaseChannel):
                         )
                     except Exception as e2:
                         logger.error("Error sending Telegram message: {}", e2)
+            # Persist outbound message to shared DB for the dashboard
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, _persist_sync,
+                "outbound", str(chat_id), msg.content, "", "nanobot"
+            )
     
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
@@ -397,7 +455,15 @@ class TelegramChannel(BaseChannel):
         logger.debug("Telegram message from {}: {}...", sender_id, content[:50])
         
         str_chat_id = str(chat_id)
-        
+
+        # Persist inbound message to shared DB for the dashboard
+        display_name = user.first_name or user.username or str(user.id)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, _persist_sync,
+            "inbound", str_chat_id, content, sender_id, display_name
+        )
+
         # Start typing indicator before processing
         self._start_typing(str_chat_id)
         

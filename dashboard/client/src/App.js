@@ -5,6 +5,7 @@ import ChatWindow from './components/ChatWindow';
 import WelcomeScreen from './components/WelcomeScreen';
 import Settings from './components/Settings';
 import LogsPanel from './components/LogsPanel';
+import TelegramView from './components/TelegramView';
 import './App.css';
 
 const API = process.env.REACT_APP_API_URL || '';
@@ -267,6 +268,15 @@ function AppInner() {
       <main className="main-area">
         <Routes>
           <Route path="/logs" element={<LogsPanel mainModel={mainModel} />} />
+          <Route
+            path="/telegram"
+            element={
+              <TelegramView
+                onToggleSidebar={() => setSidebarOpen(p => !p)}
+                sidebarOpen={sidebarOpen}
+              />
+            }
+          />
           <Route
             path="/chat/:chatId"
             element={

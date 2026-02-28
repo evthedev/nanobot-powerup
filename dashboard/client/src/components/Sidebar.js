@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import './Sidebar.css';
 
 export default function Sidebar({
@@ -18,7 +18,9 @@ export default function Sidebar({
   onLogs,
 }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const showLogs = location.pathname === '/logs';
+  const showTelegram = location.pathname === '/telegram';
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [hoveredId, setHoveredId] = useState(null);
@@ -77,6 +79,14 @@ export default function Sidebar({
         <button className="new-chat-btn" onClick={onNew}>
           <span className="btn-icon">✏️</span>
           {isOpen && <span>New Chat</span>}
+        </button>
+        <button
+          className={`logs-nav-btn ${showTelegram ? 'active' : ''}`}
+          onClick={() => navigate('/telegram')}
+          title="Telegram Chat"
+        >
+          <span className="btn-icon">✈️</span>
+          {isOpen && <span>Telegram</span>}
         </button>
         <button
           className={`logs-nav-btn ${showLogs ? 'active' : ''}`}

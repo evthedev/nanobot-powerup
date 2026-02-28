@@ -1,0 +1,204 @@
+/* ─── Telegram View ──────────────────────────────────────────────────────────── */
+.telegram-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+/* Header */
+.telegram-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px;
+  height: var(--header-height);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.telegram-header-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.telegram-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.telegram-header-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.telegram-header-status {
+  font-size: 11px;
+  font-weight: 500;
+  margin-top: 1px;
+}
+
+.telegram-header-status.live {
+  color: var(--success, #4ade80);
+}
+
+.telegram-header-status.offline {
+  color: var(--text-muted);
+}
+
+.telegram-warning {
+  font-size: 12px;
+  color: var(--warning, #f59e0b);
+  background: rgba(245, 158, 11, 0.1);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* Messages area */
+.telegram-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.telegram-empty {
+  text-align: center;
+  color: var(--text-muted);
+  margin-top: 80px;
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Message rows */
+.tg-message-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  max-width: 760px;
+  width: 100%;
+}
+
+/* Inbound (from Telegram user) = left-aligned, like assistant messages */
+.tg-message-row.inbound {
+  align-self: flex-start;
+}
+
+/* Outbound (from nanobot) = right-aligned, like user messages in web chat */
+.tg-message-row.outbound {
+  flex-direction: row-reverse;
+  align-self: flex-end;
+}
+
+.tg-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+}
+
+.tg-message-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  max-width: calc(100% - 42px);
+}
+
+.tg-sender-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-light, #a78bfa);
+  padding: 0 2px;
+}
+
+.tg-bubble {
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  font-size: 14px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.tg-message-row.inbound .tg-bubble {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+.tg-message-row.outbound .tg-bubble {
+  background: var(--accent-primary);
+  color: #fff;
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+/* Markdown in bubbles */
+.tg-bubble p { margin-bottom: 6px; }
+.tg-bubble p:last-child { margin-bottom: 0; }
+.tg-bubble ul, .tg-bubble ol { margin: 6px 0 6px 18px; }
+.tg-bubble li { margin-bottom: 3px; }
+.tg-bubble code {
+  background: rgba(0,0,0,0.25);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.tg-bubble pre {
+  background: rgba(0,0,0,0.35);
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.tg-bubble pre code { background: none; padding: 0; }
+.tg-bubble strong { font-weight: 700; }
+
+/* Images in messages */
+.tg-bubble img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--radius-sm);
+  margin: 6px 0;
+  border: 1px solid var(--border-subtle);
+}
+
+.tg-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+
+.tg-message-row.outbound .tg-time {
+  text-align: right;
+}
+
+/* Footer */
+.telegram-footer {
+  padding: 10px 20px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.telegram-footer span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
