@@ -307,3 +307,32 @@
   line-height: 1;
 }
 .icon-btn:hover { background: var(--bg-elevated); }
+
+/* ─── Mobile overlay ─────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: var(--sidebar-width) !important;
+    z-index: 200;
+    transform: translateX(0);
+    transition: transform var(--transition-med);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.6);
+  }
+
+  .sidebar.closed {
+    transform: translateX(-100%);
+    /* Still occupies no layout space — position:fixed removes it from flow */
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  /* Larger touch targets on mobile */
+  .conv-item { padding: 12px 10px; }
+  .new-chat-btn { padding: 13px 14px; font-size: 14px; }
+  .logs-nav-btn  { padding: 11px 14px; font-size: 14px; }
+}

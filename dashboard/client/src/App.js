@@ -20,7 +20,7 @@ function AppInner() {
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [stats, setStats] = useState(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
   const [serverOk, setServerOk] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [mainModel, setMainModel] = useState(null);
@@ -83,8 +83,11 @@ function AppInner() {
     }
   }, []);
 
+  const isMobile = () => window.innerWidth <= 768;
+
   const selectConversation = useCallback((id) => {
     navigate(`/chat/${id}`);
+    if (isMobile()) setSidebarOpen(false);
   }, [navigate]);
 
   const deleteConversation = useCallback(async (id) => {
@@ -241,6 +244,7 @@ function AppInner() {
   }, [activeConvId, createConversation, sendMessageToConv]);
 
   const handleNewChat = useCallback(async (message) => {
+    if (isMobile()) setSidebarOpen(false);
     await createConversation(message);
   }, [createConversation]);
 
@@ -263,11 +267,22 @@ function AppInner() {
     <div className={`app-layout ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}
 
+      {/* Mobile backdrop — tap to close sidebar */}
+      {sidebarOpen && (
+        <div className="mobile-backdrop" onClick={() => setSidebarOpen(false)} />
+      )}
+
       <Sidebar {...sidebarProps} />
 
       <main className="main-area">
         <Routes>
-          <Route path="/logs" element={<LogsPanel mainModel={mainModel} />} />
+          <Route path="/logs" element={
+            <LogsPanel
+              mainModel={mainModel}
+              onToggleSidebar={() => setSidebarOpen(p => !p)}
+              sidebarOpen={sidebarOpen}
+            />
+          } />
           <Route
             path="/telegram"
             element={

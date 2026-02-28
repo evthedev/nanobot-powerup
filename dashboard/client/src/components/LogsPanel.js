@@ -26,7 +26,7 @@ function shortModel(model) {
   return parts[parts.length - 1] || model;
 }
 
-export default function LogsPanel({ mainModel }) {
+export default function LogsPanel({ mainModel, onToggleSidebar, sidebarOpen }) {
   const [entries, setEntries]     = useState([]);
   const [filter, setFilter]       = useState('all');
   const [autoScroll, setAutoScroll] = useState(true);
@@ -111,6 +111,9 @@ export default function LogsPanel({ mainModel }) {
     <div className="logs-panel">
       <div className="logs-toolbar">
         <div className="logs-title-row">
+          {!sidebarOpen && onToggleSidebar && (
+            <button className="log-ctrl-btn logs-menu-btn" onClick={onToggleSidebar} title="Open menu">☰</button>
+          )}
           <span className="logs-title">Agent Logs</span>
           <span className={`logs-conn-dot ${connected ? 'live' : 'dead'}`} />
           <span className="logs-conn-label">{connected ? 'live' : 'disconnected'}</span>
