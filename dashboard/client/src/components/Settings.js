@@ -104,6 +104,13 @@ export default function Settings({ onClose }) {
   }
 
   function connectGoogle() {
+    if (!googleHasCreds) {
+      setStatus({
+        type: 'error',
+        msg: '❌ Google OAuth credentials are not configured on this server. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your deployment secrets (or re-run make setup locally).',
+      });
+      return;
+    }
     const popup = window.open(
       `${API}/api/google/auth`,
       'google_oauth',
@@ -175,8 +182,9 @@ export default function Settings({ onClose }) {
     return <span className="google-status-badge connected">Connected</span>;
   }
 
-  const googleConnected    = googleStatus?.connected && !googleStatus?.expired;
-  const googleHasCreds     = googleStatus === undefined || (googleStatus?.hasCredentials ?? true); // server controls this
+  const googleConnected = googleStatus?.connected && !googleStatus?.expired;
+  // false only when the API explicitly tells us credentials are absent
+  const googleHasCreds = googleStatus?.hasCredentials !== false;
 
   return (
     <div className="settings-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -280,8 +288,7 @@ export default function Settings({ onClose }) {
                   <button
                     className="btn-google"
                     onClick={connectGoogle}
-                    disabled={!googleHasCreds}
-                    title={googleHasCreds ? 'Sign in with Google' : 'Google credentials not configured on this server'}
+                    title="Sign in with Google"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" style={{ marginRight: 6 }}>
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
