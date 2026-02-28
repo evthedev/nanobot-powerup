@@ -8,6 +8,7 @@ const FILTERS = [
   { id: 'main',     label: 'Main Agent' },
   { id: 'subagent', label: 'Subagents' },
   { id: 'channel',  label: 'Channels' },
+  { id: 'telegram', label: '✈️ Telegram' },
   { id: 'error',    label: 'Errors' },
 ];
 
@@ -84,6 +85,7 @@ export default function LogsPanel({ mainModel }) {
     if (filter === 'main'     && e.type !== 'main')     return false;
     if (filter === 'subagent' && e.type !== 'subagent') return false;
     if (filter === 'channel'  && e.type !== 'channel')  return false;
+    if (filter === 'telegram' && e.type !== 'telegram') return false;
     if (search && !e.msg.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -174,7 +176,7 @@ export default function LogsPanel({ mainModel }) {
 }
 
 function LogEntry({ entry }) {
-  const { ts, level, type, msg, category, model, subagentId, tokens } = entry;
+  const { ts, level, type, msg, category, model, subagentId, tokens, sender, direction } = entry;
   const time = ts ? ts.slice(11, 23) : '';
 
   const rowClass = [
@@ -188,13 +190,20 @@ function LogEntry({ entry }) {
   const srcLabel =
     type === 'main'     ? 'main' :
     type === 'subagent' ? ('sub·' + (subagentId ? subagentId.slice(0, 6) : '?')) :
-    type === 'channel'  ? 'chan' : 'sys';
+    type === 'channel'  ? 'chan' :
+    type === 'telegram' ? 'tg' : 'sys';
 
   return (
     <div className={rowClass}>
       <span className="log-ts">{time}</span>
       <span className={'log-src log-src-' + type}>{srcLabel}</span>
-      {model && (
+      {type === 'telegram' && sender && direction === 'inbound' && (
+        <span className="log-tg-sender">{sender}</span>
+      )}
+      {type === 'telegram' && direction === 'outbound' && (
+        <span className="log-tg-sender log-tg-bot">nanobot</span>
+      )}
+      {model && type !== 'telegram' && (
         <span className={'model-badge model-badge-' + type}>{shortModel(model)}</span>
       )}
       {tokens ? (
@@ -210,6 +219,8 @@ function LogEntry({ entry }) {
 }
 
 function renderMsg(msg, category) {
+  if (category === 'tg-inbound')  return React.createElement(React.Fragment, null, React.createElement('span', { className: 'msg-tg-in' }, '▶ '), msg);
+  if (category === 'tg-outbound') return React.createElement(React.Fragment, null, React.createElement('span', { className: 'msg-tg-out' }, '◀ '), msg);
   if (category === 'inbound')  return React.createElement(React.Fragment, null, React.createElement('span', { className: 'msg-arrow' }, '▶ '), msg.replace('>>> INBOUND ', ''));
   if (category === 'outbound') return React.createElement(React.Fragment, null, React.createElement('span', { className: 'msg-arrow-out' }, '◀ '), msg.replace('<<< OUTBOUND ', ''));
   if (category === 'spawn')    return React.createElement(React.Fragment, null, React.createElement('span', { className: 'msg-spawn' }, '⚡ '), msg);

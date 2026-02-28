@@ -473,7 +473,27 @@ function parseLogLine(raw) {
   };
 }
 
-// SSE endpoint — streams live log lines to the dashboard
+// Convert a telegram_messages row into the shared log-entry schema
+function telegramToLogEntry(row) {
+  const snippet = row.content.length > 300 ? row.content.slice(0, 300) + '…' : row.content;
+  return {
+    ts:         (row.created_at || '').replace(' ', 'T') + '.000',
+    level:      'INFO',
+    type:       'telegram',
+    module:     'channels.telegram',
+    msg:        snippet,
+    category:   row.direction === 'inbound' ? 'tg-inbound' : 'tg-outbound',
+    direction:  row.direction,
+    sender:     row.sender_name || '',
+    chat_id:    row.chat_id || '',
+    tokens:     null,
+    model:      null,
+    subagentId: null,
+    raw:        row.content,
+  };
+}
+
+// SSE endpoint — streams live log lines + Telegram messages to the dashboard
 app.get('/api/logs/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -483,7 +503,7 @@ app.get('/api/logs/stream', (req, res) => {
   // Send a heartbeat comment every 15s to keep connection alive
   const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
 
-  // tail -n 200 -f: send last 200 lines then follow new ones
+  // ── Gateway log tail ────────────────────────────────────────────────────
   const args = fs.existsSync(LOG_FILE)
     ? ['-n', '200', '-F', LOG_FILE]   // -F retries if file is rotated
     : ['-n', '0', '-F', LOG_FILE];    // file doesn't exist yet, just follow
@@ -505,8 +525,33 @@ app.get('/api/logs/stream', (req, res) => {
 
   tail.stderr.on('data', () => {}); // ignore tail warnings
 
+  // ── Telegram messages — seed last 50 then poll for new ones ────────────
+  let lastTelegramId = 0;
+  try {
+    const recent = db.prepare(
+      'SELECT * FROM telegram_messages ORDER BY id DESC LIMIT 50'
+    ).all().reverse();
+    for (const row of recent) {
+      res.write(`data: ${JSON.stringify(telegramToLogEntry(row))}\n\n`);
+      lastTelegramId = row.id;
+    }
+  } catch {}
+
+  const tgPoll = setInterval(() => {
+    try {
+      const rows = db.prepare(
+        'SELECT * FROM telegram_messages WHERE id > ? ORDER BY id ASC LIMIT 50'
+      ).all(lastTelegramId);
+      for (const row of rows) {
+        res.write(`data: ${JSON.stringify(telegramToLogEntry(row))}\n\n`);
+        lastTelegramId = row.id;
+      }
+    } catch {}
+  }, 1000);
+
   req.on('close', () => {
     clearInterval(heartbeat);
+    clearInterval(tgPoll);
     tail.kill();
   });
 });
