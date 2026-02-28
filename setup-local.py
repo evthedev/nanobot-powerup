@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+import shutil
+import socket
+from pathlib import Path
+
+def print_banner(text):
+    print("\n" + "=" * 60)
+    print(f"  {text}")
+    print("=" * 60)
+
+def run_command(cmd, cwd=None, env=None, check=True):
+    print(f"Running: {' '.join(cmd)}")
+    return subprocess.run(cmd, cwd=cwd, env=env, check=check)
+
+def set_nested(d, path, value):
+    if not value:
+        return
+    keys = path.split(".")
+    for k in keys[:-1]:
+        d = d.setdefault(k, {})
+    d[keys[-1]] = value
+
+def check_port(port):
+    """Check if a port is available."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) != 0
+
+def check_binaries():
+    print("\n[1/8] Checking for required binaries...")
+    required = {
+        "python3": "Python 3 is required.",
+        "node": "Node.js is required (for dashboard and bridge).",
+        "npm": "npm is required.",
+        "docker": "Docker is required.",
+        "git": "Git is required.",
+        "rsync": "rsync is required for syncing workspace skills."
+    }
+    missing = []
+    for bin_name, msg in required.items():
+        if shutil.which(bin_name) is None:
+            missing.append(f"- {bin_name}: {msg}")
+    
+    if missing:
+        print("\n❌ Missing required binaries:")
+        print("\n".join(missing))
+        print("\nPlease install these and try again.")
+        sys.exit(1)
+    
+    # Check for docker
+    if shutil.which("docker") is None:
+        print("❌ 'docker' binary not found. Please install Docker.")
+        sys.exit(1)
+
+    # Check for docker compose plugin
+    try:
+        subprocess.run(["docker", "compose", "version"], capture_output=True, check=True)
+        print("✓ docker compose plugin found.")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("❌ 'docker compose' (V2) is not installed. Please install the Docker Compose plugin.")
+        sys.exit(1)
+    
+    # Check if docker daemon is reachable (warning only)
+    try:
+        subprocess.run(["docker", "info"], capture_output=True, check=True)
+        print("✓ Docker daemon is reachable.")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("! Warning: Could not connect to Docker daemon. Ensure Docker is running.")
+        print("  (Setup will continue, but 'make up' may fail later if Docker is not started.)")
+    
+    # Check for required project files
+    htpasswd_path = Path("deploy/nginx/.htpasswd")
+    if not htpasswd_path.exists():
+        print(f"\n! Warning: {htpasswd_path} not found.")
+        print("  Nginx basic auth will fail. Creating a default (nanobot:nanobot)...")
+        htpasswd_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(htpasswd_path, "w") as f:
+            # Default hash for 'nanobot' password
+            f.write("nanobot:$apr1$ZBa6rtlb$3WxH2ON28ahB9oKu6M5nK0\n")
+    
+    print("✓ Basic system and project checks passed.")
+
+def main():
+    print_banner("Nanobot Local Setup (Docker Edition)")
+
+    # 1. Check binaries
+    check_binaries()
+
+    # 2. Check ports
+    print("\n[2/8] Checking for port availability...")
+    ports_to_check = {3001: "Dashboard Backend", 18790: "Gateway API", 18791: "WebSocket Channel"}
+    for port, label in ports_to_check.items():
+        if not check_port(port):
+            print(f"❌ Port {port} ({label}) is already in use. Please stop the conflicting service.")
+            sys.exit(1)
+    print("✓ Ports 3001, 18790, 18791 are available.")
+
+    # 3. Create Virtual Environment
+    print("\n[3/8] Creating virtual environment...")
+    uv_available = shutil.which("uv") is not None
+    
+    if uv_available:
+        print("✓ uv found, using it for faster installs.")
+        run_command(["uv", "venv", ".venv"])
+        python_bin = str(Path(".venv/bin/python"))
+        pip_cmd = ["uv", "pip"]
+    else:
+        print("! uv not found, falling back to standard venv.")
+        run_command([sys.executable, "-m", "venv", ".venv"])
+        python_bin = str(Path(".venv/bin/python"))
+        pip_cmd = [python_bin, "-m", "pip"]
+
+    # 4. Install package in editable mode
+    print("\n[4/8] Installing nanobot package in venv...")
+    run_command([*pip_cmd, "install", "-e", ".[dev]"])
+
+    # 5. Scaffold config and workspace
+    print("\n[5/8] Scaffolding configuration...")
+    run_command([python_bin, "-m", "nanobot", "onboard"])
+
+    config_path = Path.home() / ".nanobot" / "config.json"
+    workspace_path = Path.home() / ".nanobot" / "workspace"
+
+    # 6. Configure config.json
+    print("\n[6/8] Configuring nanobot settings...")
+    with open(config_path) as f:
+        cfg = json.load(f)
+
+    print("\nPlease enter your API keys (leave blank to skip):")
+    
+    # LLM Providers
+    print("\n--- LLM Providers (NVIDIA NIM provides free credits at build.nvidia.com) ---")
+    nvidia_key = input("  NVIDIA NIM API Key (nvapi-...): ").strip()
+    openrouter_key = input("  OpenRouter API Key (sk-or-v1-...): ").strip()
+    
+    # Tools
+    print("\n--- Tools & Search ---")
+    tavily_key = input("  Tavily API Key (tvly-...): ").strip()
+    brave_key = input("  Brave Search API Key: ").strip()
+    maps_key = input("  Google Static Maps API Key (for trip-mapper): ").strip()
+    
+    # Google OAuth (for Calendar)
+    print("\n--- Google OAuth (Optional: for Calendar integration) ---")
+    print("  Note: You must add 'http://localhost:3001/api/google/auth/callback' to ")
+    print("  Authorized Redirect URIs in your Google Cloud Console.")
+    google_client_id = input("  Google Client ID: ").strip()
+    google_client_secret = input("  Google Client Secret: ").strip()
+
+    # Apply defaults/provided values
+    set_nested(cfg, "providers.nvidia.apiKey", nvidia_key)
+    set_nested(cfg, "providers.openrouter.apiKey", openrouter_key)
+    
+    # Search Prioritization: Tavily > Brave
+    if tavily_key:
+        set_nested(cfg, "tools.web.search.provider", "tavily")
+        set_nested(cfg, "tools.web.search.tavilyApiKey", tavily_key)
+        if brave_key:
+            set_nested(cfg, "tools.web.search.apiKey", brave_key)
+    elif brave_key:
+        set_nested(cfg, "tools.web.search.provider", "brave")
+        set_nested(cfg, "tools.web.search.apiKey", brave_key)
+    
+    set_nested(cfg, "tools.google.mapsApiKey", maps_key)
+    # Google OAuth credentials — stored under tools.google_calendar
+    # Tokens are written here by the dashboard OAuth flow.
+    set_nested(cfg, "tools.google_calendar.clientId", google_client_id)
+    set_nested(cfg, "tools.google_calendar.clientSecret", google_client_secret)
+    
+    # Core system settings
+    set_nested(cfg, "channels.web.enabled", True)
+    set_nested(cfg, "channels.web.port", 18791)
+    
+    # Model Selection & Prioritization
+    # Priority 1: NVIDIA
+    if nvidia_key:
+        print("  ✓ NVIDIA NIM provided. Setting as primary provider.")
+        # Llama 3.3 70B has much better tool-calling than 3.1 70B at the same speed.
+        set_nested(cfg, "agents.defaults.model", "nvidia_nim/meta/llama-3.3-70b-instruct")
+        # Llama 3.1 405B is the most capable model on NIM, used for smart subagents.
+        set_nested(cfg, "agents.defaults.smart_model", "nvidia_nim/meta/llama-3.1-405b-instruct")
+    # Priority 2: OpenRouter
+    elif openrouter_key:
+        print("  ✓ OpenRouter provided. Setting as primary provider.")
+        set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
+        set_nested(cfg, "agents.defaults.smart_model", "anthropic/claude-3.5-sonnet")
+    else:
+        print("  ! No LLM keys provided. You will need to add one to ~/.nanobot/config.json before running.")
+
+    # Setup MCP for Playwright
+    set_nested(cfg, "tools.mcpServers.playwright", {
+        "command": "npx",
+        "args": ["@playwright/mcp@latest", "--output-dir", "/root/.nanobot/workspace/screenshots"]
+    })
+
+    with open(config_path, "w") as f:
+        json.dump(cfg, f, indent=2)
+    print(f"Updated {config_path}")
+
+    # 7. Sync skills
+    print("\n[7/8] Syncing workspace skills...")
+    local_workspace = Path(__file__).parent / "workspace"
+    run_command(["rsync", "-a", str(local_workspace) + "/", str(workspace_path) + "/"])
+
+    # 8. Generate docker-compose.override.yml
+    print("\n[8/8] Generating docker-compose.override.yml...")
+    nanobot_home = Path.home() / ".nanobot"
+    override_content = f"""services:
+
+  # ── Python gateway ───────────────────────────────────────────────────────
+  # ./nanobot is mounted live; PYTHONPATH=/app makes Python prefer it over the
+  # installed package. `docker compose restart nanobot-gateway` picks up any
+  # Python source change instantly — no image rebuild required.
+  nanobot-gateway:
+    volumes:
+      - {nanobot_home}:/root/.nanobot
+      - ./nanobot:/app/nanobot          # live source mount
+    environment:
+      - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+      - PLAYWRIGHT_BROWSERS_PATH=/usr/bin
+      - PYTHONPATH=/app                 # /app/nanobot shadows the installed pkg
+
+  # ── Express API server ─────────────────────────────────────────────────────
+  # index.js is mounted live; node --watch auto-restarts on every save.
+  # No image rebuild needed for server-side changes.
+  dashboard:
+    volumes:
+      - {nanobot_home}:/root/.nanobot
+      - ./dashboard/server/index.js:/app/index.js   # live server mount
+    command: ["node", "--watch", "index.js"]
+    ports:
+      - "3001:3001"
+
+  # ── React dev server (HMR) ─────────────────────────────────────────────────
+  # Runs CRA's dev server with hot-module replacement on port 3000.
+  # /api calls are proxied to the Express container via setupProxy.js.
+  # Access the UI at http://localhost:3000 during development.
+  dashboard-client:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./dashboard/client:/app
+      - client_node_modules:/app/node_modules   # isolate container node_modules
+    command: sh -c "npm install --silent && npm start"
+    ports:
+      - "3000:3000"
+    environment:
+      - CHOKIDAR_USEPOLLING=true        # required for inotify through Docker on macOS
+      - PROXY_TARGET=http://nanobot-dashboard:3001
+      - WDS_SOCKET_HOST=localhost
+      - WDS_SOCKET_PORT=3000
+    depends_on:
+      - dashboard
+
+volumes:
+  client_node_modules:
+"""
+    override_path = Path(__file__).parent / "docker-compose.override.yml"
+    with open(override_path, "w") as f:
+        f.write(override_content)
+    print(f"Created {override_path}")
+
+    print_banner("Setup Complete!")
+    print("\nStart all services:")
+    print("  make up")
+    print("\nDev access:")
+    print("  http://localhost:3000  — React dev server (HMR, instant UI changes)")
+    print("  http://localhost:3001  — Express API (auto-restarts on server saves)")
+    print("\nPython changes (gateway):")
+    print("  Edit nanobot/ then: make restart-gateway")
+    print("\nLogs:")
+    print("  make logs              — gateway logs")
+    print("  make logs-dashboard    — dashboard server logs")
+    print("\nEnjoy your nanobot!")
+
+if __name__ == "__main__":
+    main()

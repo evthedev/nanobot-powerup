@@ -1,6 +1,7 @@
 """Configuration schema using Pydantic."""
 
 from pathlib import Path
+from typing import Any
 from pydantic import BaseModel, Field, ConfigDict
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
@@ -193,6 +194,7 @@ class AgentDefaults(Base):
 
     workspace: str = "~/.nanobot/workspace"
     model: str = "anthropic/claude-opus-4-5"
+    smart_model: str = "anthropic/claude-sonnet-4-6"  # Model used for complex reasoning/subagents
     max_tokens: int = 8192
     temperature: float = 0.7
     max_tool_iterations: int = 20
@@ -226,6 +228,7 @@ class ProvidersConfig(Base):
     dashscope: ProviderConfig = Field(default_factory=ProviderConfig)  # 阿里云通义千问
     vllm: ProviderConfig = Field(default_factory=ProviderConfig)
     gemini: ProviderConfig = Field(default_factory=ProviderConfig)
+    nvidia: ProviderConfig = Field(default_factory=ProviderConfig)  # NVIDIA NIM (OpenAI-compatible)
     moonshot: ProviderConfig = Field(default_factory=ProviderConfig)
     minimax: ProviderConfig = Field(default_factory=ProviderConfig)
     aihubmix: ProviderConfig = Field(default_factory=ProviderConfig)  # AiHubMix API gateway
@@ -284,6 +287,14 @@ class YelpConfig(Base):
     api_key: str = ""
 
 
+class GoogleCalendarConfig(Base):
+    """Google Calendar configuration (ClientId and Secret for OAuth)."""
+
+    client_id: str = ""
+    client_secret: str = ""
+    tokens: dict[str, Any] = Field(default_factory=dict)
+
+
 class GoogleCredentialsConfig(Base):
     """Google OAuth 2.0 token storage path.
 
@@ -313,6 +324,7 @@ class ToolsConfig(Base):
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     yelp: YelpConfig = Field(default_factory=YelpConfig)
     google: GoogleConfig = Field(default_factory=GoogleConfig)
+    google_calendar: GoogleCalendarConfig = Field(default_factory=GoogleCalendarConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 

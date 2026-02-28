@@ -272,6 +272,24 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         model_overrides=(),
     ),
 
+    # NVIDIA: NIM endpoints, OpenAI-compatible.
+    ProviderSpec(
+        name="nvidia",
+        keywords=("nvidia", "nim"),
+        env_key="NVIDIA_API_KEY",
+        display_name="NVIDIA NIM",
+        litellm_prefix="nvidia_nim",        # llama3-70b → nvidia_nim/llama3-70b
+        skip_prefixes=("nvidia_nim/", "nvidia/"),
+        env_extras=(),
+        is_gateway=False,
+        is_local=False,
+        detect_by_key_prefix="nvapi-",
+        detect_by_base_keyword="nvidia.com",
+        default_api_base="https://integrate.api.nvidia.com/v1",
+        strip_model_prefix=False,
+        model_overrides=(),
+    ),
+
     # Zhipu: LiteLLM uses "zai/" prefix.
     # Also mirrors key to ZHIPUAI_API_KEY (some LiteLLM paths check that).
     # skip_prefixes: don't add "zai/" when already routed via gateway.

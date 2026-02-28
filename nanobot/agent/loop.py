@@ -55,6 +55,7 @@ class AgentLoop:
         provider: LLMProvider,
         workspace: Path,
         model: str | None = None,
+        smart_model: str | None = None,
         max_iterations: int = 20,
         temperature: float = 0.7,
         max_tokens: int = 4096,
@@ -91,7 +92,7 @@ class AgentLoop:
             provider=provider,
             workspace=workspace,
             bus=bus,
-            model=self.model,
+            model=smart_model or self.model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             brave_api_key=brave_api_key,
@@ -212,6 +213,8 @@ class AgentLoop:
         iteration = 0
         final_content = None
         tools_used: list[str] = []
+        _last_tool_sig: str | None = None
+        _repeated_tool_count: int = 0
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -318,6 +321,32 @@ class AgentLoop:
                         messages = self.context.add_tool_result(
                             messages, tool_call.id, tool_call.name, result
                         )
+
+                # Repetition guard: same tool + same args 3 times in a row → force a reply
+                if calls_to_run:
+                    sig = calls_to_run[0].name + "|" + json.dumps(calls_to_run[0].arguments, sort_keys=True)
+                    if sig == _last_tool_sig:
+                        _repeated_tool_count += 1
+                    else:
+                        _last_tool_sig = sig
+                        _repeated_tool_count = 1
+                    if _repeated_tool_count >= 3:
+                        logger.warning(
+                            "Repetition loop detected — same tool call ({}) repeated {} times, "
+                            "injecting stop instruction",
+                            calls_to_run[0].name, _repeated_tool_count,
+                        )
+                        messages = messages + [{
+                            "role": "user",
+                            "content": (
+                                "You have already called this tool multiple times with the same arguments "
+                                "and received the same result each time. "
+                                "You already have all the information you need. "
+                                "Stop calling tools and write your final answer now."
+                            ),
+                        }]
+                        _last_tool_sig = None
+                        _repeated_tool_count = 0
             else:
                 # Evaluation gate: if plan_task was called but evaluate was not, block
                 # the response and force the agent to evaluate before sending.
@@ -396,6 +425,34 @@ class AgentLoop:
 
                 final_content = self._strip_think(response.content)
                 break
+
+        # If the loop exhausted max_iterations without a text reply, force one final
+        # LLM call with no tools so the model must produce a plain-text response.
+        if final_content is None:
+            logger.warning(
+                "max_iterations ({}) reached without a final response — "
+                "forcing a text-only reply",
+                self.max_iterations,
+            )
+            messages = messages + [{
+                "role": "user",
+                "content": (
+                    "You have reached the maximum number of tool-use iterations. "
+                    "You must now write your final answer using only the information "
+                    "you have already gathered. Do not call any more tools."
+                ),
+            }]
+            try:
+                fallback = await self.provider.chat(
+                    messages=messages,
+                    tools=[],  # no tools — force text response
+                    model=self.model,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
+                final_content = self._strip_think(fallback.content)
+            except Exception as e:
+                logger.error("Fallback text-only call failed: {}", e)
 
         return final_content, tools_used
 

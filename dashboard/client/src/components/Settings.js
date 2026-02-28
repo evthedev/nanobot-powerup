@@ -7,14 +7,15 @@ export default function Settings({ onClose }) {
   const [saving, setSaving]       = useState(false);
   const [status, setStatus]       = useState(null);    // { type: 'success'|'error', msg }
   const [visible, setVisible]     = useState({});
-  const [googleStatus, setGoogleStatus] = useState(null); // null = loading
+  const [googleStatus, setGoogleStatus] = useState(undefined); // undefined = loading, null = failed/disconnected
 
   const [fields, setFields] = useState({
     openrouter_api_key:       '',
-    anthropic_api_key:        '',
-    openai_api_key:           '',
+    nvidia_api_key:           '',
     brave_api_key:            '',
     tavily_api_key:           '',
+    maps_api_key:             '',
+    main_llm:                 '',
     whatsapp_allowed_numbers: '',
   });
 
@@ -25,11 +26,12 @@ export default function Settings({ onClose }) {
       const cfg = await r.json();
 
       setFields({
-        openrouter_api_key:       cfg.providers?.openrouter?.apiKey || '',
-        anthropic_api_key:        cfg.providers?.anthropic?.apiKey  || '',
-        openai_api_key:           cfg.providers?.openai?.apiKey     || '',
-        brave_api_key:            cfg.tools?.web?.search?.apiKey    || '',
-        tavily_api_key:           cfg.tools?.web?.search?.tavilyApiKey || '',
+        openrouter_api_key:       cfg.providers?.openrouter?.apiKey       || '',
+        nvidia_api_key:           cfg.providers?.nvidia?.apiKey           || '',
+        brave_api_key:            cfg.tools?.web?.search?.apiKey          || '',
+        tavily_api_key:           cfg.tools?.web?.search?.tavilyApiKey    || '',
+        maps_api_key:             cfg.tools?.google?.mapsApiKey           || '',
+        main_llm:                 cfg.agents?.defaults?.model             || '',
         whatsapp_allowed_numbers: (cfg.channels?.whatsapp?.allowFrom || []).join(', '),
       });
     } catch (e) {
@@ -40,9 +42,9 @@ export default function Settings({ onClose }) {
   const loadGoogleStatus = useCallback(async () => {
     try {
       const r = await fetch(`${API}/api/google/status`);
-      setGoogleStatus(r.ok ? await r.json() : null);
+      setGoogleStatus(r.ok ? await r.json() : { connected: false });
     } catch {
-      setGoogleStatus(null);
+      setGoogleStatus({ connected: false });
     }
   }, []);
 
@@ -70,20 +72,8 @@ export default function Settings({ onClose }) {
     setSaving(true);
     setStatus(null);
     try {
+      // Only whatsapp_allowed_numbers is editable — all API keys are injected at runtime
       const updates = {
-        providers: {
-          openrouter: { apiKey: fields.openrouter_api_key },
-          anthropic:  { apiKey: fields.anthropic_api_key  },
-          openai:     { apiKey: fields.openai_api_key     },
-        },
-        tools: {
-          web: {
-            search: {
-              apiKey:       fields.brave_api_key,
-              tavilyApiKey: fields.tavily_api_key,
-            },
-          },
-        },
         channels: {
           whatsapp: {
             allowFrom: fields.whatsapp_allowed_numbers
@@ -102,7 +92,7 @@ export default function Settings({ onClose }) {
 
       if (!r.ok) throw new Error(await r.text());
       setStatus({ type: 'success', msg: '✅ Configuration saved!' });
-      await loadGoogleStatus(); // credentials may have changed
+      await loadGoogleStatus();
       setTimeout(() => setStatus(null), 4000);
     } catch (e) {
       setStatus({ type: 'error', msg: '❌ Failed to save: ' + e.message });
@@ -140,19 +130,24 @@ export default function Settings({ onClose }) {
   function toggle(key) { setVisible(v => ({ ...v, [key]: !v[key] })); }
   function set(key, val) { setFields(f => ({ ...f, [key]: val })); }
 
-  function Field({ id, label, placeholder, helpText, isPassword = true }) {
+  function Field({ id, label, placeholder, helpText, isPassword = true, readOnly = false }) {
     return (
       <div className="settings-field">
-        <label htmlFor={id}>{label}</label>
+        <label htmlFor={id}>
+          {label}
+          {readOnly && <span className="field-readonly-badge">runtime</span>}
+        </label>
         <div className="field-input-wrap">
           <input
             id={id}
             type={isPassword && !visible[id] ? 'password' : 'text'}
             value={fields[id]}
-            onChange={e => set(id, e.target.value)}
-            placeholder={placeholder}
+            onChange={readOnly ? undefined : e => set(id, e.target.value)}
+            placeholder={readOnly ? '— not set —' : placeholder}
             autoComplete="off"
             data-testid={id}
+            readOnly={readOnly}
+            className={readOnly ? 'readonly-input' : ''}
           />
           {isPassword && (
             <button
@@ -172,14 +167,14 @@ export default function Settings({ onClose }) {
 
   // ── Google status badge ──
   function GoogleBadge() {
-    if (!googleStatus) return <span className="google-status-badge disconnected">Loading…</span>;
-    if (!googleStatus.connected) return <span className="google-status-badge disconnected">Not connected</span>;
-    if (googleStatus.expired)    return <span className="google-status-badge expired">Token expired</span>;
+    if (googleStatus === undefined) return <span className="google-status-badge disconnected">Loading…</span>;
+    if (!googleStatus?.connected)  return <span className="google-status-badge disconnected">Not connected</span>;
+    if (googleStatus.expired)      return <span className="google-status-badge expired">Token expired</span>;
     return <span className="google-status-badge connected">Connected</span>;
   }
 
   const googleConnected    = googleStatus?.connected && !googleStatus?.expired;
-  const googleHasCreds     = googleStatus?.hasCredentials ?? true; // server controls this
+  const googleHasCreds     = googleStatus === undefined || (googleStatus?.hasCredentials ?? true); // server controls this
 
   return (
     <div className="settings-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -197,13 +192,21 @@ export default function Settings({ onClose }) {
           <section className="settings-section">
             <h3>🤖 AI Providers</h3>
             <Field
-              id="openrouter_api_key"
-              label="OpenRouter API Key (active)"
-              placeholder="sk-or-v1-…"
-              helpText="Primary key used for chat. Get one at openrouter.ai"
+              id="main_llm"
+              label="Main Agent LLM"
+              isPassword={false}
+              readOnly
             />
-            <Field id="anthropic_api_key" label="Anthropic API Key" placeholder="sk-ant-…" />
-            <Field id="openai_api_key"    label="OpenAI API Key"    placeholder="sk-…" />
+            <Field
+              id="openrouter_api_key"
+              label="OpenRouter API Key"
+              readOnly
+            />
+            <Field
+              id="nvidia_api_key"
+              label="NVIDIA NIM API Key"
+              readOnly
+            />
           </section>
 
           {/* Search */}
@@ -211,15 +214,23 @@ export default function Settings({ onClose }) {
             <h3>🔍 Search</h3>
             <Field
               id="tavily_api_key"
-              label="Tavily API Key (active)"
-              placeholder="tvly-…"
-              helpText="Primary search provider — get a free key at app.tavily.com"
+              label="Tavily API Key"
+              readOnly
             />
             <Field
               id="brave_api_key"
-              label="Brave Search API Key (fallback)"
-              placeholder="BSA…"
-              helpText="Fallback if Tavily is not set. brave.com/search/api"
+              label="Brave Search API Key"
+              readOnly
+            />
+          </section>
+
+          {/* Maps */}
+          <section className="settings-section">
+            <h3>🗺️ Maps</h3>
+            <Field
+              id="maps_api_key"
+              label="Google Maps API Key"
+              readOnly
             />
           </section>
 

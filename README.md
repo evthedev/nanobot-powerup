@@ -417,30 +417,34 @@ location /api/conversations/ {
 
 ## Local Development
 
-### Prerequisites
+### 1-Command Setup (Recommended)
+
+The easiest way to set up everything locally is to use the interactive setup script. This script **creates a virtual environment (`.venv`)** to isolate the project's Python dependencies.
+
+```bash
+# 1. Run the interactive setup (prompts for API keys)
+python3 setup-local.py
+
+# 2. Activate the virtual environment (for local CLI use)
+source .venv/bin/activate
+
+# 3. Start the services
+docker compose up -d
+```
+
+Access your dashboard at:
+- **Direct (recommended for local):** [http://localhost:3001](http://localhost:3001) (No auth)
+- **Proxy (matches prod):** [https://localhost](https://localhost) (Basic auth / self-signed cert)
+
+---
+
+### Manual Setup (Step-by-Step)
+
+If you prefer to run services manually or without Docker, follow these prerequisites:
 
 - Python ≥ 3.11, Node.js ≥ 18, `uv` package manager
 - `nanobot-ai` installed: `pip install -e .` (from repo root)
-- `~/.nanobot/config.json` with `openrouter.apiKey`, `tavilyApiKey`
-
-### Start services
-
-```bash
-# Terminal 1 — nanobot gateway (Python, port 18791 WS)
-nanobot gateway
-
-# Terminal 2 — dashboard server (Node, port 3001)
-cd dashboard && npm install && npm start
-
-# Terminal 3 — React dev server (port 3000)
-cd dashboard/client && npm install && npm start
-```
-
-Or use Docker Compose (requires building first):
-
-```bash
-docker compose up -d
-```
+- `~/.nanobot/config.json` with `openrouter.apiKey`, `tavilyApiKey` and `channels.web.enabled: true`
 
 ### docker-compose.override.yml (local only)
 

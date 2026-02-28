@@ -37,9 +37,9 @@ class SpawnTool(Tool):
             "Use this for complex or time-consuming tasks that can run independently. "
             "The subagent will complete the task and report back when done. "
             "Choose the model based on task complexity: use a capable reasoning model "
-            "(e.g. anthropic/claude-sonnet-4-6) for analysis, coding, or multi-step tasks; "
-            "use a fast cheap model (e.g. openai/gpt-4.1-mini) for simple summarisation, "
-            "formatting, or lookup tasks. Omit model to use the default."
+            "for analysis, coding, or multi-step tasks; "
+            "use a fast cheap model for simple summarisation, "
+            "formatting, or lookup tasks. Omit model to use the default smart model."
         )
     
     @property

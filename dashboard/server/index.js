@@ -512,19 +512,40 @@ const GOOGLE_SCOPES = [
 function getGoogleCreds() {
   try {
     const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    const clientId     = cfg.tools?.google_calendar?.clientId;
-    const clientSecret = cfg.tools?.google_calendar?.clientSecret;
+    // Credentials stored under tools.google_calendar (matching Pydantic schema)
+    const creds        = cfg.tools?.google_calendar || {};
+    const clientId     = creds.clientId;
+    const clientSecret = creds.clientSecret;
     return { clientId, clientSecret };
   } catch {
     return {};
   }
 }
 
+function readGoogleTokens() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    return cfg.tools?.google_calendar?.tokens || null;
+  } catch {
+    return null;
+  }
+}
+
+function writeGoogleTokens(tokenData) {
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch {}
+  if (!cfg.tools) cfg.tools = {};
+  if (!cfg.tools.google_calendar) cfg.tools.google_calendar = {};
+  cfg.tools.google_calendar.tokens = tokenData;
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+}
+
 function buildRedirectUri(req) {
-  // Use http for localhost (Google allows it); always HTTPS behind nginx in prod
-  const host = req.headers.host || '';
+  // Google Cloud registered redirect URI: http://localhost:3001/api/google/callback
+  // Always use the Host header; localhost is always http.
+  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
   const proto = host.startsWith('localhost') || host.startsWith('127.') ? 'http' : 'https';
-  return `${proto}://${host}/api/google/auth/callback`;
+  return `${proto}://${host}/api/google/callback`;
 }
 
 // Simple in-memory state store (CSRF protection, 10-min TTL)
@@ -541,8 +562,8 @@ function consumeState(state) {
   return true;
 }
 
-// GET /api/google/auth/start — redirect the browser to Google's consent screen
-app.get('/api/google/auth/start', (req, res) => {
+// GET /api/google/auth — redirect the browser to Google's consent screen
+app.get('/api/google/auth', (req, res) => {
   const { clientId } = getGoogleCreds();
   if (!clientId) {
     return res.status(400).json({ error: 'Google Client ID not configured. Add it in Settings first.' });
@@ -560,13 +581,16 @@ app.get('/api/google/auth/start', (req, res) => {
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 });
 
-// GET /api/google/auth/callback — Google redirects here with ?code=...
-app.get('/api/google/auth/callback', async (req, res) => {
+// GET /api/google/callback — Google redirects here with ?code=...
+// Registered in Google Cloud Console as: http://localhost:3001/api/google/callback
+app.get('/api/google/callback', async (req, res) => {
   const { code, state, error } = req.query;
 
   if (error) {
-    return res.send(`<script>window.opener?.postMessage({type:'google_auth',error:'${error}'},'*');window.close();</script>
-      <p>Google auth failed: ${error}. You can close this tab.</p>`);
+    return res.send(`<script>
+      window.opener?.postMessage({ type: 'google_auth_error', message: '${error}' }, '*');
+      window.close();
+    </script><p>Google auth failed: ${error}. You can close this tab.</p>`);
   }
 
   if (!consumeState(state)) {
@@ -575,7 +599,7 @@ app.get('/api/google/auth/callback', async (req, res) => {
 
   const { clientId, clientSecret } = getGoogleCreds();
   if (!clientId || !clientSecret) {
-    return res.status(400).send('<p>Google credentials not configured.</p>');
+    return res.status(400).send('<p>Google credentials not configured. Add Client ID and Secret in Settings.</p>');
   }
 
   try {
@@ -594,45 +618,51 @@ app.get('/api/google/auth/callback', async (req, res) => {
     const tokens = await tokenRes.json();
     if (tokens.error) throw new Error(tokens.error_description || tokens.error);
 
-    // Persist tokens inside config.json under tools.google_calendar.tokens
-    let cfg = {};
-    try { cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch {}
-    cfg.tools = cfg.tools || {};
-    cfg.tools.google_calendar = cfg.tools.google_calendar || {};
-    cfg.tools.google_calendar.tokens = {
+    // Read existing tokens (to preserve refresh_token if not returned)
+    const existing = readGoogleTokens() || {};
+
+    // Persist tokens to config.json under tools.google_calendar.tokens
+    const tokenData = {
       access_token:  tokens.access_token,
-      refresh_token: tokens.refresh_token || cfg.tools.google_calendar.tokens?.refresh_token,
-      expiry_date:   Date.now() + (tokens.expires_in || 3600) * 1000,
+      refresh_token: tokens.refresh_token || existing.refresh_token,
+      token_uri:     'https://oauth2.googleapis.com/token',
+      client_id:     clientId,
+      client_secret: clientSecret,
       scope:         tokens.scope,
+      expiry_date:   Date.now() + (tokens.expires_in || 3600) * 1000,
     };
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+    writeGoogleTokens(tokenData);
 
     // Close the popup and notify the opener (Settings panel)
     res.send(`<!DOCTYPE html><html><body>
-      <p>✅ Google connected successfully! You can close this tab.</p>
+      <p>✅ Google connected! You can close this tab.</p>
       <script>
         if (window.opener) {
-          window.opener.postMessage({ type: 'google_auth', success: true }, '*');
+          window.opener.postMessage({ type: 'google_auth_success', message: 'Google account connected successfully!' }, '*');
           setTimeout(() => window.close(), 1500);
         }
       </script>
     </body></html>`);
   } catch (err) {
     console.error('Google OAuth error:', err.message);
-    res.status(500).send(`<p>OAuth failed: ${err.message}. <a href="javascript:window.close()">Close</a></p>`);
+    res.send(`<script>
+      window.opener?.postMessage({ type: 'google_auth_error', message: '${err.message.replace(/'/g, "\\'")}' }, '*');
+      window.close();
+    </script><p>OAuth failed: ${err.message}. <a href="javascript:window.close()">Close</a></p>`);
   }
 });
 
-// GET /api/google/auth/status — returns whether tokens are stored and non-expired
-app.get('/api/google/auth/status', (req, res) => {
+// GET /api/google/status — returns whether tokens are stored and non-expired
+app.get('/api/google/status', (req, res) => {
   try {
-    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    const tokens = cfg.tools?.google_calendar?.tokens;
-    if (!tokens?.access_token) return res.json({ connected: false });
+    const { clientId } = getGoogleCreds();
+    const tokens = readGoogleTokens();
+    if (!tokens?.access_token) return res.json({ connected: false, hasCredentials: !!clientId });
     const expired = tokens.expiry_date && Date.now() > tokens.expiry_date;
     res.json({
       connected: true,
       expired,
+      hasCredentials: !!clientId,
       scope: tokens.scope,
       expiry_date: tokens.expiry_date,
     });
@@ -641,8 +671,8 @@ app.get('/api/google/auth/status', (req, res) => {
   }
 });
 
-// DELETE /api/google/auth/revoke — remove stored tokens
-app.delete('/api/google/auth/revoke', (req, res) => {
+// POST /api/google/disconnect — remove stored tokens from config.json
+app.post('/api/google/disconnect', (req, res) => {
   try {
     let cfg = {};
     try { cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch {}
