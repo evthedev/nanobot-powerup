@@ -1,26 +1,55 @@
 """Google Calendar helper — loads credentials from ~/.nanobot/config.json (tools.google_calendar)."""
 import json
+import os
 from pathlib import Path
 from datetime import datetime, timezone
 
 CONFIG_PATH = Path.home() / ".nanobot" / "config.json"
+
+# Respect NANOBOT_SSL_VERIFY=false when running behind a self-signed proxy.
+# This applies to all HTTPS calls in this process (urllib, requests, httplib2).
+_SSL_VERIFY = os.environ.get("NANOBOT_SSL_VERIFY", "true").lower() not in ("false", "0", "no")
+
+if not _SSL_VERIFY:
+    import ssl
+    ssl._create_default_https_context = ssl._create_unverified_context  # noqa: SIM117
+    try:
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    except ImportError:
+        pass
 
 
 def _read_config() -> dict:
     return json.loads(CONFIG_PATH.read_text())
 
 
+def _requests_session():
+    """Return a requests.Session with SSL verification disabled when configured."""
+    import requests
+    session = requests.Session()
+    if not _SSL_VERIFY:
+        session.verify = False
+    return session
+
+
 def _load_credentials():
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
 
-    # Credentials live in ~/.nanobot/config.json under tools.google_calendar — always read here first.
     config = _read_config()
     gc_cfg = config.get("tools", {}).get("google_calendar", {})
 
     client_id = gc_cfg.get("clientId", "")
     client_secret = gc_cfg.get("clientSecret", "")
     token_data = gc_cfg.get("tokens", {})
+
+    # Tokens may be double-serialised as a JSON string — parse if needed.
+    if isinstance(token_data, str):
+        try:
+            token_data = json.loads(token_data)
+        except (json.JSONDecodeError, ValueError):
+            token_data = {}
 
     if not token_data or not token_data.get("refresh_token"):
         raise RuntimeError(
@@ -41,8 +70,7 @@ def _load_credentials():
     )
 
     if not creds.valid:
-        creds.refresh(Request())
-        # Write refreshed tokens back to config.json so the source of truth stays current.
+        creds.refresh(Request(session=_requests_session()))
         config["tools"]["google_calendar"]["tokens"].update({
             "access_token": creds.token,
             "refresh_token": creds.refresh_token,
@@ -57,8 +85,19 @@ def _load_credentials():
 
 
 def _build_service(api="calendar", version="v3"):
+    import httplib2
+    import google_auth_httplib2
     from googleapiclient.discovery import build
+
     creds = _load_credentials()
+
+    if not _SSL_VERIFY:
+        # httplib2 is used by googleapiclient for all API calls — disable cert check.
+        http = google_auth_httplib2.AuthorizedHttp(
+            creds, httplib2.Http(disable_ssl_certificate_validation=True)
+        )
+        return build(api, version, http=http, cache_discovery=False)
+
     return build(api, version, credentials=creds)
 
 

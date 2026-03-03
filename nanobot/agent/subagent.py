@@ -43,6 +43,7 @@ class SubagentManager:
         yelp_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
+        ssl_verify: bool = True,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.provider = provider
@@ -56,6 +57,7 @@ class SubagentManager:
         self.yelp_api_key = yelp_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
+        self.ssl_verify = ssl_verify
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._mcp_tools: list = []  # MCP tools passed down from main agent (e.g. Playwright)
 
@@ -176,8 +178,8 @@ class SubagentManager:
                 timeout=self.exec_config.timeout,
                 restrict_to_workspace=self.restrict_to_workspace,
             ))
-            tools.register(WebSearchTool(api_key=self.brave_api_key, tavily_api_key=self.tavily_api_key))
-            tools.register(WebFetchTool())
+            tools.register(WebSearchTool(api_key=self.brave_api_key, tavily_api_key=self.tavily_api_key, ssl_verify=self.ssl_verify))
+            tools.register(WebFetchTool(ssl_verify=self.ssl_verify))
             tools.register(RedditSearchTool())
             tools.register(TrustpilotSearchTool())
             tools.register(YelpSearchTool(api_key=self.yelp_api_key))

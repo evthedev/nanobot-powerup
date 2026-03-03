@@ -337,6 +337,9 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    # Set NANOBOT_SSL_VERIFY=false to disable TLS certificate verification.
+    # Use this when behind a proxy that intercepts HTTPS with a self-signed cert.
+    ssl_verify: bool = True
 
     @property
     def workspace_path(self) -> Path:

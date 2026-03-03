@@ -77,10 +77,12 @@ class WebSearchTool(Tool):
         api_key: str | None = None,         # Brave API key (legacy / fallback)
         tavily_api_key: str | None = None,   # Tavily API key (primary)
         max_results: int = 5,
+        ssl_verify: bool = True,
     ):
         self.brave_key = api_key or os.environ.get("BRAVE_API_KEY", "")
         self.tavily_key = tavily_api_key or os.environ.get("TAVILY_API_KEY", "")
         self.max_results = max_results
+        self.ssl_verify = ssl_verify
 
     @property
     def _provider(self) -> str:
@@ -113,7 +115,7 @@ class WebSearchTool(Tool):
     async def _tavily(self, query: str, n: int) -> str:
         if not self.tavily_key:
             return "Error: TAVILY_API_KEY not configured"
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, verify=self.ssl_verify) as client:
             r = await client.post(
                 "https://api.tavily.com/search",
                 json={"api_key": self.tavily_key, "query": query, "max_results": n, "search_depth": "basic"},
@@ -134,7 +136,7 @@ class WebSearchTool(Tool):
     async def _brave(self, query: str, n: int) -> str:
         if not self.brave_key:
             return "Error: No search API key configured (set TAVILY_API_KEY or BRAVE_API_KEY)"
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=self.ssl_verify) as client:
             r = await client.get(
                 "https://api.search.brave.com/res/v1/web/search",
                 params={"q": query, "count": n},
@@ -168,8 +170,9 @@ class WebFetchTool(Tool):
         "required": ["url"]
     }
     
-    def __init__(self, max_chars: int = 50000):
+    def __init__(self, max_chars: int = 50000, ssl_verify: bool = True):
         self.max_chars = max_chars
+        self.ssl_verify = ssl_verify
     
     async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> str:
         from readability import Document
@@ -185,7 +188,8 @@ class WebFetchTool(Tool):
             async with httpx.AsyncClient(
                 follow_redirects=True,
                 max_redirects=MAX_REDIRECTS,
-                timeout=30.0
+                timeout=30.0,
+                verify=self.ssl_verify,
             ) as client:
                 r = await client.get(url, headers={"User-Agent": USER_AGENT})
                 r.raise_for_status()

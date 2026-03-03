@@ -314,6 +314,7 @@ def _make_provider(config: Config):
         default_model=model,
         extra_headers=p.extra_headers if p else None,
         provider_name=provider_name,
+        ssl_verify=config.ssl_verify,
     )
 
 
@@ -414,6 +415,7 @@ def gateway(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
+        ssl_verify=config.ssl_verify,
     )
     
     # Set cron callback (needs agent)
@@ -551,6 +553,7 @@ def agent(
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
+        ssl_verify=config.ssl_verify,
     )
     
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -1004,6 +1007,7 @@ def cron_run(
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
+        ssl_verify=config.ssl_verify,
     )
 
     store_path = get_data_dir() / "cron" / "jobs.json"

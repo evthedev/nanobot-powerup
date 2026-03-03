@@ -32,6 +32,7 @@ class LiteLLMProvider(LLMProvider):
         default_model: str = "anthropic/claude-opus-4-5",
         extra_headers: dict[str, str] | None = None,
         provider_name: str | None = None,
+        ssl_verify: bool = True,
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
@@ -53,6 +54,8 @@ class LiteLLMProvider(LLMProvider):
         litellm.suppress_debug_info = True
         # Drop unsupported parameters for providers (e.g., gpt-5 rejects some params)
         litellm.drop_params = True
+        # Disable TLS cert verification when behind a proxy with a self-signed cert
+        litellm.ssl_verify = ssl_verify
     
     def _setup_env(self, api_key: str, api_base: str | None, model: str) -> None:
         """Set environment variables based on detected provider."""

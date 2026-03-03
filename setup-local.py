@@ -212,10 +212,17 @@ def main():
         json.dump(cfg, f, indent=2)
     print(f"Updated {config_path}")
 
-    # 7. Sync skills
-    print("\n[7/8] Syncing workspace skills...")
+    # 7. Sync workspace files (docs, heartbeat, etc.) then base skills with --delete
+    print("\n[7/8] Syncing workspace files and skills...")
     local_workspace = Path(__file__).parent / "workspace"
-    run_command(["rsync", "-a", str(local_workspace) + "/", str(workspace_path) + "/"])
+    # Sync non-skills workspace files (AGENTS.md, SOUL.md, etc.) without --delete
+    # so runtime-only dirs (memory/, screenshots/, sessions/) are preserved.
+    run_command(["rsync", "-a", "--exclude=skills/", str(local_workspace) + "/", str(workspace_path) + "/"])
+    # Sync base skills with --delete so renamed/removed skills don't linger at runtime.
+    local_skills = local_workspace / "skills"
+    runtime_skills = workspace_path / "skills"
+    runtime_skills.mkdir(parents=True, exist_ok=True)
+    run_command(["rsync", "-a", "--delete", str(local_skills) + "/", str(runtime_skills) + "/"])
 
     # 8. Generate docker-compose.override.yml
     print("\n[8/8] Generating docker-compose.override.yml...")

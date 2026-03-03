@@ -267,6 +267,10 @@ function AppInner() {
     });
     const conv = await r.json();
     setConversations(prev => [conv, ...prev]);
+    // Set activeConvId BEFORE navigating so ChatRoute.useEffect sees
+    // chatId === activeConvId and skips loadConversation — which would otherwise
+    // wipe the streaming placeholder messages that sendMessageToConv is about to add.
+    setActiveConvId(conv.id);
     navigate(`/chat/${conv.id}`);
     setMessages([]);
     if (initialMessage) {

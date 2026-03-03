@@ -170,10 +170,12 @@ class TelegramChannel(BaseChannel):
         config: TelegramConfig,
         bus: MessageBus,
         groq_api_key: str = "",
+        ssl_verify: bool = True,
     ):
         super().__init__(config, bus)
         self.config: TelegramConfig = config
         self.groq_api_key = groq_api_key
+        self.ssl_verify = ssl_verify
         self._app: Application | None = None
         self._chat_ids: dict[str, int] = {}  # Map sender_id to chat_id for replies
         self._typing_tasks: dict[str, asyncio.Task] = {}  # chat_id -> typing loop task
@@ -188,7 +190,8 @@ class TelegramChannel(BaseChannel):
         self._running = True
         
         # Build the application with larger connection pool to avoid pool-timeout on long runs
-        req = HTTPXRequest(connection_pool_size=16, pool_timeout=5.0, connect_timeout=30.0, read_timeout=30.0)
+        httpx_kwargs = {} if self.ssl_verify else {"verify": False}
+        req = HTTPXRequest(connection_pool_size=16, pool_timeout=5.0, connect_timeout=30.0, read_timeout=30.0, httpx_kwargs=httpx_kwargs)
         builder = Application.builder().token(self.config.token).request(req).get_updates_request(req)
         if self.config.proxy:
             builder = builder.proxy(self.config.proxy).get_updates_proxy(self.config.proxy)

@@ -42,6 +42,7 @@ class ChannelManager:
                     self.config.channels.telegram,
                     self.bus,
                     groq_api_key=self.config.providers.groq.api_key,
+                    ssl_verify=self.config.ssl_verify,
                 )
                 logger.info("Telegram channel enabled")
             except ImportError as e:
@@ -210,6 +211,10 @@ class ChannelManager:
                         await channel.send(msg)
                     except Exception as e:
                         logger.error("Error sending to {}: {}", msg.channel, e)
+                elif msg.channel == "cli":
+                    # cli is an internal pseudo-channel used by process_direct/cron/heartbeat.
+                    # Messages to it are consumed by the caller directly — no dispatch needed.
+                    logger.debug("cli message discarded (no channel handler): {}", msg.content[:80])
                 else:
                     logger.warning("Unknown channel: {}", msg.channel)
                     

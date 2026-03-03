@@ -104,9 +104,10 @@ This rule applies to every script you write, every skill you create, and every i
 ## Environment
 
 The workspace path is `~/.nanobot/workspace/` (expands to the correct home directory on each system).
-All workspace scripts are at `~/.nanobot/workspace/<script>.py`.
 
 **Always use `~` in exec commands** — never hardcode `/Users/ev/` or `/root/`.
+
+**There are NO standalone scripts at `~/.nanobot/workspace/*.py`.** All runnable capabilities live under `~/.nanobot/workspace/skills/<name>/` (base layer) or `~/.nanobot/workspace/skills-auto/<name>/` (instance layer). Never guess or assume a `.py` file exists at workspace root — always check `skills/` first.
 
 ## Cross-Channel Memory — Critical Rule
 

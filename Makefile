@@ -1,7 +1,7 @@
 VENV = .venv
 BIN  = $(VENV)/bin
 
-.PHONY: setup up down restart restart-gateway restart-dashboard logs logs-dashboard \
+.PHONY: setup sync-workspace sync-skills up down restart restart-gateway restart-dashboard logs logs-dashboard \
         status shell venv-clean help
 
 # Default target
@@ -9,6 +9,8 @@ help:
 	@echo "Nanobot Local Control"
 	@echo "=================================="
 	@echo "  make setup              - Run interactive local setup (creates venv)"
+	@echo "  make sync-workspace     - Sync all workspace files (docs + skills) from repo to ~/.nanobot"
+	@echo "  make sync-skills        - Re-sync base skills only from repo to ~/.nanobot"
 	@echo "  make up                 - Start all containers in background"
 	@echo "  make down               - Stop all containers"
 	@echo "  make restart            - Restart all services"
@@ -27,6 +29,18 @@ help:
 
 setup:
 	@python3 setup-local.py
+
+sync-workspace:
+	@echo "Syncing workspace docs → ~/.nanobot/workspace/ ..."
+	@rsync -a --exclude=skills/ ./workspace/ ~/.nanobot/workspace/
+	@echo "Syncing base skills → ~/.nanobot/workspace/skills/ ..."
+	@rsync -a --delete ./workspace/skills/ ~/.nanobot/workspace/skills/
+	@echo "Done."
+
+sync-skills:
+	@echo "Syncing base skills → ~/.nanobot/workspace/skills/ ..."
+	@rsync -av --delete ./workspace/skills/ ~/.nanobot/workspace/skills/
+	@echo "Done."
 
 up:
 	docker compose up -d
