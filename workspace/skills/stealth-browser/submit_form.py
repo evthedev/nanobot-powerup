@@ -27,6 +27,18 @@ TARGET_URL      = "https://example.com/contact"
 SCREENSHOT_PATH = "/root/.nanobot/workspace/screenshots/submission_result.png"
 FINGERPRINT     = "42069"   # fixed seed = consistent returning-visitor fingerprint
 
+# Memory-saving flags — required on small EC2 instances (< 4GB RAM)
+BROWSER_ARGS = [
+    f"--fingerprint={FINGERPRINT}",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-extensions",
+    "--js-flags=--max-old-space-size=256",
+    "--renderer-process-limit=1",
+    "--disable-background-networking",
+]
+
 # CSS selector → value to type.  Comment out fields that don't exist on the form.
 FORM_FIELDS = {
     "input[name='your-name']":    "Your Name",
@@ -60,7 +72,7 @@ except Exception as e:
 # ── Step 1 — Launch CloakBrowser ─────────────────────────────────────────────
 log("[1/6] Launching CloakBrowser (sync API)...")
 from cloakbrowser import launch
-browser = launch(headless=True, args=[f"--fingerprint={FINGERPRINT}"])
+browser = launch(headless=True, args=BROWSER_ARGS)
 page = browser.new_page()
 log("      Browser launched OK")
 
@@ -114,9 +126,9 @@ try:
         log(f"      Token received in {time.time()-t0:.1f}s: {token[:50]}...")
 
         page.evaluate(f"""() => {{
-            // Set hidden textarea
+            // Set value without changing display — making it visible blocks the submit button click
             const ta = document.getElementById('g-recaptcha-response');
-            if (ta) {{ ta.value = '{token}'; ta.style.display = 'block'; }}
+            if (ta) {{ ta.value = '{token}'; }}
             // Fire any registered callback
             try {{
                 const cfg = window.___grecaptcha_cfg;
@@ -175,19 +187,29 @@ try:
             log(f"      ✗ {selector!r} — ERROR: {e}")
     log(f"      {filled}/{len(FORM_FIELDS)} fields filled")
 
+    # Screenshot BEFORE submit — proof of fill regardless of what happens next
+    Path(SCREENSHOT_PATH).parent.mkdir(parents=True, exist_ok=True)
+    prefill_path = SCREENSHOT_PATH.replace(".png", "_prefilled.png")
+    page.screenshot(path=prefill_path, full_page=True)
+    log(f"      Pre-submit screenshot: {prefill_path}")
+
     # ── Step 5 — Submit ───────────────────────────────────────────────────────
     log("[5/6] Clicking submit...")
-    submit = page.query_selector(SUBMIT_SELECTOR)
-    if submit and submit.is_visible():
-        submit_text = submit.get_attribute("value") or submit.inner_text()
-        log(f"      Submit button found: {submit_text!r}")
-        submit.click()
-        log("      Clicked — waiting 5s for response...")
-        time.sleep(5)
+    # Use JS click to bypass any overlay interception (e.g. hidden reCAPTCHA textarea)
+    submitted = page.evaluate(f"""() => {{
+        const btn = document.querySelector('{SUBMIT_SELECTOR.replace("'", "\\'")}')
+                 || document.querySelector('input[type="submit"]')
+                 || document.querySelector('button[type="submit"]');
+        if (btn) {{ btn.click(); return btn.id || btn.value || btn.textContent.trim() || 'clicked'; }}
+        return null;
+    }}""")
+    if submitted:
+        log(f"      JS click fired on: {submitted!r}")
     else:
-        log("      WARNING: no visible submit button — pressing Enter")
+        log("      WARNING: no submit button found — pressing Enter")
         page.keyboard.press("Enter")
-        time.sleep(5)
+    log("      Waiting 6s for response...")
+    time.sleep(6)
 
     # ── Step 6 — Verify + screenshot ─────────────────────────────────────────
     log("[6/6] Verifying result...")
