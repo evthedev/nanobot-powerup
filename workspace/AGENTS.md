@@ -154,6 +154,23 @@ Base-layer skills take priority over instance-layer skills on name collision. Th
 
 **Discovering skills**: list `~/.nanobot/workspace/skills/` to see what capabilities are available. Each skill directory has a `SKILL.md` with instructions and (usually) a ready-to-run script.
 
+## Stealth Browser (for Bot-Protected Sites)
+
+When a scraping or automation task is blocked by Cloudflare, reCAPTCHA, FingerprintJS, or any anti-bot system, use the stealth browser skill:
+
+```
+skills/stealth-browser/SKILL.md
+```
+
+**Quick rule:** never attempt a protected site with standard Playwright. Switch to CloakBrowser immediately:
+
+```python
+from cloakbrowser import launch   # instead of playwright
+browser = launch()
+```
+
+For Cloudflare Turnstile that still challenges even with CloakBrowser, use CapSolver (see SKILL.md). CapSolver API key goes in `~/.nanobot/config.json` under `tools.capsolver.api_key`.
+
 ## Screenshots on Demand
 
 When the user explicitly asks for **screenshots** of research (e.g. "show screenshots", "I don't want hallucinations", "visual evidence"), you **must** use the `screenshot_pages` tool directly — **never use `spawn` for this**.
