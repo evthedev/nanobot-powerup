@@ -37,6 +37,10 @@ WORKDIR /app/bridge
 RUN npm install && npm run build
 WORKDIR /app
 
+# Install CloakBrowser + pre-download stealth Chromium binary (~200MB, cached in image layer)
+RUN pip install cloakbrowser && \
+    python -c "from cloakbrowser import ensure_binary; ensure_binary()"
+
 # Create config directory
 RUN mkdir -p /root/.nanobot
 
