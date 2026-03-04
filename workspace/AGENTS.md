@@ -162,14 +162,15 @@ When a scraping or automation task is blocked by Cloudflare, reCAPTCHA, Fingerpr
 skills/stealth-browser/SKILL.md
 ```
 
-**Quick rule:** never attempt a protected site with standard Playwright. Switch to CloakBrowser immediately:
+**Mandatory order — always follow this sequence:**
 
-```python
-from cloakbrowser import launch   # instead of playwright
-browser = launch()
-```
+1. **CloakBrowser** — load the page past the Cloudflare interstitial
+2. **CapSolver** — solve any embedded Turnstile/reCAPTCHA widget
+3. Fill and submit the form
 
-For Cloudflare Turnstile that still challenges even with CloakBrowser, use CapSolver (see SKILL.md). CapSolver API key goes in `~/.nanobot/config.json` under `tools.capsolver.api_key`.
+Never use standard Playwright on a protected site. Never rely on CloakBrowser alone — CapSolver is always paired with it. See `skills/stealth-browser/SKILL.md` for the full pattern.
+
+CapSolver API key: `~/.nanobot/config.json` → `tools.capsolver.api_key`
 
 ## Screenshots on Demand
 

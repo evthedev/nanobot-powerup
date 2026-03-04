@@ -1,112 +1,102 @@
 # Stealth Browser Skill
 
-Use this skill whenever a scraping or automation task is blocked by bot detection, Cloudflare, reCAPTCHA, FingerprintJS, or any anti-bot system.
+Use this skill whenever a scraping or automation task hits bot detection, Cloudflare, Turnstile, reCAPTCHA, or any anti-bot system.
 
-## Stack
+## Mandatory Approach — Always Follow This Order
 
-| Tool | Purpose | Cost |
-|------|---------|------|
-| **CloakBrowser** | Fingerprint evasion — patches Chromium at C++ source level | Free / open-source |
-| **CapSolver** | CAPTCHA solving — Cloudflare Turnstile, reCAPTCHA v2/v3 | ~$1–1.20 per 1,000 solves |
-
-## When to use CloakBrowser
-
-Replace standard Playwright with CloakBrowser for **any site that:**
-- Returns a Cloudflare challenge or CAPTCHA on standard Playwright
-- Uses FingerprintJS or BrowserScan bot detection
-- Checks `navigator.webdriver`, TLS fingerprint, or CDP signals
-
-CloakBrowser passes 30/30 detection tests (verified Mar 2026, Chromium 145). It patches Chromium source code — not JS injection or config flags, which break on every Chrome update.
-
-## Installation
-
-```bash
-pip install cloakbrowser
+```
+1. CloakBrowser  →  loads the page past Cloudflare interstitial
+2. CapSolver     →  solves any embedded Turnstile/CAPTCHA widget
+3. Fill + submit the form
 ```
 
-On first run, a ~200MB patched Chromium binary is auto-downloaded and cached at `~/.cloakbrowser/`.
+**Never attempt a protected site with standard Playwright. Never rely on CloakBrowser alone for Turnstile — always pair with CapSolver.**
 
-## Usage
+---
+
+## Step 1 — Load Page with CloakBrowser
 
 ```python
 from cloakbrowser import launch
+import time
 
-# Basic (headless by default)
-browser = launch()
+browser = launch(headless=True, args=["--fingerprint=42069"])  # fixed seed = returning visitor
 page = browser.new_page()
-page.goto("https://protected-site.com")
-browser.close()
-
-# Headed mode — required for some aggressive detectors (DataDome, some Turnstile configs)
-browser = launch(headless=False)
-
-# With proxy
-browser = launch(proxy="http://user:pass@proxy:8080")
-
-# Persistent fingerprint seed (use same seed per site to appear as returning visitor)
-browser = launch(args=["--fingerprint=42069"])
-
-# Async
-from cloakbrowser import launch_async
-browser = await launch_async()
+page.goto("https://protected-site.com", wait_until="domcontentloaded", timeout=60000)
+time.sleep(5)  # allow Cloudflare interstitial to clear
 ```
 
-All standard Playwright methods work unchanged — `new_page()`, `new_context()`, `close()`, etc.
+> Use `time.sleep()` not `page.wait_for_timeout()` — the latter sends CDP commands that reCAPTCHA detects.
 
-> **Tip:** Avoid `page.wait_for_timeout()` — it sends CDP commands that reCAPTCHA detects.
-> Use `import time; time.sleep(3)` instead.
+---
 
-## Cloudflare Turnstile via CapSolver
+## Step 2 — Solve Turnstile with CapSolver (PRIMARY)
 
-When a Turnstile interactive challenge still appears (even with CloakBrowser):
+Always attempt CapSolver for any Cloudflare-protected page before trying to interact with the form.
 
-1. Extract the sitekey from the page DOM:
 ```python
-sitekey = page.locator('[data-sitekey]').get_attribute('data-sitekey')
-```
-
-2. Call CapSolver API:
-```python
-import capsolver  # pip install capsolver
-
-# Load API key from config
+import capsolver
 import json
 from pathlib import Path
+
+# Load API key from config
 config = json.loads((Path.home() / ".nanobot/config.json").read_text())
 capsolver.api_key = config["tools"]["capsolver"]["api_key"]
 
-solution = capsolver.solve({
-    "type": "AntiTurnstileTaskProxyLess",
-    "websiteURL": page.url,
-    "websiteKey": sitekey,
-})
-token = solution["token"]
+# Extract sitekey from page
+sitekey = page.evaluate("""() => {
+    const el = document.querySelector('[data-sitekey]');
+    return el ? el.getAttribute('data-sitekey') : null;
+}""")
+
+if sitekey:
+    print(f"Solving Turnstile sitekey: {sitekey}")
+    solution = capsolver.solve({
+        "type": "AntiTurnstileTaskProxyLess",
+        "websiteURL": page.url,
+        "websiteKey": sitekey,
+    })
+    token = solution["token"]
+
+    # Inject token into page
+    page.evaluate(f"""() => {{
+        const inputs = document.querySelectorAll('[name="cf-turnstile-response"]');
+        inputs.forEach(el => el.value = '{token}');
+    }}""")
+    print(f"Turnstile token injected: {token[:40]}...")
+    time.sleep(2)
+else:
+    print("No Turnstile sitekey found — page may have loaded cleanly")
 ```
 
-3. Inject the token:
+---
+
+## Step 3 — Verify + Fill Form
+
 ```python
-page.evaluate(f"document.querySelector('[name=cf-turnstile-response]').value = '{token}'")
+# Confirm we're past the wall
+try:
+    page.wait_for_selector("input, textarea, form", timeout=10000)
+    print("Form accessible — filling fields")
+except:
+    print("Form still not accessible after CapSolver — check screenshot")
+    page.screenshot(path="/tmp/debug_blocked.png")
+    raise
+
+# Fill and submit
+page.fill("input[name='your-name']", "Your Name")
+page.fill("input[name='your-email']", "email@example.com")
+page.fill("textarea[name='your-message']", "Message content")
+page.click("input[type='submit'], button[type='submit']")
+time.sleep(3)
+page.screenshot(path="/tmp/submission_result.png")
 ```
 
-4. Verify clearance:
-```python
-cookies = {c["name"]: c["value"] for c in page.context.cookies()}
-assert "cf_clearance" in cookies, "Cloudflare clearance not obtained"
-```
+---
 
-## Comparison vs Alternatives
+## Config — CapSolver API Key
 
-| Tool | Patch level | Playwright API | Turnstile | Status |
-|------|------------|----------------|-----------|--------|
-| Standard Playwright | None | Native | FAIL | Active |
-| playwright-stealth | JS injection | Native | Sometimes | Stale |
-| undetected-chromedriver | Config flags | No (Selenium) | Sometimes | Stale |
-| Camoufox | C++ (Firefox) | No | Pass | Unstable beta (2026) |
-| **CloakBrowser** | **C++ (Chromium)** | **Native** | **Pass** | **Active** |
-
-## Config Key (CapSolver)
-
-Store the CapSolver API key in `~/.nanobot/config.json`:
+Store in `~/.nanobot/config.json`:
 ```json
 {
   "tools": {
@@ -115,4 +105,36 @@ Store the CapSolver API key in `~/.nanobot/config.json`:
     }
   }
 }
+```
+
+---
+
+## CapSolver Pricing
+
+| CAPTCHA type | Cost |
+|---|---|
+| Cloudflare Turnstile | $1.20 / 1,000 solves |
+| reCAPTCHA v2 | $0.80 / 1,000 solves |
+| reCAPTCHA v3 | $1.00 / 1,000 solves |
+
+---
+
+## Comparison
+
+| Tool | Role | Handles |
+|---|---|---|
+| CloakBrowser | Browser fingerprint | Cloudflare interstitial, bot score checks |
+| CapSolver | Active CAPTCHA solve | Embedded Turnstile, reCAPTCHA widgets |
+
+They solve different problems. Both are required for fully protected forms.
+
+---
+
+## Installation
+
+Both are pre-installed in the Docker image. CloakBrowser binary is pre-downloaded at build time.
+
+```bash
+# If running locally:
+pip install cloakbrowser capsolver
 ```
