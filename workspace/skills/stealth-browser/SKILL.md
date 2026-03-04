@@ -14,6 +14,35 @@ Use this skill whenever a scraping or automation task hits bot detection, Cloudf
 
 ---
 
+## Ready-to-Run Script — Start Here
+
+**Do NOT write a new script from scratch.** Copy the working script from this skill:
+
+```bash
+cp ~/.nanobot/workspace/skills/stealth-browser/submit_form.py ~/.nanobot/workspace/my_task.py
+# Edit the CONFIG section at the top, then run:
+python3 ~/.nanobot/workspace/my_task.py
+```
+
+## Critical API Rules
+
+- **Sync only** — `from cloakbrowser import launch` (never mix with `asyncio.run()`)
+- **Async import** — `from cloakbrowser import launch_async` (NOT `async_launch` — that does not exist)
+- **No `page.wait_for_timeout()`** — use `import time; time.sleep(N)` (CDP leak vector)
+
+## Sending Screenshots to Telegram
+
+Screenshots MUST be saved to `/root/.nanobot/workspace/screenshots/<name>.png`.
+Reference them in messages as markdown — **never pass a file path as plain text**:
+
+```python
+page.screenshot(path="/root/.nanobot/workspace/screenshots/result.png")
+# In the message tool:
+message(content="Done! ![Result](/api/screenshots/result.png)")
+```
+
+---
+
 ## Step 1 — Load Page with CloakBrowser
 
 ```python
