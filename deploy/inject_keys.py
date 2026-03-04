@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """Inject GitHub Secrets into /opt/nanobot/config.json on the EC2 instance.
-Called by deploy.yml after git pull. Reads keys from environment variables."""
+Called by deploy.yml after git pull.
+
+Usage:
+  python3 inject_keys.py --secrets /tmp/nanobot_secrets.json   # preferred (no shell quoting issues)
+  python3 inject_keys.py                                        # fallback: reads from env vars
+"""
 import json
 import os
+import sys
 
 
 def set_nested(d, path, value):
@@ -16,18 +22,29 @@ cfg_path = "/opt/nanobot/config.json"
 with open(cfg_path) as f:
     cfg = json.load(f)
 
-openrouter_key        = os.environ.get("OPENROUTER_API_KEY", "")
-brave_key             = os.environ.get("BRAVE_API_KEY", "")
-tavily_key            = os.environ.get("TAVILY_API_KEY", "")
-maps_key              = os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", "")
-telegram_token        = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-google_client_id      = os.environ.get("GOOGLE_CLIENT_ID", "")
-google_client_secret  = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-capsolver_api_key     = os.environ.get("CAPSOLVER_API_KEY", "")
-gmail_email           = os.environ.get("GMAIL_EMAIL", "")
-gmail_app_password    = os.environ.get("GMAIL_APP_PASSWORD", "")
-github_token          = os.environ.get("GITHUB_TOKEN", "")
-github_repo           = os.environ.get("GITHUB_REPO", "")
+# Prefer --secrets JSON file (avoids shell quoting issues with special chars in values)
+_secrets: dict = {}
+if "--secrets" in sys.argv:
+    secrets_path = sys.argv[sys.argv.index("--secrets") + 1]
+    with open(secrets_path) as f:
+        _secrets = json.load(f)
+    print(f"  reading secrets from {secrets_path}")
+
+def _get(key: str) -> str:
+    return _secrets.get(key, os.environ.get(key, "")).strip()
+
+openrouter_key        = _get("OPENROUTER_API_KEY")
+brave_key             = _get("BRAVE_API_KEY")
+tavily_key            = _get("TAVILY_API_KEY")
+maps_key              = _get("GOOGLE_STATIC_MAPS_API_KEY")
+telegram_token        = _get("TELEGRAM_BOT_TOKEN")
+google_client_id      = _get("GOOGLE_CLIENT_ID")
+google_client_secret  = _get("GOOGLE_CLIENT_SECRET")
+capsolver_api_key     = _get("CAPSOLVER_API_KEY")
+gmail_email           = _get("GMAIL_EMAIL")
+gmail_app_password    = _get("GMAIL_APP_PASSWORD")
+github_token          = _get("GITHUB_TOKEN")
+github_repo           = _get("GITHUB_REPO")
 
 if openrouter_key and not openrouter_key.startswith("REPLACE"):
     set_nested(cfg, "providers.openrouter.apiKey", openrouter_key)
