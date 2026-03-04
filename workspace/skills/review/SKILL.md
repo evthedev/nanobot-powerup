@@ -74,10 +74,9 @@ Send your final, complete response with all criteria satisfied and all screensho
 
 ## Hard output rules (always apply)
 
-- **Quote verbatim** — use `>` blockquotes, never paraphrase
 - **Lead with verdict** — aggregate summary first, evidence after
+- **Quote verbatim with citation** — follow the global Citation Rules in SOUL.md exactly: `>` blockquote + hyperlinked attribution on every quote
 - **Flag low scores loudly** — Trustpilot below 2.5 with 100+ reviews gets ⚠️ in verdict
-- **Attribute everything** — every quote needs source, date, rating
 - **No Yelp** — do not use `yelp_search`
 - **Embed screenshots inline** — use image URLs from `screenshot_pages` results
 - **If a source returns nothing** — say "No results found on [Source] for this query" — don't skip it

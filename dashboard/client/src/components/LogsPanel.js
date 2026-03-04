@@ -141,17 +141,19 @@ export default function LogsPanel({ mainModel, onToggleSidebar, sidebarOpen }) {
               >{f.label}</button>
             ))}
           </div>
-          <input
-            className="logs-search"
-            placeholder="Search…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          <button
-            className={`log-ctrl-btn ${paused ? 'active' : ''}`}
-            onClick={() => setPaused(p => !p)}
-          >{paused ? '▶ Resume' : '⏸ Pause'}</button>
-          <button className="log-ctrl-btn" onClick={() => setEntries([])}>🗑 Clear</button>
+          <div className="logs-ctrl-row">
+            <input
+              className="logs-search"
+              placeholder="Search…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            <button
+              className={`log-ctrl-btn ${paused ? 'active' : ''}`}
+              onClick={() => setPaused(p => !p)}
+            >{paused ? '▶ Resume' : '⏸ Pause'}</button>
+            <button className="log-ctrl-btn" onClick={() => setEntries([])}>🗑 Clear</button>
+          </div>
         </div>
       </div>
 

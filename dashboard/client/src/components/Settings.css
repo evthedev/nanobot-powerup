@@ -1,84 +1,59 @@
-/* ─── Settings Overlay ─────────────────────────────────────────────────────── */
-.settings-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  animation: fadeIn 0.15s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.settings-panel {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-xl);
-  width: 100%;
-  max-width: 560px;
-  max-height: 90vh;
+/* ─── Settings Page Layout ──────────────────────────────────────────────────── */
+.settings-page {
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-lg);
-  animation: slideUp 0.2s ease;
+  height: 100%;
+  background: var(--bg-primary);
+  overflow: hidden;
 }
 
-@keyframes slideUp {
-  from { transform: translateY(16px); opacity: 0; }
-  to   { transform: translateY(0);    opacity: 1; }
-}
-
-/* Header */
-.settings-header {
+/* Toolbar */
+.settings-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 24px;
+  gap: 12px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
+  background: var(--bg-secondary);
 }
 
-.settings-header h2 {
-  font-size: 18px;
+.settings-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-menu-btn {
+  font-size: 16px;
+}
+
+.settings-title {
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.settings-close {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 16px;
-  cursor: pointer;
+.settings-toolbar-actions {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--transition-fast);
+  gap: 8px;
 }
 
-.settings-close:hover {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-}
-
-/* Body */
+/* Body — scrollable */
 .settings-body {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
+  padding: 24px 20px;
+}
+
+/* Content — centred, max-width column */
+.settings-content {
+  max-width: 600px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 28px;
 }
 
 /* Sections */
@@ -215,15 +190,6 @@
   color: var(--error);
 }
 
-/* Footer */
-.settings-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 24px;
-  border-top: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
 
 .btn-primary,
 .btn-secondary {
@@ -338,6 +304,408 @@
 
 .btn-danger-sm:hover {
   background: rgba(234, 67, 53, 0.08);
+}
+
+/* ─── Workspace Docs Section ─────────────────────────────────────────────── */
+.wsdoc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wsdoc-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.wsdoc-card.expanded {
+  border-color: var(--border-medium);
+}
+
+.wsdoc-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--bg-tertiary);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.wsdoc-header:hover {
+  background: var(--bg-elevated);
+}
+
+.wsdoc-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.wsdoc-title {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.wsdoc-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.wsdoc-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.wsdoc-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.wsdoc-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.wsdoc-badge.config {
+  background: rgba(96, 165, 250, 0.12);
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.25);
+}
+
+.wsdoc-badge.runtime {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.wsdoc-status {
+  font-size: 11px;
+}
+
+.wsdoc-status.ok {
+  color: var(--success, #4ade80);
+}
+
+.wsdoc-status.missing {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.wsdoc-chevron {
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 12px;
+}
+
+.wsdoc-body {
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
+.wsdoc-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.wsdoc-path-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.wsdoc-path-value {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.wsdoc-content {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 12px;
+  margin: 0;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 2;
+}
+
+/* HEARTBEAT.md gets a faint amber left border — visual cue it's live state */
+.wsdoc-content.runtime {
+  border-left: 2px solid rgba(251, 191, 36, 0.35);
+  padding-left: 14px;
+}
+
+.wsdoc-missing-msg {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 12px;
+  font-style: italic;
+}
+
+/* ─── Skills Section ─────────────────────────────────────────────────────── */
+.skills-total-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  text-transform: none;
+  letter-spacing: 0;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+.skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.skills-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skills-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.skill-source-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.skill-source-badge.workspace {
+  background: rgba(96, 165, 250, 0.12);
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.25);
+}
+
+.skill-source-badge.auto {
+  background: rgba(167, 139, 250, 0.12);
+  color: #a78bfa;
+  border: 1px solid rgba(167, 139, 250, 0.25);
+}
+
+.skill-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.skill-card.expanded {
+  border-color: var(--border-medium);
+}
+
+.skill-card-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  background: var(--bg-tertiary);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+  gap: 8px;
+}
+
+.skill-card-header:hover {
+  background: var(--bg-elevated);
+}
+
+.skill-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.skill-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.skill-file-count {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.skill-chevron {
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 12px;
+}
+
+.skill-card-body {
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
+.skill-file-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+}
+
+.skill-file-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.12s;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.skill-file-tab:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.skill-file-tab.active {
+  background: var(--bg-elevated);
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+}
+
+/* .md files → blue accent */
+.skill-file-tab.ext-md.active,
+.skill-file-tab.ext-md:hover {
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+/* .py files → amber accent */
+.skill-file-tab.ext-py.active,
+.skill-file-tab.ext-py:hover {
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.skill-file-ext-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.3px;
+  line-height: 1.4;
+}
+
+.skill-file-tab.ext-md .skill-file-ext-badge {
+  background: rgba(96, 165, 250, 0.15);
+  color: #60a5fa;
+}
+
+.skill-file-tab.ext-py .skill-file-ext-badge {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+}
+
+.skill-file-tab:not(.ext-md):not(.ext-py) .skill-file-ext-badge {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.skill-file-viewer {
+  padding: 12px;
+}
+
+.skill-file-loading,
+.skill-file-error {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 8px;
+}
+
+.skill-file-error {
+  color: var(--error, #f87171);
+}
+
+.skill-file-content {
+  display: block;
+  width: 100%;
+  max-height: 300px;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre;
+  tab-size: 2;
+  margin: 0;
+}
+
+/* Markdown files get slightly softer line spacing */
+.skill-file-content.ext-md {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
 }
 
 /* ─── btn-link ──────────────────────────────────────────────────────────── */

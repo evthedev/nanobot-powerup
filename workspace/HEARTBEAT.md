@@ -1,8 +1,11 @@
 # Heartbeat Tasks
 
 <!--
-Rotating heartbeat — runs the most overdue check on each 30-min tick.
+Rotating heartbeat — each 30-min tick runs the single most overdue check.
 State tracked in: ~/.nanobot/workspace/heartbeat-state.json
+
+DELIVERY RULE: Do NOT call message(). Include any notification text in your
+final reply. The system delivers it. If nothing is actionable, reply HEARTBEAT_OK.
 -->
 
 ## Active Tasks
@@ -20,17 +23,17 @@ exec("cat ~/.nanobot/workspace/heartbeat-state.json 2>/dev/null || echo '{}'")
 exec("python3 -c \"from datetime import datetime; import pytz; now=datetime.now(pytz.timezone('Australia/Perth')); print(int(now.timestamp()), now.hour)\"")
 ```
 
-The output is: `<unix_timestamp> <hour_0_to_23>`
+Output: `<unix_timestamp> <hour_0_to_23>`
 
 ### Step 2 — Decide which check to run
 
-Use this priority order (check **calendar first**, then **todos**):
+Priority order:
 
-1. **calendar** — run if ALL of: `(now - last_calendar) >= 7200` AND `7 <= hour <= 22`
-2. **todos** — run if: `(now - last_todos) >= 1800`
-3. Neither due → reply `HEARTBEAT_OK` immediately, stop here.
+1. **calendar** — if `(now - last_calendar) >= 7200` AND `7 <= hour <= 22`
+2. **todos** — if `(now - last_todos) >= 1800`
+3. Neither condition met → reply `HEARTBEAT_OK`, stop here.
 
-Use `0` as the last-run time for any key missing from the state file (treat as never run).
+Use `0` for any key missing from the state file (treat as never run).
 
 ---
 
@@ -40,11 +43,12 @@ Use `0` as the last-run time for any key missing from the state file (treat as n
 exec("python3 ~/.nanobot/workspace/skills/google-calendar/list-calendar.py")
 ```
 
-- Parse the JSON output for events starting within the next **3 hours**.
-- If any found → send via `message()`: event name, start time, and one-line context (location or weather if relevant).
-- If none found → no message.
+Parse the JSON for events starting within the next **3 hours**.
 
-Then update state:
+- **Found events** → include a concise summary in your final reply (event name, time, one-line context).
+- **No events within 3 hours** → reply `HEARTBEAT_OK`.
+
+Update state:
 ```
 exec("python3 -c \"import json,time,pathlib; p=pathlib.Path.home()/'.nanobot/workspace/heartbeat-state.json'; s=json.loads(p.read_text()) if p.exists() else {}; s['calendar']=int(time.time()); p.write_text(json.dumps(s))\"")
 ```
@@ -57,17 +61,17 @@ exec("python3 -c \"import json,time,pathlib; p=pathlib.Path.home()/'.nanobot/wor
 exec("grep -A 200 '## Todos' ~/.nanobot/workspace/memory/MEMORY.md")
 ```
 
-- If the output contains any **unchecked** lines (`- [ ] ...`) → send via `message()`: a short bulleted list of open items.
-- If no unchecked todos → no message.
+- **Found unchecked lines (`- [ ] ...`)** → include a short bulleted list in your final reply.
+- **No `## Todos` section, or section exists but no unchecked items** → reply `HEARTBEAT_OK`. Do NOT ask questions. Do NOT offer to create anything.
 
-Then update state:
+Update state:
 ```
 exec("python3 -c \"import json,time,pathlib; p=pathlib.Path.home()/'.nanobot/workspace/heartbeat-state.json'; s=json.loads(p.read_text()) if p.exists() else {}; s['todos']=int(time.time()); p.write_text(json.dumps(s))\"")
 ```
 
 ---
 
-### Step 3 — Reply
+### Final reply
 
-- Sent a `message()` → reply `HEARTBEAT_DONE`
-- No message sent → reply `HEARTBEAT_OK`
+- Something to notify → reply with the notification text (no preamble, no questions).
+- Nothing actionable → reply `HEARTBEAT_OK`.

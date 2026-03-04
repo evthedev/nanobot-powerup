@@ -14,13 +14,13 @@ export default function Sidebar({
   serverOk,
   isOpen,
   onToggle,
-  onSettings,
   onLogs,
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const showLogs = location.pathname === '/logs';
-  const showTelegram = location.pathname === '/telegram';
+  const showLogs      = location.pathname === '/logs';
+  const showTelegram  = location.pathname === '/telegram';
+  const showSettings  = location.pathname === '/settings';
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [hoveredId, setHoveredId] = useState(null);
@@ -176,16 +176,14 @@ export default function Sidebar({
               <span>Connecting…</span>
             )}
           </div>
-          {onSettings && (
-            <button
-              className="icon-btn settings-btn"
-              onClick={onSettings}
-              title="Settings"
-              data-testid="settings-btn"
-            >
-              ⚙️
-            </button>
-          )}
+          <button
+            className={`icon-btn settings-btn ${showSettings ? 'active' : ''}`}
+            onClick={() => navigate('/settings')}
+            title="Settings"
+            data-testid="settings-btn"
+          >
+            ⚙️
+          </button>
         </div>
       )}
     </aside>

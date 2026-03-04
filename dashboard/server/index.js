@@ -816,6 +816,78 @@ app.get('/api/telegram/stream', (req, res) => {
   });
 });
 
+// ── Workspace Docs ───────────────────────────────────────────────────────────
+const WORKSPACE_DOCS = ['SOUL.md', 'AGENTS.md', 'USER.md', 'TOOLS.md', 'HEARTBEAT.md'];
+
+app.get('/api/workspace/docs', (req, res) => {
+  const files = WORKSPACE_DOCS.map(name => {
+    const filePath = path.join(WORKSPACE_DIR, name);
+    let content = null;
+    let exists  = false;
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+      exists  = true;
+    } catch {}
+    return { name, path: filePath, exists, content };
+  });
+  res.json(files);
+});
+
+// ── Skills ───────────────────────────────────────────────────────────────────
+const WORKSPACE_DIR = path.join(NANOBOT_HOME, 'workspace');
+const SKILL_IGNORED = new Set(['.gitkeep', '.DS_Store', '.git']);
+
+function readSkillsDir(dirPath) {
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    return entries
+      .filter(e => e.isDirectory() && !SKILL_IGNORED.has(e.name))
+      .map(dir => {
+        const skillPath = path.join(dirPath, dir.name);
+        const files = fs.readdirSync(skillPath, { withFileTypes: true })
+          .filter(e => e.isFile() && !SKILL_IGNORED.has(e.name) && !e.name.startsWith('.'))
+          .map(e => e.name)
+          .sort();
+        return { name: dir.name, files };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    return [];
+  }
+}
+
+app.get('/api/skills', (req, res) => {
+  res.json({
+    workspace: readSkillsDir(path.join(WORKSPACE_DIR, 'skills')),
+    auto:      readSkillsDir(path.join(WORKSPACE_DIR, 'skills-auto')),
+  });
+});
+
+app.get('/api/skills/content', (req, res) => {
+  const { source, skill, file } = req.query;
+
+  if (!['skills', 'skills-auto'].includes(source)) {
+    return res.status(400).json({ error: 'Invalid source' });
+  }
+  if (!skill || /[./\\]/.test(skill) || !file || /[/\\]/.test(file)) {
+    return res.status(400).json({ error: 'Invalid path component' });
+  }
+
+  const filePath = path.resolve(WORKSPACE_DIR, source, skill, file);
+  const allowed  = path.resolve(WORKSPACE_DIR, source);
+
+  if (!filePath.startsWith(allowed + path.sep)) {
+    return res.status(400).json({ error: 'Path traversal not allowed' });
+  }
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    res.json({ content });
+  } catch {
+    res.status(404).json({ error: 'File not found' });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Catch-all: serve React app (SPA fallback)

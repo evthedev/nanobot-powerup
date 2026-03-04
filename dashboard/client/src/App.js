@@ -22,7 +22,6 @@ function AppInner() {
   const [stats, setStats] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
   const [serverOk, setServerOk] = useState(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [mainModel, setMainModel] = useState(null);
 
   useEffect(() => {
@@ -303,13 +302,11 @@ function AppInner() {
     serverOk,
     isOpen: sidebarOpen,
     onToggle: () => setSidebarOpen(p => !p),
-    onSettings: () => setShowSettings(true),
     onLogs: () => navigate('/logs'),
   };
 
   return (
     <div className={`app-layout ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
-      {showSettings && <Settings onClose={() => setShowSettings(false)} />}
 
       {/* Mobile backdrop — tap to close sidebar */}
       {sidebarOpen && (
@@ -320,6 +317,12 @@ function AppInner() {
 
       <main className="main-area">
         <Routes>
+          <Route path="/settings" element={
+            <Settings
+              onToggleSidebar={() => setSidebarOpen(p => !p)}
+              sidebarOpen={sidebarOpen}
+            />
+          } />
           <Route path="/logs" element={
             <LogsPanel
               mainModel={mainModel}

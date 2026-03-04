@@ -294,7 +294,8 @@
   color: var(--text-muted);
   flex-shrink: 0;
 }
-.settings-btn:hover { color: var(--text-primary); }
+.settings-btn:hover  { color: var(--text-primary); }
+.settings-btn.active { color: var(--accent); }
 
 /* ─── Shared icon button ──────────────────────────────────────────────────────── */
 .icon-btn {

@@ -444,18 +444,40 @@ def gateway(
         Deliver to Telegram when a chat_id has been seen (i.e. the user has
         previously messaged the bot). Falls back to cli if no Telegram session
         exists yet.
+
+        Delivery is handled here rather than via the message() tool to avoid a
+        race condition: the MessageTool's channel/chat_id is shared state on the
+        AgentLoop instance.  A concurrent web/Telegram request can overwrite it
+        between the heartbeat's _set_tool_context call and the agent's message()
+        call, causing the notification to be routed to the wrong session.  By
+        having the agent return its content as plain text and publishing it from
+        this callback we bypass the shared tool context entirely.
         """
         tg_chat_id = agent.last_telegram_chat_id
         if config.channels.telegram.enabled and tg_chat_id:
             channel, chat_id = "telegram", tg_chat_id
         else:
             channel, chat_id = "cli", "direct"
-        return await agent.process_direct(
+
+        response = await agent.process_direct(
             prompt,
             session_key="heartbeat",
             channel=channel,
             chat_id=chat_id,
         )
+
+        # Publish to channel when there is actionable content.
+        # Anything that is not a HEARTBEAT_OK variant gets delivered.
+        is_silent = not response or "HEARTBEATOK" in response.upper().replace("_", "")
+        if not is_silent and channel != "cli":
+            from nanobot.bus.events import OutboundMessage
+            await bus.publish_outbound(OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=response,
+            ))
+
+        return response
 
     import os as _os
     _hb_interval = int(_os.environ.get("NANOBOT_HEARTBEAT_INTERVAL", 30 * 60))

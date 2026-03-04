@@ -1,9 +1,222 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './Settings.css';
 
 const API = process.env.REACT_APP_API_URL || '';
 
-export default function Settings({ onClose }) {
+// ── Workspace Docs Section ───────────────────────────────────────────────────
+const WORKSPACE_DOC_META = {
+  'SOUL.md':      { icon: '🧬', label: 'Soul',      badge: 'config',  desc: 'Agent identity & values' },
+  'AGENTS.md':    { icon: '🤖', label: 'Agents',    badge: 'config',  desc: 'Agent behaviour rules' },
+  'USER.md':      { icon: '👤', label: 'User',       badge: 'config',  desc: 'User preferences & context' },
+  'TOOLS.md':     { icon: '🔧', label: 'Tools',     badge: 'config',  desc: 'Tool usage guidelines' },
+  'HEARTBEAT.md': { icon: '💓', label: 'Heartbeat', badge: 'runtime', desc: 'Active task queue' },
+};
+
+function WorkspaceSection({ api }) {
+  const [docs, setDocs]           = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [expandedDoc, setExpanded] = useState(null);
+
+  useEffect(() => {
+    fetch(`${api}/api/workspace/docs`)
+      .then(r => r.ok ? r.json() : [])
+      .then(d => { setDocs(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [api]);
+
+  function toggle(name) {
+    setExpanded(v => v === name ? null : name);
+  }
+
+  return (
+    <section className="settings-section">
+      <h3>📄 Workspace Files</h3>
+      {loading ? (
+        <p className="field-help">Loading…</p>
+      ) : (
+        <div className="wsdoc-list">
+          {docs.map(doc => {
+            const meta       = WORKSPACE_DOC_META[doc.name] || { icon: '📄', label: doc.name, badge: 'config', desc: '' };
+            const isExpanded = expandedDoc === doc.name;
+            const isRuntime  = meta.badge === 'runtime';
+            return (
+              <div key={doc.name} className={`wsdoc-card ${isExpanded ? 'expanded' : ''}`}>
+                <button className="wsdoc-header" onClick={() => toggle(doc.name)}>
+                  <span className="wsdoc-icon">{meta.icon}</span>
+                  <span className="wsdoc-title">
+                    <span className="wsdoc-name">{doc.name}</span>
+                    <span className="wsdoc-desc">{meta.desc}</span>
+                  </span>
+                  <span className="wsdoc-meta">
+                    <span className={`wsdoc-badge ${meta.badge}`}>{meta.badge}</span>
+                    {doc.exists
+                      ? <span className="wsdoc-status ok">●</span>
+                      : <span className="wsdoc-status missing">○ missing</span>
+                    }
+                    <span className="wsdoc-chevron">{isExpanded ? '▾' : '▸'}</span>
+                  </span>
+                </button>
+
+                {isExpanded && (
+                  <div className="wsdoc-body">
+                    <div className="wsdoc-path">
+                      <span className="wsdoc-path-label">path</span>
+                      <code className="wsdoc-path-value">{doc.path}</code>
+                    </div>
+                    {doc.exists ? (
+                      <pre className={`wsdoc-content ${isRuntime ? 'runtime' : ''}`}>{doc.content}</pre>
+                    ) : (
+                      <p className="wsdoc-missing-msg">File does not exist at runtime yet.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function fileExt(filename) {
+  return filename.includes('.') ? filename.split('.').pop().toLowerCase() : '';
+}
+
+function SkillsSection({ api }) {
+  const [skills, setSkills]               = useState({ workspace: [], auto: [] });
+  const [loading, setLoading]             = useState(true);
+  const [expandedKey, setExpandedKey]     = useState(null); // 'skills/ping-test'
+  const [activeFile, setActiveFile]       = useState(null); // filename string
+  const [fileContent, setFileContent]     = useState(null); // { content } | { error } | null
+  const [fileLoading, setFileLoading]     = useState(false);
+  const contentCache                      = useRef({});     // cacheKey → content string
+
+  useEffect(() => {
+    fetch(`${api}/api/skills`)
+      .then(r => r.ok ? r.json() : { workspace: [], auto: [] })
+      .then(d => { setSkills(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [api]);
+
+  function toggleSkill(source, name) {
+    const key = `${source}/${name}`;
+    if (expandedKey === key) {
+      setExpandedKey(null);
+      setActiveFile(null);
+      setFileContent(null);
+    } else {
+      setExpandedKey(key);
+      setActiveFile(null);
+      setFileContent(null);
+    }
+  }
+
+  async function openFile(source, skill, file) {
+    setActiveFile(file);
+    const cacheKey = `${source}/${skill}/${file}`;
+    if (contentCache.current[cacheKey] !== undefined) {
+      setFileContent({ content: contentCache.current[cacheKey] });
+      return;
+    }
+    setFileLoading(true);
+    setFileContent(null);
+    try {
+      const r = await fetch(`${api}/api/skills/content?source=${encodeURIComponent(source)}&skill=${encodeURIComponent(skill)}&file=${encodeURIComponent(file)}`);
+      const data = await r.json();
+      contentCache.current[cacheKey] = data.content || data.error || '';
+      setFileContent(data);
+    } catch (e) {
+      setFileContent({ error: e.message });
+    } finally {
+      setFileLoading(false);
+    }
+  }
+
+  function SkillGroup({ label, badge, source, list }) {
+    if (!list.length) return null;
+    return (
+      <div className="skills-group">
+        <div className="skills-group-header">
+          <span>{label}</span>
+          <span className={`skill-source-badge ${badge}`}>{list.length}</span>
+        </div>
+        {list.map(skill => {
+          const key        = `${source}/${skill.name}`;
+          const isExpanded = expandedKey === key;
+          return (
+            <div key={key} className={`skill-card ${isExpanded ? 'expanded' : ''}`}>
+              <button
+                className="skill-card-header"
+                onClick={() => toggleSkill(source, skill.name)}
+              >
+                <span className="skill-name">{skill.name}</span>
+                <span className="skill-meta">
+                  <span className="skill-file-count">{skill.files.length} file{skill.files.length !== 1 ? 's' : ''}</span>
+                  <span className="skill-chevron">{isExpanded ? '▾' : '▸'}</span>
+                </span>
+              </button>
+
+              {isExpanded && (
+                <div className="skill-card-body">
+                  <div className="skill-file-tabs">
+                    {skill.files.map(f => {
+                      const ext = fileExt(f);
+                      return (
+                        <button
+                          key={f}
+                          className={`skill-file-tab ext-${ext} ${activeFile === f ? 'active' : ''}`}
+                          onClick={() => openFile(source, skill.name, f)}
+                        >
+                          <span className="skill-file-ext-badge">{ext || 'txt'}</span>
+                          {f}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {activeFile && (
+                    <div className="skill-file-viewer">
+                      {fileLoading && <div className="skill-file-loading">Loading…</div>}
+                      {!fileLoading && fileContent && (
+                        fileContent.error
+                          ? <div className="skill-file-error">{fileContent.error}</div>
+                          : <pre className={`skill-file-content ext-${fileExt(activeFile)}`}>{fileContent.content}</pre>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const totalSkills = skills.workspace.length + skills.auto.length;
+
+  return (
+    <section className="settings-section">
+      <h3>🧠 Skills {!loading && <span className="skills-total-badge">{totalSkills}</span>}</h3>
+      {loading ? (
+        <p className="field-help">Loading skills…</p>
+      ) : totalSkills === 0 ? (
+        <p className="field-help">No skills found in workspace.</p>
+      ) : (
+        <div className="skills-list">
+          <SkillGroup label="Workspace"     badge="workspace" source="skills"      list={skills.workspace} />
+          <SkillGroup label="Auto-Generated" badge="auto"     source="skills-auto" list={skills.auto} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function Settings({ onToggleSidebar, sidebarOpen }) {
   const [saving, setSaving]       = useState(false);
   const [status, setStatus]       = useState(null);    // { type: 'success'|'error', msg }
   const [visible, setVisible]     = useState({});
@@ -187,16 +400,33 @@ export default function Settings({ onClose }) {
   const googleHasCreds = googleStatus?.hasCredentials !== false;
 
   return (
-    <div className="settings-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="settings-panel" role="dialog" aria-label="Settings">
+    <div className="settings-page">
 
-        {/* Header */}
-        <div className="settings-header">
-          <h2>⚙️ Settings</h2>
-          <button className="settings-close" onClick={onClose} title="Close">✕</button>
+      {/* Toolbar */}
+      <div className="settings-toolbar">
+        <div className="settings-title-row">
+          {!sidebarOpen && onToggleSidebar && (
+            <button className="log-ctrl-btn settings-menu-btn" onClick={onToggleSidebar} title="Open menu">☰</button>
+          )}
+          <span className="settings-title">⚙️ Settings</span>
         </div>
+        <div className="settings-toolbar-actions">
+          <button className="btn-secondary" onClick={loadConfig} disabled={saving}>
+            🔄 Reload
+          </button>
+          <button
+            className="btn-primary"
+            onClick={saveConfig}
+            disabled={saving}
+            data-testid="save-config-btn"
+          >
+            {saving ? 'Saving…' : '💾 Save'}
+          </button>
+        </div>
+      </div>
 
-        <div className="settings-body">
+      <div className="settings-body">
+        <div className="settings-content">
 
           {/* AI Providers */}
           <section className="settings-section">
@@ -323,27 +553,19 @@ export default function Settings({ onClose }) {
             />
           </section>
 
+          {/* Workspace Files */}
+          <WorkspaceSection api={API} />
+
+          {/* Skills */}
+          <SkillsSection api={API} />
+
           {/* Status message */}
           {status && (
             <div className={`settings-status ${status.type}`} data-testid="settings-status">
               {status.msg}
             </div>
           )}
-        </div>
 
-        {/* Footer */}
-        <div className="settings-footer">
-          <button className="btn-secondary" onClick={loadConfig} disabled={saving}>
-            🔄 Reload
-          </button>
-          <button
-            className="btn-primary"
-            onClick={saveConfig}
-            disabled={saving}
-            data-testid="save-config-btn"
-          >
-            {saving ? 'Saving…' : '💾 Save'}
-          </button>
         </div>
       </div>
     </div>

@@ -32,7 +32,7 @@ setup:
 
 sync-workspace:
 	@echo "Syncing workspace docs → ~/.nanobot/workspace/ ..."
-	@rsync -a --exclude=skills/ ./workspace/ ~/.nanobot/workspace/
+	@rsync -a --exclude=skills/ --exclude=HEARTBEAT.md ./workspace/ ~/.nanobot/workspace/
 	@echo "Syncing base skills → ~/.nanobot/workspace/skills/ ..."
 	@rsync -a --delete ./workspace/skills/ ~/.nanobot/workspace/skills/
 	@echo "Done."

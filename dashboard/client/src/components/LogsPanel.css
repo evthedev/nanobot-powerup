@@ -93,10 +93,21 @@
   flex-wrap: wrap;
 }
 
+.logs-ctrl-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .logs-filters {
   display: flex;
   gap: 3px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  flex-shrink: 0;
 }
+.logs-filters::-webkit-scrollbar { display: none; }
 
 .log-filter-btn {
   background: transparent;
@@ -107,6 +118,8 @@
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .log-filter-btn:hover  { border-color: #58a6ff; color: #c9d1d9; }
 .log-filter-btn.active { background: #1f3a5f; border-color: #58a6ff; color: #58a6ff; }
@@ -299,6 +312,39 @@
   transition: background 0.15s;
 }
 .scroll-to-bottom:hover { background: #1c4073; }
+
+/* ── Mobile layout ───────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .logs-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .logs-filters {
+    /* fills full width, buttons scroll horizontally */
+    width: 100%;
+  }
+
+  .logs-search {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* group Pause + Clear on one row */
+  .logs-ctrl-row {
+    display: flex;
+    gap: 6px;
+  }
+
+  .log-ctrl-btn {
+    flex: 1;
+    text-align: center;
+  }
+
+  /* hide verbose token detail on very small screens */
+  .token-sum-detail { display: none; }
+}
 
 /* ── Scrollbar styling ───────────────────────────────────────────────────── */
 .logs-body::-webkit-scrollbar       { width: 5px; }
