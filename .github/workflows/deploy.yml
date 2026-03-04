@@ -48,24 +48,23 @@ jobs:
       # ── 2. SSH: idempotent setup + deploy (works on fresh or existing instance) ─
       - name: Deploy to EC2
         env:
-          EC2_HOST:                   ${{ steps.tf.outputs.ec2_host }}
-          OPENROUTER_API_KEY:         ${{ secrets.OPENROUTER_API_KEY }}
-          BRAVE_API_KEY:              ${{ secrets.BRAVE_API_KEY }}
-          TAVILY_API_KEY:             ${{ secrets.TAVILY_API_KEY }}
-          GOOGLE_CLIENT_ID:           ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET:       ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          EC2_HOST:                 ${{ steps.tf.outputs.ec2_host }}
+          OPENROUTER_API_KEY:       ${{ secrets.OPENROUTER_API_KEY }}
+          BRAVE_API_KEY:            ${{ secrets.BRAVE_API_KEY }}
+          TAVILY_API_KEY:           ${{ secrets.TAVILY_API_KEY }}
+          GOOGLE_CLIENT_ID:         ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET:     ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_STATIC_MAPS_API_KEY: ${{ secrets.GOOGLE_STATIC_MAPS_API_KEY }}
-          TELEGRAM_BOT_TOKEN:         ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CAPSOLVER_API_KEY:          ${{ secrets.CAPSOLVER_API_KEY }}
-          GMAIL_EMAIL:                ${{ secrets.GMAIL_EMAIL }}
-          GMAIL_APP_PASSWORD:         ${{ secrets.GMAIL_APP_PASSWORD }}
-          GITHUB_TOKEN_PAT:           ${{ secrets.GITHUB_TOKEN_PAT }}
-          GH_REPO:                    ${{ vars.GH_REPO }}
+          TELEGRAM_BOT_TOKEN:       ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CAPSOLVER_API_KEY:        ${{ secrets.CAPSOLVER_API_KEY }}
+          GMAIL_EMAIL:              ${{ secrets.GMAIL_EMAIL }}
+          GMAIL_APP_PASSWORD:       ${{ secrets.GMAIL_APP_PASSWORD }}
+          GITHUB_TOKEN_PAT:         ${{ secrets.GITHUB_TOKEN_PAT }}
+          GH_REPO:                  ${{ vars.GH_REPO }}
         run: |
           printf '%s' "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2.pem
           chmod 600 /tmp/ec2.pem
           SSH="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i /tmp/ec2.pem ubuntu@$EC2_HOST"
-          SCP="scp -o StrictHostKeyChecking=no -i /tmp/ec2.pem"
 
           # Wait for SSH (instance may still be booting)
           echo "Waiting for SSH..."
@@ -81,33 +80,21 @@ jobs:
             echo "  attempt $i/30 — retrying in 20s"; sleep 20
           done
 
-          # ── Write secrets to a JSON file and scp to EC2 ─────────────────────────
-          # This avoids shell quoting issues with special characters in secret values
-          # (newlines, spaces, quotes) that break SSH env var passing.
-          python3 - << 'PYEOF'
-import json, os
-secrets = {
-  "OPENROUTER_API_KEY":         os.environ.get("OPENROUTER_API_KEY", ""),
-  "BRAVE_API_KEY":              os.environ.get("BRAVE_API_KEY", ""),
-  "TAVILY_API_KEY":             os.environ.get("TAVILY_API_KEY", ""),
-  "GOOGLE_STATIC_MAPS_API_KEY": os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", ""),
-  "GOOGLE_CLIENT_ID":           os.environ.get("GOOGLE_CLIENT_ID", ""),
-  "GOOGLE_CLIENT_SECRET":       os.environ.get("GOOGLE_CLIENT_SECRET", ""),
-  "TELEGRAM_BOT_TOKEN":         os.environ.get("TELEGRAM_BOT_TOKEN", ""),
-  "CAPSOLVER_API_KEY":          os.environ.get("CAPSOLVER_API_KEY", ""),
-  "GMAIL_EMAIL":                os.environ.get("GMAIL_EMAIL", ""),
-  "GMAIL_APP_PASSWORD":         os.environ.get("GMAIL_APP_PASSWORD", ""),
-  "GITHUB_TOKEN":               os.environ.get("GITHUB_TOKEN_PAT", ""),
-  "GITHUB_REPO":                os.environ.get("GH_REPO", ""),
-}
-with open("/tmp/nanobot_secrets.json", "w") as f:
-    json.dump(secrets, f)
-print("  secrets file written")
-PYEOF
-          $SCP /tmp/nanobot_secrets.json ubuntu@$EC2_HOST:/tmp/nanobot_secrets.json
-
           # ── Phase 1: repo + first-time setup + inject API keys + docker group ───
-          $SSH bash << 'SETUP'
+          $SSH env \
+            OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
+            BRAVE_API_KEY="$BRAVE_API_KEY" \
+            TAVILY_API_KEY="$TAVILY_API_KEY" \
+            GOOGLE_STATIC_MAPS_API_KEY="$GOOGLE_STATIC_MAPS_API_KEY" \
+            GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
+            GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
+            TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
+            CAPSOLVER_API_KEY="$CAPSOLVER_API_KEY" \
+            GMAIL_EMAIL="$GMAIL_EMAIL" \
+            GMAIL_APP_PASSWORD="$GMAIL_APP_PASSWORD" \
+            GITHUB_TOKEN="$GITHUB_TOKEN_PAT" \
+            GITHUB_REPO="$GH_REPO" \
+            bash << 'SETUP'
             set -euo pipefail
             REPO_DIR="/opt/nanobot-app"
             REPO_URL="https://github.com/evthedev/nanobot-powerup.git"
@@ -152,8 +139,7 @@ PYEOF
 
             # ── Inject API keys into config.json ──────────────────────────────────
             echo "--- injecting API keys ---"
-            python3 "$REPO_DIR/deploy/inject_keys.py" --secrets /tmp/nanobot_secrets.json
-            rm -f /tmp/nanobot_secrets.json
+            python3 "$REPO_DIR/deploy/inject_keys.py"
 
             # ── Migrate DB: replace any old hardcoded localhost URLs ───────────────
             echo "--- migrating DB ---"
