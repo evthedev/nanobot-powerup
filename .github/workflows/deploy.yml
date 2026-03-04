@@ -57,6 +57,8 @@ jobs:
           GOOGLE_STATIC_MAPS_API_KEY: ${{ secrets.GOOGLE_STATIC_MAPS_API_KEY }}
           TELEGRAM_BOT_TOKEN:       ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CAPSOLVER_API_KEY:        ${{ secrets.CAPSOLVER_API_KEY }}
+          GMAIL_EMAIL:              ${{ secrets.GMAIL_EMAIL }}
+          GMAIL_APP_PASSWORD:       ${{ secrets.GMAIL_APP_PASSWORD }}
         run: |
           printf '%s' "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2.pem
           chmod 600 /tmp/ec2.pem
@@ -86,6 +88,8 @@ jobs:
             GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
             TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
             CAPSOLVER_API_KEY="$CAPSOLVER_API_KEY" \
+            GMAIL_EMAIL="$GMAIL_EMAIL" \
+            GMAIL_APP_PASSWORD="$GMAIL_APP_PASSWORD" \
             bash << 'SETUP'
             set -euo pipefail
             REPO_DIR="/opt/nanobot-app"

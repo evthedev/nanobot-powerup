@@ -148,11 +148,32 @@ Skills are split into two directories with different rules:
 ```
 ~/.nanobot/workspace/skills-auto/<skill-name>/SKILL.md
 ~/.nanobot/workspace/skills-auto/<skill-name>/<script>.py   (if needed)
+~/.nanobot/workspace/skills-auto/<skill-name>/skill.json    (required — see below)
 ```
 
 Base-layer skills take priority over instance-layer skills on name collision. The instance layer persists across deploys — it is never overwritten by CI.
 
 **Discovering skills**: list `~/.nanobot/workspace/skills/` to see what capabilities are available. Each skill directory has a `SKILL.md` with instructions and (usually) a ready-to-run script.
+
+### Skill Enable/Disable Toggle
+
+Every skill directory contains a `skill.json` file:
+
+```json
+{ "enabled": true }
+```
+
+**Before using any skill**, check `skill.json`:
+```bash
+cat ~/.nanobot/workspace/skills/<name>/skill.json
+```
+
+- If `"enabled": true` (or file is absent) → proceed normally
+- If `"enabled": false` → **do not use this skill**; tell the user it is disabled
+
+**When creating a new skill in `skills-auto/`**, always include `skill.json` with `{"enabled": true}`.
+
+**To disable a skill** (if the user asks), set `"enabled": false` in its `skill.json` — never delete the skill directory.
 
 ## Stealth Browser (for Bot-Protected Sites)
 
@@ -180,6 +201,35 @@ cp ~/.nanobot/workspace/skills/stealth-browser/submit_form.py ~/.nanobot/workspa
 Never use standard Playwright on a protected site. Never rely on CloakBrowser alone — CapSolver is always paired with it. See `skills/stealth-browser/SKILL.md` for the full pattern.
 
 CapSolver API key: `~/.nanobot/config.json` → `tools.capsolver.api_key`
+
+## Gmail — Sending Emails
+
+When the user asks to send an email, or a task naturally produces output worth emailing (a report, a confirmation, a summary), use the Gmail skill:
+
+```
+skills/gmail/SKILL.md
+```
+
+**✅ REQUIRED — always copy and use the existing script:**
+```bash
+cp ~/.nanobot/workspace/skills/gmail/send_email.py ~/.nanobot/workspace/<task>_email.py
+# then edit ONLY the CONFIG section (TO, CC, SUBJECT, BODY_HTML, ATTACHMENTS)
+python3 ~/.nanobot/workspace/<task>_email.py
+```
+
+**⛔ PROHIBITED — writing a new email script with `write_file`.**
+The working script already exists. Never recreate it — it will miss error handling and auth logic.
+
+**Quick reference — CONFIG fields:**
+| Field | Type | Notes |
+|---|---|---|
+| `TO` | `list[str]` | Required — one or more recipient addresses |
+| `CC` | `list[str]` | Optional — empty list = no CC |
+| `SUBJECT` | `str` | Email subject line |
+| `BODY_HTML` | `str` | Full HTML body — supports tables, links, images |
+| `ATTACHMENTS` | `list[str]` | Absolute paths to files — empty = no attachments |
+
+Gmail credentials: `~/.nanobot/config.json` → `tools.gmail.email` + `tools.gmail.app_password`
 
 ## Screenshots on Demand
 

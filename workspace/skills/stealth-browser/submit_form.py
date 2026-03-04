@@ -145,9 +145,11 @@ try:
     token = None
 
     # Determine type from detection results
-    if captcha_info.get("v3sitekey"):
-        # reCAPTCHA v3 (render=key in api.js)
-        sitekey = captcha_info["v3sitekey"]
+    # NOTE: render=explicit means v2 rendered manually — ignore it, fall through to widgets
+    _v3key = captcha_info.get("v3sitekey")
+    if _v3key and _v3key not in ("explicit", "onload", ""):
+        # reCAPTCHA v3 (render=<real_sitekey> in api.js)
+        sitekey = _v3key
         captcha_type = "v3"
     elif captcha_info.get("widgets"):
         w = captcha_info["widgets"][0]

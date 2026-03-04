@@ -24,6 +24,8 @@ telegram_token        = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 google_client_id      = os.environ.get("GOOGLE_CLIENT_ID", "")
 google_client_secret  = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 capsolver_api_key     = os.environ.get("CAPSOLVER_API_KEY", "")
+gmail_email           = os.environ.get("GMAIL_EMAIL", "")
+gmail_app_password    = os.environ.get("GMAIL_APP_PASSWORD", "")
 
 if openrouter_key and not openrouter_key.startswith("REPLACE"):
     set_nested(cfg, "providers.openrouter.apiKey", openrouter_key)
@@ -57,6 +59,14 @@ if google_client_secret and not google_client_secret.startswith("REPLACE"):
 if capsolver_api_key and not capsolver_api_key.startswith("REPLACE"):
     set_nested(cfg, "tools.capsolver.api_key", capsolver_api_key)
     print(f"  capsolver key set ({len(capsolver_api_key)} chars)")
+
+if gmail_email and not gmail_email.startswith("REPLACE"):
+    set_nested(cfg, "tools.gmail.email", gmail_email)
+    print(f"  gmail email set ({gmail_email})")
+
+if gmail_app_password and not gmail_app_password.startswith("REPLACE"):
+    set_nested(cfg, "tools.gmail.app_password", gmail_app_password)
+    print(f"  gmail app_password set ({len(gmail_app_password)} chars)")
 
 set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
 print("  agent model: google/gemini-3-flash-preview")
