@@ -23,6 +23,7 @@ maps_key              = os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", "")
 telegram_token        = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 google_client_id      = os.environ.get("GOOGLE_CLIENT_ID", "")
 google_client_secret  = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+capsolver_api_key     = os.environ.get("CAPSOLVER_API_KEY", "")
 
 if openrouter_key and not openrouter_key.startswith("REPLACE"):
     set_nested(cfg, "providers.openrouter.apiKey", openrouter_key)
@@ -52,6 +53,10 @@ if google_client_id and not google_client_id.startswith("REPLACE"):
 if google_client_secret and not google_client_secret.startswith("REPLACE"):
     set_nested(cfg, "tools.google_calendar.clientSecret", google_client_secret)
     print(f"  google client secret set")
+
+if capsolver_api_key and not capsolver_api_key.startswith("REPLACE"):
+    set_nested(cfg, "tools.capsolver.api_key", capsolver_api_key)
+    print(f"  capsolver key set ({len(capsolver_api_key)} chars)")
 
 set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
 print("  agent model: google/gemini-3-flash-preview")
