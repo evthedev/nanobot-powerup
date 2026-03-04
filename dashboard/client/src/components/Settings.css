@@ -708,6 +708,160 @@
   color: var(--text-primary);
 }
 
+/* ─── Skill card header row (expand toggle + PR button side-by-side) ───── */
+.skill-card-header-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.skill-card-header-row .skill-card-header {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ─── Skill enable/disable toggle ───────────────────────────────────────── */
+.skill-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  background: var(--bg-tertiary);
+  border: none;
+  border-left: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.skill-toggle:hover { background: var(--bg-hover, var(--bg-secondary)); }
+.skill-toggle:disabled { cursor: wait; opacity: 0.6; }
+
+/* The pill track */
+.skill-toggle::before {
+  content: '';
+  display: block;
+  width: 28px;
+  height: 15px;
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+.skill-toggle.on::before  { background: #22c55e; }
+.skill-toggle.off::before { background: var(--border-medium, #555); }
+.skill-toggle.saving::before { background: var(--text-muted, #888); }
+
+/* The thumb dot — positioned via the button's flex layout trick */
+.skill-toggle-thumb {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,.4);
+  transition: transform 0.2s;
+  pointer-events: none;
+}
+
+/* Use a wrapper approach: button is relative, thumb is absolutely positioned over the track */
+.skill-toggle {
+  position: relative;
+}
+.skill-toggle::before {
+  flex-shrink: 0;
+}
+.skill-toggle .skill-toggle-thumb {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+}
+.skill-toggle.on  .skill-toggle-thumb { transform: translate(-4px, -50%); }
+.skill-toggle.off .skill-toggle-thumb { transform: translate(-12px, -50%); }
+
+/* Dim disabled skill cards */
+.skill-card.skill-disabled .skill-name {
+  opacity: 0.45;
+}
+.skill-card.skill-disabled .skill-card-header {
+  background: var(--bg-primary);
+}
+
+/* ─── Submit PR button & states ─────────────────────────────────────────── */
+.skill-pr-action {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  background: var(--bg-tertiary);
+  border-left: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.skill-pr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.skill-pr-btn:hover {
+  border-color: rgba(96, 165, 250, 0.6);
+  color: rgba(96, 165, 250, 0.9);
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.skill-pr-loading {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-style: italic;
+}
+
+.skill-pr-success {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(74, 222, 128, 0.9);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.skill-pr-success:hover {
+  color: rgba(74, 222, 128, 1);
+  text-decoration: underline;
+}
+
+.skill-pr-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: rgba(248, 113, 113, 0.9);
+  white-space: nowrap;
+}
+
+.skill-pr-retry {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: transparent;
+  color: rgba(248, 113, 113, 0.8);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.skill-pr-retry:hover {
+  background: rgba(248, 113, 113, 0.1);
+  color: rgba(248, 113, 113, 1);
+}
+
 /* ─── btn-link ──────────────────────────────────────────────────────────── */
 .btn-link {
   background: none;

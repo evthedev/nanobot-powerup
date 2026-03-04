@@ -835,7 +835,8 @@ app.get('/api/workspace/docs', (req, res) => {
 
 // ── Skills ───────────────────────────────────────────────────────────────────
 const WORKSPACE_DIR = path.join(NANOBOT_HOME, 'workspace');
-const SKILL_IGNORED = new Set(['.gitkeep', '.DS_Store', '.git']);
+const SKILL_IGNORED     = new Set(['.gitkeep', '.DS_Store', '.git']);
+const SKILL_META_FILES  = new Set(['skill.json']); // metadata — shown in toggle, not in file tabs
 
 function readSkillsDir(dirPath) {
   try {
@@ -845,10 +846,18 @@ function readSkillsDir(dirPath) {
       .map(dir => {
         const skillPath = path.join(dirPath, dir.name);
         const files = fs.readdirSync(skillPath, { withFileTypes: true })
-          .filter(e => e.isFile() && !SKILL_IGNORED.has(e.name) && !e.name.startsWith('.'))
+          .filter(e => e.isFile() && !SKILL_IGNORED.has(e.name) && !SKILL_META_FILES.has(e.name) && !e.name.startsWith('.'))
           .map(e => e.name)
           .sort();
-        return { name: dir.name, files };
+
+        // Read enabled state from skill.json (default: true if missing)
+        let enabled = true;
+        try {
+          const meta = JSON.parse(fs.readFileSync(path.join(skillPath, 'skill.json'), 'utf8'));
+          if (typeof meta.enabled === 'boolean') enabled = meta.enabled;
+        } catch { /* no skill.json or parse error — treat as enabled */ }
+
+        return { name: dir.name, files, enabled };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   } catch {
@@ -885,6 +894,148 @@ app.get('/api/skills/content', (req, res) => {
     res.json({ content });
   } catch {
     res.status(404).json({ error: 'File not found' });
+  }
+});
+
+// ── Skills Toggle — write skill.json enabled flag ────────────────────────────
+app.post('/api/skills/toggle', (req, res) => {
+  const { source, skillName, enabled } = req.body;
+
+  if (!['skills', 'skills-auto'].includes(source)) {
+    return res.status(400).json({ error: 'Invalid source' });
+  }
+  if (!skillName || /[./\\]/.test(skillName)) {
+    return res.status(400).json({ error: 'Invalid skill name' });
+  }
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean' });
+  }
+
+  const skillPath = path.resolve(WORKSPACE_DIR, source, skillName);
+  const allowed   = path.resolve(WORKSPACE_DIR, source);
+
+  if (!skillPath.startsWith(allowed + path.sep)) {
+    return res.status(400).json({ error: 'Path traversal not allowed' });
+  }
+  if (!fs.existsSync(skillPath)) {
+    return res.status(404).json({ error: `Skill '${skillName}' not found` });
+  }
+
+  try {
+    fs.writeFileSync(path.join(skillPath, 'skill.json'), JSON.stringify({ enabled }, null, 2) + '\n');
+    res.json({ ok: true, skillName, enabled });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Skills Promote — create a GitHub PR to merge a skills-auto skill into workspace/skills ──
+async function githubRequest(token, method, urlPath, body) {
+  const res = await fetch(`https://api.github.com${urlPath}`, {
+    method,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+      'User-Agent': 'nanobot-powerup',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || `GitHub API ${res.status}`);
+  return data;
+}
+
+app.post('/api/skills/promote', async (req, res) => {
+  const { skillName } = req.body || {};
+
+  if (!skillName || /[./\\]/.test(skillName)) {
+    return res.status(400).json({ error: 'Invalid skill name' });
+  }
+
+  const token = nanobotConfig.tools?.github?.token || process.env.GITHUB_TOKEN;
+  const repo  = nanobotConfig.tools?.github?.repo  || process.env.GITHUB_REPO;
+
+  if (!token) return res.status(500).json({ error: 'GitHub token not configured — set tools.github.token in config.json or GITHUB_TOKEN env var' });
+  if (!repo)  return res.status(500).json({ error: 'GitHub repo not configured — set tools.github.repo ("owner/repo") in config.json or GITHUB_REPO env var' });
+
+  const skillDir = path.resolve(WORKSPACE_DIR, 'skills-auto', skillName);
+  if (!skillDir.startsWith(path.resolve(WORKSPACE_DIR, 'skills-auto') + path.sep)) {
+    return res.status(400).json({ error: 'Path traversal not allowed' });
+  }
+  if (!fs.existsSync(skillDir)) {
+    return res.status(404).json({ error: `Skill '${skillName}' not found in skills-auto` });
+  }
+
+  const skillFiles = fs.readdirSync(skillDir, { withFileTypes: true })
+    .filter(e => e.isFile() && !SKILL_IGNORED.has(e.name) && !e.name.startsWith('.'))
+    .map(e => ({ name: e.name, content: fs.readFileSync(path.join(skillDir, e.name)) }));
+
+  if (!skillFiles.length) {
+    return res.status(400).json({ error: 'No files found in skill directory' });
+  }
+
+  try {
+    const branchName = `skill-auto/${skillName}`;
+
+    // Resolve base commit + tree
+    const baseRef    = await githubRequest(token, 'GET', `/repos/${repo}/git/ref/heads/main`);
+    const baseSha    = baseRef.object.sha;
+    const baseCommit = await githubRequest(token, 'GET', `/repos/${repo}/git/commits/${baseSha}`);
+    const baseTree   = baseCommit.tree.sha;
+
+    // Create blobs and build tree entries (all in parallel)
+    const treeEntries = await Promise.all(skillFiles.map(async ({ name, content }) => {
+      const blob = await githubRequest(token, 'POST', `/repos/${repo}/git/blobs`, {
+        content: content.toString('base64'),
+        encoding: 'base64',
+      });
+      return { path: `workspace/skills/${skillName}/${name}`, mode: '100644', type: 'blob', sha: blob.sha };
+    }));
+
+    const newTree   = await githubRequest(token, 'POST', `/repos/${repo}/git/trees`, { base_tree: baseTree, tree: treeEntries });
+    const newCommit = await githubRequest(token, 'POST', `/repos/${repo}/git/commits`, {
+      message: `feat(skills): promote auto-generated skill '${skillName}'\n\nFiles: ${skillFiles.map(f => f.name).join(', ')}`,
+      tree: newTree.sha,
+      parents: [baseSha],
+    });
+
+    // Create or force-update branch
+    let branchExists = false;
+    try { await githubRequest(token, 'GET', `/repos/${repo}/git/ref/heads/${branchName}`); branchExists = true; } catch {}
+
+    if (branchExists) {
+      await githubRequest(token, 'PATCH', `/repos/${repo}/git/refs/heads/${branchName}`, { sha: newCommit.sha, force: true });
+    } else {
+      await githubRequest(token, 'POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${branchName}`, sha: newCommit.sha });
+    }
+
+    // Check for an existing open PR, create one if absent
+    const owner = repo.split('/')[0];
+    const existingPrs = await githubRequest(token, 'GET', `/repos/${repo}/pulls?head=${owner}:${branchName}&state=open`);
+    let prUrl, prNumber;
+
+    if (existingPrs.length > 0) {
+      prUrl    = existingPrs[0].html_url;
+      prNumber = existingPrs[0].number;
+    } else {
+      const fileList = skillFiles.map(f => `- \`workspace/skills/${skillName}/${f.name}\``).join('\n');
+      const pr = await githubRequest(token, 'POST', `/repos/${repo}/pulls`, {
+        title: `feat(skills): promote auto-generated skill '${skillName}'`,
+        body:  `## Auto-generated skill: \`${skillName}\`\n\nThis PR was raised automatically by nanobot to promote an autonomously created skill from the instance layer to the base layer.\n\n### Files\n${fileList}`,
+        head: branchName,
+        base: 'main',
+      });
+      prUrl    = pr.html_url;
+      prNumber = pr.number;
+    }
+
+    console.log(`[promote-skill] PR #${prNumber} for '${skillName}': ${prUrl}`);
+    res.json({ prUrl, prNumber, branch: branchName });
+  } catch (e) {
+    console.error('[promote-skill]', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 

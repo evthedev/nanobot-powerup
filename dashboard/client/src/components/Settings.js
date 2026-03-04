@@ -92,6 +92,10 @@ function SkillsSection({ api }) {
   const [fileContent, setFileContent]     = useState(null); // { content } | { error } | null
   const [fileLoading, setFileLoading]     = useState(false);
   const contentCache                      = useRef({});     // cacheKey → content string
+  // prState[skillName] = { status: 'idle'|'loading'|'success'|'error', prUrl?, prNumber?, error? }
+  const [prState, setPrState]             = useState({});
+  // toggleState[`source/skillName`] = 'idle' | 'saving'
+  const [toggleState, setToggleState]     = useState({});
 
   useEffect(() => {
     fetch(`${api}/api/skills`)
@@ -134,8 +138,62 @@ function SkillsSection({ api }) {
     }
   }
 
+  async function submitPr(skillName, e) {
+    e.stopPropagation();
+    setPrState(s => ({ ...s, [skillName]: { status: 'loading' } }));
+    try {
+      const r    = await fetch(`${api}/api/skills/promote`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ skillName }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      setPrState(s => ({ ...s, [skillName]: { status: 'success', prUrl: data.prUrl, prNumber: data.prNumber } }));
+    } catch (err) {
+      setPrState(s => ({ ...s, [skillName]: { status: 'error', error: err.message } }));
+    }
+  }
+
+  async function toggleEnabled(source, skillName, currentEnabled, e) {
+    e.stopPropagation();
+    const key     = `${source}/${skillName}`;
+    const newVal  = !currentEnabled;
+    setToggleState(s => ({ ...s, [key]: 'saving' }));
+
+    // Optimistic update
+    setSkills(prev => {
+      const field = source === 'skills-auto' ? 'auto' : 'workspace';
+      return {
+        ...prev,
+        [field]: prev[field].map(s => s.name === skillName ? { ...s, enabled: newVal } : s),
+      };
+    });
+
+    try {
+      const r = await fetch(`${api}/api/skills/toggle`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ source, skillName, enabled: newVal }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
+    } catch {
+      // Revert on failure
+      setSkills(prev => {
+        const field = source === 'skills-auto' ? 'auto' : 'workspace';
+        return {
+          ...prev,
+          [field]: prev[field].map(s => s.name === skillName ? { ...s, enabled: currentEnabled } : s),
+        };
+      });
+    } finally {
+      setToggleState(s => ({ ...s, [key]: 'idle' }));
+    }
+  }
+
   function SkillGroup({ label, badge, source, list }) {
     if (!list.length) return null;
+    const isAuto = source === 'skills-auto';
     return (
       <div className="skills-group">
         <div className="skills-group-header">
@@ -145,18 +203,55 @@ function SkillsSection({ api }) {
         {list.map(skill => {
           const key        = `${source}/${skill.name}`;
           const isExpanded = expandedKey === key;
+          const pr         = prState[skill.name] || { status: 'idle' };
+          const isSaving   = toggleState[key] === 'saving';
           return (
-            <div key={key} className={`skill-card ${isExpanded ? 'expanded' : ''}`}>
-              <button
-                className="skill-card-header"
-                onClick={() => toggleSkill(source, skill.name)}
-              >
-                <span className="skill-name">{skill.name}</span>
-                <span className="skill-meta">
-                  <span className="skill-file-count">{skill.files.length} file{skill.files.length !== 1 ? 's' : ''}</span>
-                  <span className="skill-chevron">{isExpanded ? '▾' : '▸'}</span>
-                </span>
-              </button>
+            <div key={key} className={`skill-card ${isExpanded ? 'expanded' : ''} ${skill.enabled === false ? 'skill-disabled' : ''}`}>
+              <div className="skill-card-header-row">
+                <button
+                  className="skill-card-header"
+                  onClick={() => toggleSkill(source, skill.name)}
+                >
+                  <span className="skill-name">{skill.name}</span>
+                  <span className="skill-meta">
+                    <span className="skill-file-count">{skill.files.length} file{skill.files.length !== 1 ? 's' : ''}</span>
+                    <span className="skill-chevron">{isExpanded ? '▾' : '▸'}</span>
+                  </span>
+                </button>
+
+                <button
+                  className={`skill-toggle ${skill.enabled !== false ? 'on' : 'off'} ${isSaving ? 'saving' : ''}`}
+                  onClick={e => toggleEnabled(source, skill.name, skill.enabled !== false, e)}
+                  title={skill.enabled !== false ? 'Disable skill' : 'Enable skill'}
+                  disabled={isSaving}
+                >
+                  <span className="skill-toggle-thumb" />
+                </button>
+
+                {isAuto && (
+                  <div className="skill-pr-action" onClick={e => e.stopPropagation()}>
+                    {pr.status === 'idle' && (
+                      <button className="skill-pr-btn" onClick={e => submitPr(skill.name, e)} title="Submit PR to promote this skill to the base layer">
+                        ↑ Submit PR
+                      </button>
+                    )}
+                    {pr.status === 'loading' && (
+                      <span className="skill-pr-loading">Submitting…</span>
+                    )}
+                    {pr.status === 'success' && (
+                      <a className="skill-pr-success" href={pr.prUrl} target="_blank" rel="noopener noreferrer" title={`PR #${pr.prNumber}`}>
+                        ✓ PR #{pr.prNumber} ↗
+                      </a>
+                    )}
+                    {pr.status === 'error' && (
+                      <span className="skill-pr-error" title={pr.error}>
+                        ✗ Failed
+                        <button className="skill-pr-retry" onClick={e => submitPr(skill.name, e)}>retry</button>
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {isExpanded && (
                 <div className="skill-card-body">
