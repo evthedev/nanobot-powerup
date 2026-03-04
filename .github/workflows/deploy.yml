@@ -65,6 +65,7 @@ jobs:
           printf '%s' "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2.pem
           chmod 600 /tmp/ec2.pem
           SSH="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i /tmp/ec2.pem ubuntu@$EC2_HOST"
+          SCP="scp -o StrictHostKeyChecking=no -i /tmp/ec2.pem"
 
           # Wait for SSH (instance may still be booting)
           echo "Waiting for SSH..."
@@ -80,21 +81,13 @@ jobs:
             echo "  attempt $i/30 — retrying in 20s"; sleep 20
           done
 
+          # Write secrets to JSON + scp to EC2 (no shell quoting — handles any special chars)
+          python3 deploy/write_secrets.py
+          $SCP /tmp/nanobot_secrets.json ubuntu@$EC2_HOST:/tmp/nanobot_secrets.json
+          rm -f /tmp/nanobot_secrets.json
+
           # ── Phase 1: repo + first-time setup + inject API keys + docker group ───
-          $SSH env \
-            OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
-            BRAVE_API_KEY="$BRAVE_API_KEY" \
-            TAVILY_API_KEY="$TAVILY_API_KEY" \
-            GOOGLE_STATIC_MAPS_API_KEY="$GOOGLE_STATIC_MAPS_API_KEY" \
-            GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
-            GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
-            TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
-            CAPSOLVER_API_KEY="$CAPSOLVER_API_KEY" \
-            GMAIL_EMAIL="$GMAIL_EMAIL" \
-            GMAIL_APP_PASSWORD="$GMAIL_APP_PASSWORD" \
-            GITHUB_TOKEN="$GH_PAT" \
-            GITHUB_REPO="$GH_REPO" \
-            bash << 'SETUP'
+          $SSH bash << 'SETUP'
             set -euo pipefail
             REPO_DIR="/opt/nanobot-app"
             REPO_URL="https://github.com/evthedev/nanobot-powerup.git"
@@ -139,20 +132,16 @@ jobs:
 
             # ── Inject API keys into config.json ──────────────────────────────────
             echo "--- injecting API keys ---"
-            python3 "$REPO_DIR/deploy/inject_keys.py"
+            python3 "$REPO_DIR/deploy/inject_keys.py" --secrets /tmp/nanobot_secrets.json
+            rm -f /tmp/nanobot_secrets.json
 
             # ── Migrate DB: replace any old hardcoded localhost URLs ───────────────
             echo "--- migrating DB ---"
             DB_PATH=/opt/nanobot/chat.db python3 "$REPO_DIR/deploy/migrate_db.py"
 
-            # ── Write .env for Google OAuth (dashboard reads these at runtime) ────
+            # ── Write .env for Google OAuth (read from config.json — already injected) ──
             echo "--- writing .env ---"
-            printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\nGOOGLE_STATIC_MAPS_API_KEY=%s\n' \
-              "${GOOGLE_CLIENT_ID:-}" \
-              "${GOOGLE_CLIENT_SECRET:-}" \
-              "${GOOGLE_STATIC_MAPS_API_KEY:-}" \
-              > "$REPO_DIR/.env"
-            echo "  .env written"
+            python3 "$REPO_DIR/deploy/write_dotenv.py"
 
             # Ensure ubuntu is in docker group (idempotent)
             sudo usermod -aG docker ubuntu
