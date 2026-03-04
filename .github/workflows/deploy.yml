@@ -159,7 +159,14 @@ jobs:
             echo "--- building ---"
             docker compose -f docker-compose.yml build --pull
             echo "--- stopping old containers (prevents name-conflict on recreate) ---"
-            docker compose -f docker-compose.yml down --remove-orphans
+            docker compose -f docker-compose.yml down --remove-orphans --timeout 30
+            # Wait for all containers to finish removal before recreating
+            for i in $(seq 1 10); do
+              REMAINING=$(docker ps -aq --filter "name=nanobot" | wc -l)
+              [ "$REMAINING" -eq 0 ] && break
+              echo "  waiting for $REMAINING container(s) to finish removal ($i/10)..."
+              sleep 3
+            done
             echo "--- starting fresh ---"
             docker compose -f docker-compose.yml up -d
             docker image prune -f
