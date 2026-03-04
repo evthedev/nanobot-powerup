@@ -59,7 +59,7 @@ jobs:
           CAPSOLVER_API_KEY:        ${{ secrets.CAPSOLVER_API_KEY }}
           GMAIL_EMAIL:              ${{ secrets.GMAIL_EMAIL }}
           GMAIL_APP_PASSWORD:       ${{ secrets.GMAIL_APP_PASSWORD }}
-          GITHUB_TOKEN_PAT:         ${{ secrets.GITHUB_TOKEN_PAT }}
+          GH_PAT:                   ${{ secrets.GH_PAT }}
           GH_REPO:                  ${{ vars.GH_REPO }}
         run: |
           printf '%s' "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2.pem
@@ -92,7 +92,7 @@ jobs:
             CAPSOLVER_API_KEY="$CAPSOLVER_API_KEY" \
             GMAIL_EMAIL="$GMAIL_EMAIL" \
             GMAIL_APP_PASSWORD="$GMAIL_APP_PASSWORD" \
-            GITHUB_TOKEN="$GITHUB_TOKEN_PAT" \
+            GITHUB_TOKEN="$GH_PAT" \
             GITHUB_REPO="$GH_REPO" \
             bash << 'SETUP'
             set -euo pipefail
