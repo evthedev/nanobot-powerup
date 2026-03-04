@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
 Stealth form submission: CloakBrowser (fingerprint evasion) + CapSolver (CAPTCHA solving).
+Handles reCAPTCHA v2 checkbox, v2 invisible, and v3 invisible automatically.
 
 USAGE:
-  1. Copy this file:  cp submit_form.py ~/.nanobot/workspace/my_task.py
-  2. Edit the CONFIG section below
-  3. Run: python3 my_task.py
+  1. Copy:   cp submit_form.py ~/.nanobot/workspace/my_task.py
+  2. Edit:   only the CONFIG section below (TARGET_URL, FORM_FIELDS, SCREENSHOT_PATH)
+  3. Run:    python3 my_task.py
 
-RULES:
+RULES (do not modify the logic below CONFIG):
   - Sync API only — never wrap launch() in asyncio.run()
   - Async variant: from cloakbrowser import launch_async  (NOT async_launch)
   - Never use page.wait_for_timeout() — use time.sleep() instead (CDP leak)
@@ -22,14 +23,45 @@ def log(msg):
     ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
     print(f"[{ts}] {msg}", flush=True)
 
-# ── CONFIG — edit these before running ───────────────────────────────────────
+# ── CONFIG — edit only this section ──────────────────────────────────────────
 TARGET_URL      = "https://example.com/contact"
 SCREENSHOT_PATH = "/root/.nanobot/workspace/screenshots/submission_result.png"
-FINGERPRINT     = "42069"   # fixed seed = consistent returning-visitor fingerprint
+
+# CSS selector → value.  Remove selectors that don't exist on this form.
+FORM_FIELDS = {
+    "input[name='your-name']":    "Your Name",
+    "input[type='email']":        "email@domain.com",
+    "input[type='tel']":          "0400000000",
+    "textarea":                   "Message here.",
+}
+SUBMIT_SELECTOR = "input[type='submit'], button[type='submit']"
+
+# reCAPTCHA v3 action string — usually "gform", "submit", or "homepage".
+# Check the form's JS source if unsure; "gform" is correct for Gravity Forms.
+RECAPTCHA_V3_ACTION = "gform"
+# ─────────────────────────────────────────────────────────────────────────────
+
+log("=== submit_form.py starting ===")
+log(f"Target: {TARGET_URL}")
+
+# Load CapSolver key + verify balance
+config = json.loads((Path.home() / ".nanobot/config.json").read_text())
+import capsolver
+capsolver.api_key = config["tools"]["capsolver"]["api_key"]
+log(f"CapSolver key: {capsolver.api_key[:20]}...")
+try:
+    bal = capsolver.balance()
+    amount = bal.get("balance", 0) if isinstance(bal, dict) else getattr(bal, "balance", 0)
+    log(f"CapSolver balance: ${amount}")
+    if float(amount) <= 0:
+        log("ABORT: CapSolver balance is zero — top up at dashboard.capsolver.com")
+        sys.exit(1)
+except Exception as e:
+    log(f"WARNING: balance check failed ({e}) — continuing")
 
 # Memory-saving flags — required on small EC2 instances (< 4GB RAM)
 BROWSER_ARGS = [
-    f"--fingerprint={FINGERPRINT}",
+    "--fingerprint=42069",
     "--no-sandbox",
     "--disable-dev-shm-usage",
     "--disable-gpu",
@@ -39,137 +71,174 @@ BROWSER_ARGS = [
     "--disable-background-networking",
 ]
 
-# CSS selector → value to type.  Comment out fields that don't exist on the form.
-FORM_FIELDS = {
-    "input[name='your-name']":    "Your Name",
-    "input[type='email']":        "email@example.com",
-    "input[type='tel']":          "0400000000",
-    "textarea":                   "Message content here.",
-}
-SUBMIT_SELECTOR = "input[type='submit'], button[type='submit']"
-# ─────────────────────────────────────────────────────────────────────────────
-
-log("=== stealth submit_form.py starting ===")
-log(f"Target: {TARGET_URL}")
-
-# Load CapSolver key
-config = json.loads((Path.home() / ".nanobot/config.json").read_text())
-import capsolver
-capsolver.api_key = config["tools"]["capsolver"]["api_key"]
-log(f"CapSolver key loaded: {capsolver.api_key[:20]}...")
-
-# Verify CapSolver balance before spending time loading the page
-try:
-    balance = capsolver.balance()
-    bal_amount = balance.get("balance", 0) if isinstance(balance, dict) else getattr(balance, "balance", 0)
-    log(f"CapSolver balance: ${bal_amount}")
-    if float(bal_amount) <= 0:
-        log("ABORT: CapSolver balance is zero — top up at dashboard.capsolver.com")
-        sys.exit(1)
-except Exception as e:
-    log(f"WARNING: could not check balance ({e}) — continuing anyway")
-
-# ── Step 1 — Launch CloakBrowser ─────────────────────────────────────────────
-log("[1/6] Launching CloakBrowser (sync API)...")
+# ── Step 1 — Launch CloakBrowser (sync API — never use asyncio.run()) ────────
+log("[1/6] Launching CloakBrowser...")
 from cloakbrowser import launch
 browser = launch(headless=True, args=BROWSER_ARGS)
 page = browser.new_page()
-log("      Browser launched OK")
+log("      OK")
 
 try:
-    # ── Step 2 — Navigate ────────────────────────────────────────────────────
+    # ── Step 2 — Navigate + wait for Cloudflare interstitial ─────────────────
     log(f"[2/6] Navigating to {TARGET_URL}...")
     t0 = time.time()
     page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=60000)
-    log(f"      domcontentloaded in {time.time()-t0:.1f}s")
-    log("      Sleeping 5s for Cloudflare interstitial to clear...")
+    log(f"      loaded in {time.time()-t0:.1f}s — sleeping 5s for CF interstitial")
     time.sleep(5)
-    log(f"      Page title : {page.title()!r}")
-    log(f"      Final URL  : {page.url}")
+    log(f"      title : {page.title()!r}")
+    log(f"      url   : {page.url}")
 
-    # Snapshot all inputs so we can see what the form actually has
-    inputs_info = page.evaluate("""() => {
-        return Array.from(document.querySelectorAll('input, textarea, select')).map(el => ({
+    # Enumerate all visible form elements for debugging
+    inputs = page.evaluate("""() =>
+        Array.from(document.querySelectorAll('input,textarea,select')).map(el => ({
             tag: el.tagName, type: el.type || '', name: el.name || '',
-            id: el.id || '', placeholder: (el.placeholder || '').substring(0, 40),
+            id: el.id || '', cls: (el.className || '').substring(0, 60),
             visible: el.offsetParent !== null
-        }));
-    }""")
-    log(f"      Form elements found ({len(inputs_info)}):")
-    for el in inputs_info:
-        log(f"        <{el['tag'].lower()} type={el['type']!r} name={el['name']!r} id={el['id']!r} placeholder={el['placeholder']!r} visible={el['visible']}>")
+        }))
+    """)
+    log(f"      {len(inputs)} form elements discovered:")
+    for el in inputs:
+        if el["visible"]:
+            log(f"        <{el['tag'].lower()} type={el['type']!r} name={el['name']!r} id={el['id']!r}>")
 
-    # ── Step 3 — CAPTCHA detection + solving ─────────────────────────────────
+    # ── Step 3 — Detect CAPTCHA type and solve ────────────────────────────────
     log("[3/6] Detecting CAPTCHA...")
 
-    # reCAPTCHA v2 sitekey (data-sitekey attr or iframe src)
-    sitekey = page.evaluate("""() => {
-        const el = document.querySelector('[data-sitekey]');
-        if (el) return el.getAttribute('data-sitekey');
-        const iframe = document.querySelector('iframe[src*="recaptcha"]');
-        if (iframe) { const m = iframe.src.match(/[?&]k=([^&]+)/); return m ? m[1] : null; }
-        return null;
+    captcha_info = page.evaluate("""() => {
+        // Find all [data-sitekey] elements
+        const widgets = Array.from(document.querySelectorAll('[data-sitekey]')).map(el => ({
+            sitekey: el.getAttribute('data-sitekey'),
+            cls: el.className || '',
+            size: el.getAttribute('data-size') || '',
+            badge: el.getAttribute('data-badge') || '',
+            callback: el.getAttribute('data-callback') || '',
+        }));
+
+        // Check for v3 via render=<key> in <script src>
+        const scripts = Array.from(document.querySelectorAll('script[src]'));
+        const v3script = scripts.find(s => s.src.includes('recaptcha/api.js') && s.src.includes('render='));
+        const v3sitekey = v3script ? (v3script.src.match(/render=([^&]+)/) || [])[1] : null;
+
+        // Check for invisible via iframe size=invisible
+        const iframes = Array.from(document.querySelectorAll('iframe[src*="recaptcha"]'));
+        const invisIframe = iframes.find(f => f.src.includes('size=invisible'));
+
+        // Detect form ID (Gravity Forms)
+        const forms = Array.from(document.querySelectorAll('form[id^="gform_"]'));
+        const formId = forms.length ? forms[0].id.replace('gform_', '') : null;
+
+        return { widgets, v3sitekey, hasInvisibleIframe: !!invisIframe, formId };
     }""")
 
-    if sitekey:
-        log(f"      reCAPTCHA v2 detected — sitekey: {sitekey}")
-        log("      Calling CapSolver (ReCaptchaV2TaskProxyLess)...")
-        t0 = time.time()
-        solution = capsolver.solve({
-            "type": "ReCaptchaV2TaskProxyLess",
-            "websiteURL": page.url,
-            "websiteKey": sitekey,
-        })
-        token = solution.get("gRecaptchaResponse") or solution.get("token")
-        if not token:
-            raise RuntimeError(f"CapSolver returned no token. Full response: {solution}")
-        log(f"      Token received in {time.time()-t0:.1f}s: {token[:50]}...")
+    log(f"      CAPTCHA info: {captcha_info}")
 
-        page.evaluate(f"""() => {{
-            // Set value without changing display — making it visible blocks the submit button click
-            const ta = document.getElementById('g-recaptcha-response');
-            if (ta) {{ ta.value = '{token}'; }}
-            // Fire any registered callback
-            try {{
-                const cfg = window.___grecaptcha_cfg;
-                if (cfg && cfg.clients) {{
-                    for (const k in cfg.clients) {{
-                        for (const p in cfg.clients[k]) {{
-                            const c = cfg.clients[k][p];
-                            if (c && typeof c.callback === 'function') c.callback('{token}');
-                        }}
-                    }}
-                }}
-            }} catch(e) {{}}
-        }}""")
-        time.sleep(2)
-        log("      reCAPTCHA token injected + callback fired")
+    sitekey = None
+    captcha_type = None  # "v2_checkbox" | "v2_invisible" | "v3"
+    token = None
 
-    else:
-        # Turnstile
-        turnstile_key = page.evaluate("""() => {
-            const el = document.querySelector('.cf-turnstile, [data-sitekey]');
-            return el ? el.getAttribute('data-sitekey') : null;
-        }""")
-        if turnstile_key:
-            log(f"      Cloudflare Turnstile detected — sitekey: {turnstile_key}")
-            log("      Calling CapSolver (AntiTurnstileTaskProxyLess)...")
-            t0 = time.time()
-            solution = capsolver.solve({
-                "type": "AntiTurnstileTaskProxyLess",
-                "websiteURL": page.url,
-                "websiteKey": turnstile_key,
-            })
-            token = solution["token"]
-            log(f"      Token received in {time.time()-t0:.1f}s: {token[:50]}...")
-            page.evaluate(f"""() => {{
-                document.querySelectorAll('[name="cf-turnstile-response"]')
-                    .forEach(el => el.value = '{token}');
-            }}""")
-            time.sleep(2)
-            log("      Turnstile token injected")
+    # Determine type from detection results
+    if captcha_info.get("v3sitekey"):
+        # reCAPTCHA v3 (render=key in api.js)
+        sitekey = captcha_info["v3sitekey"]
+        captcha_type = "v3"
+    elif captcha_info.get("widgets"):
+        w = captcha_info["widgets"][0]
+        sitekey = w["sitekey"]
+        if "v3" in w["cls"].lower() or "invisible" in w["cls"].lower() or captcha_info.get("hasInvisibleIframe"):
+            captcha_type = "v2_invisible"
         else:
-            log("      No CAPTCHA widget detected — page may have cleared it via CloakBrowser")
+            captcha_type = "v2_checkbox"
+    else:
+        log("      No CAPTCHA detected — page may have cleared naturally via CloakBrowser")
+
+    if sitekey:
+        log(f"      Type    : {captcha_type}")
+        log(f"      Sitekey : {sitekey}")
+
+        if captcha_type == "v3":
+            log(f"      Solving reCAPTCHA v3 via CapSolver (action={RECAPTCHA_V3_ACTION!r})...")
+            t0 = time.time()
+            sol = capsolver.solve({
+                "type": "ReCaptchaV3TaskProxyLess",
+                "websiteURL": page.url,
+                "websiteKey": sitekey,
+                "pageAction": RECAPTCHA_V3_ACTION,
+                "minScore": 0.5,
+            })
+            token = sol.get("gRecaptchaResponse") or sol.get("token")
+            log(f"      Token in {time.time()-t0:.1f}s: {(token or '')[:60]}...")
+
+            if token:
+                form_id = captcha_info.get("formId")
+                log(f"      Gravity Forms form_id: {form_id!r}")
+                page.evaluate(f"""() => {{
+                    const tok = '{token}';
+                    // Gravity Forms v3: store in gform.recaptchaTokens
+                    try {{
+                        if (window.gform && window.gform.recaptchaTokens) {{
+                            window.gform.recaptchaTokens['{form_id}'] = tok;
+                            console.log('[CapSolver] set gform.recaptchaTokens[{form_id}]');
+                        }}
+                    }} catch(e) {{ console.log('[CapSolver] gform.recaptchaTokens error:', e); }}
+                    // Also inject into any hidden recaptcha fields
+                    document.querySelectorAll('[name*="recaptcha"],[name*="g-recaptcha"]').forEach(el => {{
+                        el.value = tok;
+                        console.log('[CapSolver] set hidden field:', el.name);
+                    }});
+                    // Fire any grecaptcha callbacks registered via execute()
+                    try {{
+                        if (window.___grecaptcha_cfg && window.___grecaptcha_cfg.clients) {{
+                            for (const k in window.___grecaptcha_cfg.clients) {{
+                                for (const p in window.___grecaptcha_cfg.clients[k]) {{
+                                    const c = window.___grecaptcha_cfg.clients[k][p];
+                                    if (c && typeof c.callback === 'function') c.callback(tok);
+                                }}
+                            }}
+                        }}
+                    }} catch(e) {{}}
+                }}""")
+                time.sleep(2)
+                log("      v3 token injected into gform.recaptchaTokens + hidden fields")
+            else:
+                raise RuntimeError(f"CapSolver returned no token. Response: {sol}")
+
+        elif captcha_type in ("v2_invisible", "v2_checkbox"):
+            task_type = "ReCaptchaV2TaskProxyLess"
+            log(f"      Solving {captcha_type} via CapSolver ({task_type})...")
+            t0 = time.time()
+            payload = {
+                "type": task_type,
+                "websiteURL": page.url,
+                "websiteKey": sitekey,
+            }
+            if captcha_type == "v2_invisible":
+                payload["isInvisible"] = True
+            sol = capsolver.solve(payload)
+            token = sol.get("gRecaptchaResponse") or sol.get("token")
+            log(f"      Token in {time.time()-t0:.1f}s: {(token or '')[:60]}...")
+
+            if token:
+                # Do NOT set display:block — that makes the textarea cover the submit button
+                page.evaluate(f"""() => {{
+                    const tok = '{token}';
+                    const ta = document.getElementById('g-recaptcha-response');
+                    if (ta) {{ ta.value = tok; }}
+                    // Fire any registered callback
+                    try {{
+                        if (window.___grecaptcha_cfg && window.___grecaptcha_cfg.clients) {{
+                            for (const k in window.___grecaptcha_cfg.clients) {{
+                                for (const p in window.___grecaptcha_cfg.clients[k]) {{
+                                    const c = window.___grecaptcha_cfg.clients[k][p];
+                                    if (c && typeof c.callback === 'function') c.callback(tok);
+                                }}
+                            }}
+                        }}
+                    }} catch(e) {{}}
+                }}""")
+                time.sleep(2)
+                log("      v2 token injected + callback fired")
+            else:
+                raise RuntimeError(f"CapSolver returned no token. Response: {sol}")
 
     # ── Step 4 — Fill form fields ─────────────────────────────────────────────
     log("[4/6] Filling form fields...")
@@ -179,32 +248,31 @@ try:
             el = page.query_selector(selector)
             if el and el.is_visible():
                 el.fill(value)
-                log(f"      ✓ {selector!r} = {value!r}")
+                log(f"      + {selector!r} = {value!r}")
                 filled += 1
             else:
-                log(f"      ✗ {selector!r} — not found or not visible")
+                log(f"      - {selector!r}: not found or not visible")
         except Exception as e:
-            log(f"      ✗ {selector!r} — ERROR: {e}")
+            log(f"      - {selector!r}: ERROR {e}")
     log(f"      {filled}/{len(FORM_FIELDS)} fields filled")
 
     # Screenshot BEFORE submit — proof of fill regardless of what happens next
     Path(SCREENSHOT_PATH).parent.mkdir(parents=True, exist_ok=True)
-    prefill_path = SCREENSHOT_PATH.replace(".png", "_prefilled.png")
-    page.screenshot(path=prefill_path, full_page=True)
-    log(f"      Pre-submit screenshot: {prefill_path}")
+    prefill = SCREENSHOT_PATH.replace(".png", "_prefilled.png")
+    page.screenshot(path=prefill, full_page=True)
+    log(f"      Pre-submit screenshot: {prefill}")
+    log(f"      Embed prefill: ![Filled form](/api/screenshots/{Path(prefill).name})")
 
-    # ── Step 5 — Submit ───────────────────────────────────────────────────────
-    log("[5/6] Clicking submit...")
-    # Use JS click to bypass any overlay interception (e.g. hidden reCAPTCHA textarea)
+    # ── Step 5 — Submit via JS click (bypasses pointer-event interception) ────
+    log("[5/6] Submitting...")
+    sel_escaped = SUBMIT_SELECTOR.replace("'", "\\'")
     submitted = page.evaluate(f"""() => {{
-        const btn = document.querySelector('{SUBMIT_SELECTOR.replace("'", "\\'")}')
-                 || document.querySelector('input[type="submit"]')
-                 || document.querySelector('button[type="submit"]');
+        const btn = document.querySelector('{sel_escaped}');
         if (btn) {{ btn.click(); return btn.id || btn.value || btn.textContent.trim() || 'clicked'; }}
         return null;
     }}""")
     if submitted:
-        log(f"      JS click fired on: {submitted!r}")
+        log(f"      JS click on: {submitted!r}")
     else:
         log("      WARNING: no submit button found — pressing Enter")
         page.keyboard.press("Enter")
@@ -213,38 +281,48 @@ try:
 
     # ── Step 6 — Verify + screenshot ─────────────────────────────────────────
     log("[6/6] Verifying result...")
-    current_url = page.url
-    page_text = page.inner_text("body")
-    log(f"      URL after submit: {current_url}")
-    log(f"      Page text (first 400 chars): {page_text[:400]!r}")
+    final_url = page.url
+    body_text = page.inner_text("body")
+    log(f"      Final URL : {final_url}")
+    log(f"      Body (500): {body_text[:500]!r}")
 
-    SUCCESS_KEYWORDS = ["thank you", "thanks", "success", "submitted", "received", "we'll be in touch", "we will be in touch", "confirmation"]
-    matched = [kw for kw in SUCCESS_KEYWORDS if kw in page_text.lower()]
-    success = bool(matched)
+    SUCCESS_KEYWORDS = [
+        "thank you", "thanks", "success", "submitted", "received",
+        "we'll be in touch", "we will be in touch", "confirmation", "has been sent",
+        "enquiry", "get back to you",
+    ]
+    matched = [kw for kw in SUCCESS_KEYWORDS if kw in body_text.lower()]
 
-    Path(SCREENSHOT_PATH).parent.mkdir(parents=True, exist_ok=True)
     page.screenshot(path=SCREENSHOT_PATH, full_page=True)
     api_url = f"/api/screenshots/{Path(SCREENSHOT_PATH).name}"
-    log(f"      Screenshot saved: {SCREENSHOT_PATH}")
+    log(f"      Final screenshot : {SCREENSHOT_PATH}")
 
-    if success:
-        log(f"\n✅ SUCCESS — matched keywords: {matched}")
-        log(f"   Image URL  : {api_url}")
-        log(f"   Embed this : ![Submission result]({api_url})")
+    if matched:
+        log(f"\n✅ SUCCESS — keywords matched: {matched}")
+        log(f"   Image URL : {api_url}")
+        log(f"   Embed     : ![Result]({api_url})")
     else:
-        log(f"\n⚠️  UNCONFIRMED — no success keyword found in page text")
-        log(f"   Image URL  : {api_url}")
-        log(f"   Check the screenshot to confirm manually")
+        log(f"\n⚠️  UNCONFIRMED — no success keyword in page text")
+        log(f"   Image URL : {api_url}")
+        log(f"   Check screenshot for errors")
+        # Print validation errors if any
+        errors = page.evaluate("""() => {
+            const errs = document.querySelectorAll('.gfield_error,.validation_error,.error,[class*="error"],[class*="Error"]');
+            return Array.from(errs).map(e => e.textContent.trim().substring(0,120)).filter(Boolean);
+        }""")
+        if errors:
+            log(f"   Validation errors: {errors}")
 
 except Exception as e:
-    log(f"\n❌ FATAL ERROR: {e}")
+    log(f"\n❌ FATAL: {e}")
     import traceback
     traceback.print_exc()
-    # Always capture a failure screenshot for diagnosis
     try:
-        fail_path = SCREENSHOT_PATH.replace(".png", "_ERROR.png")
-        page.screenshot(path=fail_path, full_page=True)
-        log(f"   Error screenshot: {fail_path}")
+        Path(SCREENSHOT_PATH).parent.mkdir(parents=True, exist_ok=True)
+        err_path = SCREENSHOT_PATH.replace(".png", "_ERROR.png")
+        page.screenshot(path=err_path, full_page=True)
+        log(f"   Error screenshot: {err_path}")
+        log(f"   Embed: ![Error](/api/screenshots/{Path(err_path).name})")
     except Exception:
         pass
     sys.exit(1)

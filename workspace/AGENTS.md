@@ -165,8 +165,17 @@ skills/stealth-browser/SKILL.md
 **Mandatory order — always follow this sequence:**
 
 1. **CloakBrowser** — load the page past the Cloudflare interstitial
-2. **CapSolver** — solve any embedded Turnstile/reCAPTCHA widget
+2. **CapSolver** — solve any embedded Turnstile/reCAPTCHA widget (v2 checkbox, v2 invisible, or v3 — detected automatically)
 3. Fill and submit the form
+
+**⛔ PROHIBITED — writing new browser automation scripts with `write_file`.**
+The working script already exists. Any `write_file` call that creates a new `.py` file using `cloakbrowser`, `capsolver`, or `playwright` is forbidden. It will reproduce bugs that are already fixed and waste CapSolver credits.
+
+**✅ REQUIRED — always copy and use the existing script:**
+```bash
+cp ~/.nanobot/workspace/skills/stealth-browser/submit_form.py ~/.nanobot/workspace/<task>.py
+# then edit ONLY the CONFIG section (TARGET_URL, FORM_FIELDS, SCREENSHOT_PATH)
+```
 
 Never use standard Playwright on a protected site. Never rely on CloakBrowser alone — CapSolver is always paired with it. See `skills/stealth-browser/SKILL.md` for the full pattern.
 

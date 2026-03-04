@@ -59,44 +59,39 @@ time.sleep(5)  # allow Cloudflare interstitial to clear
 
 ---
 
-## Step 2 — Solve Turnstile with CapSolver (PRIMARY)
+## Step 2 — Detect CAPTCHA Type, Then Solve with CapSolver
 
-Always attempt CapSolver for any Cloudflare-protected page before trying to interact with the form.
+There are four CAPTCHA types in the wild. Use the correct CapSolver task for each:
 
+| What you see on the page | CapSolver task type | Response key |
+|---|---|---|
+| `<div class="g-recaptcha" data-sitekey=...>` (checkbox) | `ReCaptchaV2TaskProxyLess` | `gRecaptchaResponse` |
+| `<div class="gf_invisible ginput_recaptchav3">` or `api.js?render=key` | `ReCaptchaV3TaskProxyLess` + `pageAction: "gform"` | `gRecaptchaResponse` |
+| `size=invisible` in reCAPTCHA iframe | `ReCaptchaV2TaskProxyLess` + `isInvisible: True` | `gRecaptchaResponse` |
+| `<div class="cf-turnstile">` | `AntiTurnstileTaskProxyLess` | `token` |
+
+**Do not guess.** Check the page source first:
 ```python
-import capsolver
-import json
-from pathlib import Path
-
-# Load API key from config
-config = json.loads((Path.home() / ".nanobot/config.json").read_text())
-capsolver.api_key = config["tools"]["capsolver"]["api_key"]
-
-# Extract sitekey from page
-sitekey = page.evaluate("""() => {
-    const el = document.querySelector('[data-sitekey]');
-    return el ? el.getAttribute('data-sitekey') : null;
-}""")
-
-if sitekey:
-    print(f"Solving Turnstile sitekey: {sitekey}")
-    solution = capsolver.solve({
-        "type": "AntiTurnstileTaskProxyLess",
-        "websiteURL": page.url,
-        "websiteKey": sitekey,
-    })
-    token = solution["token"]
-
-    # Inject token into page
-    page.evaluate(f"""() => {{
-        const inputs = document.querySelectorAll('[name="cf-turnstile-response"]');
-        inputs.forEach(el => el.value = '{token}');
-    }}""")
-    print(f"Turnstile token injected: {token[:40]}...")
-    time.sleep(2)
-else:
-    print("No Turnstile sitekey found — page may have loaded cleanly")
+# Run this to detect type before solving
+info = page.evaluate("""() => ({
+    v3script: !!(document.querySelector('script[src*="recaptcha/api.js"][src*="render="]')),
+    widgets: Array.from(document.querySelectorAll('[data-sitekey]')).map(el => ({
+        cls: el.className, sitekey: el.getAttribute('data-sitekey'),
+        size: el.getAttribute('data-size')
+    })),
+    turnstile: !!document.querySelector('.cf-turnstile'),
+})""")
+print(info)
+# v3script=True → ReCaptchaV3TaskProxyLess
+# cls contains "invisible" or "v3" → ReCaptchaV2TaskProxyLess + isInvisible=True
+# standard checkbox → ReCaptchaV2TaskProxyLess
+# turnstile=True → AntiTurnstileTaskProxyLess
 ```
+
+**IMPORTANT — token injection rules:**
+- **Never** set `ta.style.display = 'block'` — making the hidden textarea visible will cover the submit button and block all clicks
+- Use JS `btn.click()` not Playwright `.click()` for the submit button (avoids pointer-event interception)
+- For reCAPTCHA v3 on Gravity Forms: token goes into `gform.recaptchaTokens[formId]`, not into a textarea
 
 ---
 
