@@ -26,6 +26,8 @@ google_client_secret  = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 capsolver_api_key     = os.environ.get("CAPSOLVER_API_KEY", "")
 gmail_email           = os.environ.get("GMAIL_EMAIL", "")
 gmail_app_password    = os.environ.get("GMAIL_APP_PASSWORD", "")
+github_token          = os.environ.get("GITHUB_TOKEN", "")
+github_repo           = os.environ.get("GITHUB_REPO", "")
 
 if openrouter_key and not openrouter_key.startswith("REPLACE"):
     set_nested(cfg, "providers.openrouter.apiKey", openrouter_key)
@@ -67,6 +69,14 @@ if gmail_email and not gmail_email.startswith("REPLACE"):
 if gmail_app_password and not gmail_app_password.startswith("REPLACE"):
     set_nested(cfg, "tools.gmail.app_password", gmail_app_password)
     print(f"  gmail app_password set ({len(gmail_app_password)} chars)")
+
+if github_token and not github_token.startswith("REPLACE"):
+    set_nested(cfg, "tools.github.token", github_token)
+    print(f"  github token set ({len(github_token)} chars)")
+
+if github_repo and not github_repo.startswith("REPLACE"):
+    set_nested(cfg, "tools.github.repo", github_repo)
+    print(f"  github repo set ({github_repo})")
 
 set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
 print("  agent model: google/gemini-3-flash-preview")
