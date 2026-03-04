@@ -30,15 +30,24 @@ python3 ~/.nanobot/workspace/my_task.py
 - **Async import** — `from cloakbrowser import launch_async` (NOT `async_launch` — that does not exist)
 - **No `page.wait_for_timeout()`** — use `import time; time.sleep(N)` (CDP leak vector)
 
-## Sending Screenshots to Telegram
+## Screenshot Path — CRITICAL RULE
 
-Screenshots MUST be saved to `/root/.nanobot/workspace/screenshots/<name>.png`.
-Reference them in messages as markdown — **never pass a file path as plain text**:
+**ALL screenshots MUST be saved inside `/root/.nanobot/workspace/screenshots/`.**
+The `/api/screenshots/` endpoint only serves from that subdirectory — any other path = broken image.
 
+When editing the `SCREENSHOT_PATH` in the CONFIG section, always keep the `screenshots/` directory:
 ```python
-page.screenshot(path="/root/.nanobot/workspace/screenshots/result.png")
+# ✅ CORRECT
+SCREENSHOT_PATH = "/root/.nanobot/workspace/screenshots/koala_solar.png"
+
+# ❌ WRONG — image will be broken in the UI
+SCREENSHOT_PATH = "/root/.nanobot/workspace/koala_solar.png"
+```
+
+Reference in messages as markdown:
+```python
 # In the message tool:
-message(content="Done! ![Result](/api/screenshots/result.png)")
+message(content="Done! ![Result](/api/screenshots/koala_solar.png)")
 ```
 
 ---

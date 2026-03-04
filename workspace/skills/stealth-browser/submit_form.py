@@ -44,6 +44,14 @@ RECAPTCHA_V3_ACTION = "gform"
 log("=== submit_form.py starting ===")
 log(f"Target: {TARGET_URL}")
 
+# Auto-correct screenshot path — always land in the screenshots/ dir so /api/screenshots/ can serve them
+_SCREENSHOTS_DIR = Path.home() / ".nanobot/workspace/screenshots"
+_SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+_stem = Path(SCREENSHOT_PATH).name
+if "/screenshots/" not in SCREENSHOT_PATH:
+    SCREENSHOT_PATH = str(_SCREENSHOTS_DIR / _stem)
+    log(f"[path-fix] SCREENSHOT_PATH corrected to: {SCREENSHOT_PATH}")
+
 # Load CapSolver key + verify balance
 config = json.loads((Path.home() / ".nanobot/config.json").read_text())
 import capsolver
