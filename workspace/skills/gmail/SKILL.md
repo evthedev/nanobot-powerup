@@ -1,100 +1,84 @@
+---
+name: gmail
+description: Read Gmail emails for the owner — list inbox, search, fetch full message body.
+---
+
 # Gmail Skill
 
-Send emails from the configured Gmail account. No extra packages needed — uses Python stdlib `smtplib`.
+Read emails from the owner's Gmail account. Uses the existing `google_calendar` OAuth token (which already includes `gmail.readonly` scope) — no separate auth needed.
 
----
+## Credentials & Prerequisites
 
-## Ready-to-Run Script — Start Here
+Loaded automatically from `~/.nanobot/config.json` → `tools.google_calendar.tokens`.
 
-**Do NOT write a new email script from scratch.** Copy the working script:
+**One-time requirement:** The Gmail API must be enabled in the Google Cloud project. Visit:
+> https://console.developers.google.com/apis/api/gmail.googleapis.com/overview?project=815745064634
 
-```bash
-cp ~/.nanobot/workspace/skills/gmail/send_email.py ~/.nanobot/workspace/my_email.py
-# Edit the CONFIG section, then run:
-python3 ~/.nanobot/workspace/my_email.py
-```
+Click **Enable**, wait ~1 minute, then this skill works with no other changes.
 
-Edit **only** the CONFIG section at the top:
+## Usage
 
 ```python
-TO          = ["recipient@example.com"]   # one or more addresses
-CC          = []                          # empty = no CC
-SUBJECT     = "Subject here"
-BODY_HTML   = "<p>Hello,</p><p>Your message here.</p>"
-ATTACHMENTS = []                          # absolute paths, e.g. ["/tmp/report.pdf"]
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path.home() / '.nanobot/workspace/skills-auto/gmail'))
+from gmail_helper import list_emails, search_emails, get_email, get_unread_count
 ```
 
----
-
-## One-Time Setup
-
-1. Enable **2-Step Verification** on the Gmail account:
-   `myaccount.google.com/security`
-
-2. Generate an **App Password** (16-character code):
-   `myaccount.google.com/apppasswords` → select "Mail" + "Other (nanobot)"
-
-3. Credentials are injected automatically on deploy from GitHub secrets `GMAIL_EMAIL` and `GMAIL_APP_PASSWORD` into `~/.nanobot/config.json`. For local use, add them manually:
-
-```json
-{
-  "tools": {
-    "gmail": {
-      "email": "you@gmail.com",
-      "app_password": "xxxx xxxx xxxx xxxx"
-    }
-  }
-}
-```
-
-Alternatively, set environment variables directly (takes priority over config.json):
-```bash
-export GMAIL_EMAIL="you@gmail.com"
-export GMAIL_APP_PASSWORD="xxxx xxxx xxxx xxxx"
-```
-
----
-
-## Screenshot Path Rule (if attaching screenshots)
-
-Always reference screenshots from `/root/.nanobot/workspace/screenshots/` so they're accessible via `/api/screenshots/`.
-
----
-
-## Examples
-
-**Plain notification:**
+### List recent inbox emails
 ```python
-TO       = ["ev@example.com"]
-SUBJECT  = "Nanobot: task complete"
-BODY_HTML = "<p>Your task has finished.</p>"
+emails = list_emails(max_results=10)
+for e in emails:
+    print(e['date'], e['from'], e['subject'])
 ```
 
-**With HTML table:**
+### List unread emails only
 ```python
-BODY_HTML = """
-<p>Here is your summary:</p>
-<table border="1" cellpadding="6">
-  <tr><th>Item</th><th>Value</th></tr>
-  <tr><td>Status</td><td>✅ Done</td></tr>
-</table>
-"""
+emails = list_emails(max_results=20, query='is:unread')
 ```
 
-**With attachment:**
+### Search emails
 ```python
-ATTACHMENTS = ["/root/.nanobot/workspace/screenshots/result.png"]
+results = search_emails('from:boss@company.com subject:invoice', max_results=5)
 ```
 
-**Multiple recipients:**
+### Fetch a full email body
 ```python
-TO = ["alice@example.com", "bob@example.com"]
-CC = ["manager@example.com"]
+email = get_email('MESSAGE_ID_HERE')
+print(email['body'])
 ```
 
----
+### Get unread count
+```python
+count = get_unread_count()  # defaults to INBOX
+print(f"You have {count} unread emails")
+```
 
-## Pricing
+## Return shape
 
-Free — uses your existing Gmail account via SMTP. App Passwords are free.
-Gmail free tier: 500 emails/day. Google Workspace: 2,000/day.
+Each email dict has:
+- `id` — Gmail message ID
+- `thread_id` — thread it belongs to
+- `subject` — subject line
+- `from` — sender address
+- `to` — recipient(s)
+- `date` — raw date header string
+- `snippet` — short preview (Gmail-generated)
+- `body` — full plain-text body (decoded)
+- `labels` — list of Gmail label IDs (e.g. `["INBOX", "UNREAD"]`)
+
+## Gmail query syntax (for `query` / `search_emails`)
+
+| Goal | Query string |
+|------|-------------|
+| Unread only | `is:unread` |
+| From a person | `from:name@example.com` |
+| Subject keyword | `subject:invoice` |
+| Date range | `after:2026/01/01 before:2026/02/01` |
+| Has attachment | `has:attachment` |
+| Specific label | `label:important` |
+
+## Notes
+- Max results per call is 500 (Gmail API limit per page — use multiple calls + pagination for more).
+- This skill is read-only (`gmail.readonly` scope); it cannot send, delete, or modify emails.
+- To send emails, a `gmail.send` scope would need to be added and re-auth performed.
