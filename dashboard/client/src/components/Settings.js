@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import './Settings.css';
 
 const API = process.env.REACT_APP_API_URL || '';
@@ -309,6 +309,99 @@ function SkillsSection({ api }) {
   );
 }
 
+// ── ModelSelector ─────────────────────────────────────────────────────────────
+function ModelSelector({ id, label, value, onChange, options, loading, helpText }) {
+  const [query, setQuery]   = useState(value || '');
+  const [open, setOpen]     = useState(false);
+  const wrapRef             = useRef(null);
+
+  // Keep query in sync when value changes from outside (e.g. config reload)
+  useEffect(() => { setQuery(value || ''); }, [value]);
+
+  // Close on click-outside
+  useEffect(() => {
+    function handler(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!options || !options.length) return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(o =>
+      o.id.toLowerCase().includes(q) || (o.name && o.name.toLowerCase().includes(q))
+    );
+  }, [options, query]);
+
+  function select(modelId) {
+    setQuery(modelId);
+    onChange(modelId);
+    setOpen(false);
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Escape') { setOpen(false); e.target.blur(); }
+    if (e.key === 'Enter')  { onChange(query); setOpen(false); e.target.blur(); }
+  }
+
+  return (
+    <div className="settings-field" ref={wrapRef}>
+      <label htmlFor={id}>{label}</label>
+      <div className="model-selector-wrap">
+        <div className="field-input-wrap">
+          <input
+            id={id}
+            type="text"
+            value={query}
+            onChange={e => { setQuery(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={handleKey}
+            onBlur={e => {
+              // Commit typed value on blur unless user clicked a dropdown item
+              setTimeout(() => { onChange(query); }, 120);
+            }}
+            placeholder={loading ? 'Loading models…' : 'Search or type model ID…'}
+            autoComplete="off"
+            spellCheck="false"
+          />
+        </div>
+
+        {open && (loading || filtered.length > 0) && (
+          <div className="model-dropdown" role="listbox">
+            {loading && <div className="model-dropdown-empty">Loading…</div>}
+            {!loading && filtered.length === 0 && (
+              <div className="model-dropdown-empty">No matches</div>
+            )}
+            {!loading && filtered.slice(0, 150).map(opt => (
+              <div
+                key={opt.id}
+                className={`model-dropdown-item ${opt.id === value ? 'selected' : ''}`}
+                role="option"
+                aria-selected={opt.id === value}
+                onMouseDown={e => { e.preventDefault(); select(opt.id); }}
+              >
+                <span className="model-dropdown-id">{opt.id}</span>
+                {opt.name && opt.name !== opt.id && (
+                  <span className="model-dropdown-name">{opt.name}</span>
+                )}
+              </div>
+            ))}
+            {!loading && filtered.length > 150 && (
+              <div className="model-dropdown-more">
+                +{filtered.length - 150} more — type to narrow
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {helpText && <p className="field-help">{helpText}</p>}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Settings({ onToggleSidebar, sidebarOpen }) {
@@ -317,16 +410,41 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
   const [visible, setVisible]     = useState({});
   const [googleStatus, setGoogleStatus] = useState(undefined); // undefined = loading, null = failed/disconnected
 
+  // Model selector state
+  const [modelOptions, setModelOptions]   = useState([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsProvider, setModelsProvider] = useState(null);
+
   const [fields, setFields] = useState({
     openrouter_api_key:       '',
     nvidia_api_key:           '',
+    grok_api_key:             '',
     brave_api_key:            '',
     tavily_api_key:           '',
     maps_api_key:             '',
     main_llm:                 '',
+    smart_model:              '',
     whatsapp_allowed_numbers: '',
     telegram_token:           '',
+    capsolver_api_key:        '',
+    gmail_email:              '',
+    gmail_app_password:       '',
   });
+
+  const loadModels = useCallback(async () => {
+    setModelsLoading(true);
+    try {
+      const r = await fetch(`${API}/api/models`);
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      setModelOptions(data.models || []);
+      setModelsProvider(data.provider || null);
+    } catch (e) {
+      setModelOptions([]);
+    } finally {
+      setModelsLoading(false);
+    }
+  }, []);
 
   const loadConfig = useCallback(async () => {
     try {
@@ -337,12 +455,17 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
       setFields({
         openrouter_api_key:       cfg.providers?.openrouter?.apiKey       || '',
         nvidia_api_key:           cfg.providers?.nvidia?.apiKey           || '',
+        grok_api_key:             cfg.providers?.grok?.apiKey             || '',
         brave_api_key:            cfg.tools?.web?.search?.apiKey          || '',
         tavily_api_key:           cfg.tools?.web?.search?.tavilyApiKey    || '',
         maps_api_key:             cfg.tools?.google?.mapsApiKey           || '',
         main_llm:                 cfg.agents?.defaults?.model             || '',
+        smart_model:              cfg.agents?.defaults?.smartModel || cfg.agents?.defaults?.smart_model || '',
         whatsapp_allowed_numbers: (cfg.channels?.whatsapp?.allowFrom || []).join(', '),
         telegram_token:           cfg.channels?.telegram?.token           || '',
+        capsolver_api_key:        cfg.tools?.capsolver?.api_key           || '',
+        gmail_email:              cfg.tools?.gmail?.email                 || '',
+        gmail_app_password:       cfg.tools?.gmail?.app_password          || '',
       });
     } catch (e) {
       setStatus({ type: 'error', msg: 'Failed to load config: ' + e.message });
@@ -361,7 +484,8 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
   useEffect(() => {
     loadConfig();
     loadGoogleStatus();
-  }, [loadConfig, loadGoogleStatus]);
+    loadModels();
+  }, [loadConfig, loadGoogleStatus, loadModels]);
 
   // Listen for the popup's postMessage after OAuth completes
   useEffect(() => {
@@ -382,8 +506,22 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
     setSaving(true);
     setStatus(null);
     try {
-      // Only whatsapp_allowed_numbers is editable — all API keys are injected at runtime
       const updates = {
+        agents: {
+          defaults: {
+            model:      fields.main_llm.trim(),
+            smartModel: fields.smart_model.trim(),
+          },
+        },
+        tools: {
+          gmail: {
+            email:        fields.gmail_email.trim(),
+            app_password: fields.gmail_app_password.trim(),
+          },
+          capsolver: {
+            api_key: fields.capsolver_api_key.trim(),
+          },
+        },
         channels: {
           whatsapp: {
             allowFrom: fields.whatsapp_allowed_numbers
@@ -399,11 +537,24 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
-
       if (!r.ok) throw new Error(await r.text());
-      setStatus({ type: 'success', msg: '✅ Configuration saved!' });
+
+      // Restart gateway so the new models take effect
+      setStatus({ type: 'success', msg: '✅ Saved — restarting gateway…' });
+      try {
+        const rr = await fetch(`${API}/api/gateway/restart`, { method: 'POST' });
+        const rd = await rr.json();
+        if (rr.ok) {
+          setStatus({ type: 'success', msg: '✅ Saved & gateway restarted.' });
+        } else {
+          setStatus({ type: 'success', msg: `✅ Saved. Restart warning: ${rd.error || 'unknown'}` });
+        }
+      } catch {
+        setStatus({ type: 'success', msg: '✅ Saved. (Could not reach restart endpoint.)' });
+      }
+
       await loadGoogleStatus();
-      setTimeout(() => setStatus(null), 4000);
+      setTimeout(() => setStatus(null), 5000);
     } catch (e) {
       setStatus({ type: 'error', msg: '❌ Failed to save: ' + e.message });
     } finally {
@@ -526,21 +677,67 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
           {/* AI Providers */}
           <section className="settings-section">
             <h3>🤖 AI Providers</h3>
+
+            {/* Model selectors */}
+            <div className="model-selectors-group">
+              <div className="model-selectors-header">
+                <span className="model-selectors-label">
+                  Models
+                  {modelsProvider && (
+                    <span className="model-provider-badge">{modelsProvider}</span>
+                  )}
+                </span>
+                <button
+                  className="btn-link model-refresh-btn"
+                  onClick={async () => {
+                    await fetch(`${API}/api/models/refresh`, { method: 'POST' });
+                    loadModels();
+                  }}
+                  disabled={modelsLoading}
+                  title="Refresh model list from provider"
+                >
+                  {modelsLoading ? '⟳ Loading…' : '⟳ Refresh'}
+                </button>
+              </div>
+
+              <ModelSelector
+                id="main_llm"
+                label="Main Agent Model"
+                value={fields.main_llm}
+                onChange={v => set('main_llm', v)}
+                options={modelOptions}
+                loading={modelsLoading}
+                helpText="Used for all regular agent tasks."
+              />
+
+              <ModelSelector
+                id="smart_model"
+                label="Smart (Subagent) Model"
+                value={fields.smart_model}
+                onChange={v => set('smart_model', v)}
+                options={modelOptions}
+                loading={modelsLoading}
+                helpText="Used for complex reasoning and spawned subagents."
+              />
+            </div>
+
             <Field
-              id="main_llm"
-              label="Main Agent LLM"
-              isPassword={false}
+              id="grok_api_key"
+              label="Grok (xAI) API Key"
               readOnly
-            />
-            <Field
-              id="openrouter_api_key"
-              label="OpenRouter API Key"
-              readOnly
+              helpText="Primary fallback provider — xai-… keys from https://console.x.ai"
             />
             <Field
               id="nvidia_api_key"
               label="NVIDIA NIM API Key"
               readOnly
+              helpText="Secondary fallback provider — nvapi-… keys"
+            />
+            <Field
+              id="openrouter_api_key"
+              label="OpenRouter API Key"
+              readOnly
+              helpText="Tertiary fallback provider — sk-or-… keys"
             />
           </section>
 
@@ -634,6 +831,32 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
               </p>
             )}
 
+          </section>
+
+          {/* Gmail (App Password) */}
+          <section className="settings-section">
+            <h3>📧 Gmail (App Password)</h3>
+            <Field
+              id="gmail_email"
+              label="Gmail Address"
+              isPassword={false}
+              helpText="The Gmail account used to send emails via App Password (SMTP)."
+            />
+            <Field
+              id="gmail_app_password"
+              label="Gmail App Password"
+              helpText="16-character app password from Google Account → Security → App passwords."
+            />
+          </section>
+
+          {/* Capsolver */}
+          <section className="settings-section">
+            <h3>🧩 Capsolver</h3>
+            <Field
+              id="capsolver_api_key"
+              label="Capsolver API Key"
+              helpText="Used by the stealth-browser skill to solve CAPTCHAs automatically."
+            />
           </section>
 
           {/* WhatsApp */}

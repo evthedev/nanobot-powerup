@@ -349,6 +349,122 @@ app.get('/api/stats', (req, res) => {
   res.json({ ...stats, recentConversations: recentConvs });
 });
 
+// ── Models ──────────────────────────────────────────────────────────────────
+
+const modelsCache = {};               // providerName → { models, ts }
+const MODELS_CACHE_TTL_MS = 10 * 60 * 1000;  // 10-minute TTL
+
+// Provider endpoints — all OpenAI-compatible, all return { data: [{ id, ... }] }
+const PROVIDER_MODELS_ENDPOINT = {
+  openrouter: 'https://openrouter.ai/api/v1/models',
+  grok:       'https://api.x.ai/v1/models',
+  nvidia:     'https://integrate.api.nvidia.com/v1/models',
+};
+
+async function fetchModelsForProvider(providerName, apiKey) {
+  const cached = modelsCache[providerName];
+  if (cached && (Date.now() - cached.ts) < MODELS_CACHE_TTL_MS) {
+    return cached.models;
+  }
+
+  const endpoint = PROVIDER_MODELS_ENDPOINT[providerName];
+  if (!endpoint) return [];
+
+  let models = [];
+  try {
+    const resp = await fetch(endpoint, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+    if (!resp.ok) {
+      console.warn(`[models] ${providerName} returned HTTP ${resp.status}`);
+      return [];
+    }
+    const data = await resp.json();
+
+    models = (data.data || []).map(m => {
+      // NVIDIA NIM model IDs must be prefixed with "nvidia_nim/" for LiteLLM routing
+      const id = providerName === 'nvidia' ? `nvidia_nim/${m.id}` : m.id;
+      return { id, name: m.name || m.id };
+    }).sort((a, b) => a.id.localeCompare(b.id));
+  } catch (e) {
+    console.error(`[models] fetch error for ${providerName}:`, e.message);
+  }
+
+  if (models.length) modelsCache[providerName] = { models, ts: Date.now() };
+  return models;
+}
+
+// GET /api/models — returns model list for the highest-priority configured provider
+app.get('/api/models', async (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const providers = cfg.providers || {};
+
+    const priority = [
+      { name: 'grok',       key: (providers.grok?.apiKey       || '').trim() },
+      { name: 'nvidia',     key: (providers.nvidia?.apiKey     || '').trim() },
+      { name: 'openrouter', key: (providers.openrouter?.apiKey || '').trim() },
+    ];
+
+    const active = priority.find(p => p.key.length > 0);
+    if (!active) {
+      return res.json({ provider: null, models: [], message: 'No provider configured' });
+    }
+
+    const models = await fetchModelsForProvider(active.name, active.key);
+    const defaults = cfg.agents?.defaults || {};
+
+    res.json({
+      provider: active.name,
+      models,
+      currentModel:      defaults.model      || '',
+      currentSmartModel: defaults.smartModel || defaults.smart_model || '',
+    });
+  } catch (e) {
+    console.error('[models] GET error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/models/refresh — bust cache and re-fetch
+app.post('/api/models/refresh', async (req, res) => {
+  Object.keys(modelsCache).forEach(k => delete modelsCache[k]);
+  res.json({ ok: true });
+});
+
+// ── Gateway Restart ──────────────────────────────────────────────────────────
+
+// POST /api/gateway/restart — restart the nanobot-gateway container.
+// Primary: `docker restart nanobot-gateway` (works when docker socket is mounted).
+// Fallback: SIGTERM to the PID in gateway.pid (local non-Docker dev).
+app.post('/api/gateway/restart', (req, res) => {
+  const { exec } = require('child_process');
+
+  exec('docker restart nanobot-gateway', { timeout: 20000 }, (dockerErr) => {
+    if (!dockerErr) {
+      console.log('[restart] docker restart nanobot-gateway succeeded');
+      return res.json({ success: true, method: 'docker' });
+    }
+
+    console.warn('[restart] docker restart failed:', dockerErr.message, '— trying PID file');
+
+    const pidFile = path.join(NANOBOT_HOME, 'gateway.pid');
+    try {
+      const raw = fs.readFileSync(pidFile, 'utf8').trim();
+      const pid = parseInt(raw, 10);
+      if (pid && !isNaN(pid)) {
+        process.kill(pid, 'SIGTERM');
+        console.log(`[restart] sent SIGTERM to PID ${pid}`);
+        return res.json({ success: true, method: 'sigterm', pid });
+      }
+    } catch (pidErr) {
+      console.warn('[restart] PID file fallback failed:', pidErr.message);
+    }
+
+    res.status(500).json({ error: `Could not restart gateway: ${dockerErr.message}` });
+  });
+});
+
 // ── Config ──
 
 // GET full config (for the settings UI)

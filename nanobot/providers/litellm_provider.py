@@ -222,7 +222,11 @@ class LiteLLMProvider(LLMProvider):
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-        
+
+        # Prevent indefinitely hung API calls from blocking the event loop.
+        # LiteLLM respects the "timeout" kwarg (seconds) for all providers.
+        kwargs.setdefault("timeout", 180)
+
         try:
             response = await acompletion(**kwargs)
             return self._parse_response(response)

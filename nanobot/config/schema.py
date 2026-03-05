@@ -228,7 +228,8 @@ class ProvidersConfig(Base):
     dashscope: ProviderConfig = Field(default_factory=ProviderConfig)  # 阿里云通义千问
     vllm: ProviderConfig = Field(default_factory=ProviderConfig)
     gemini: ProviderConfig = Field(default_factory=ProviderConfig)
-    nvidia: ProviderConfig = Field(default_factory=ProviderConfig)  # NVIDIA NIM (OpenAI-compatible)
+    grok: ProviderConfig = Field(default_factory=ProviderConfig)    # Grok (xAI) — primary fallback
+    nvidia: ProviderConfig = Field(default_factory=ProviderConfig)  # NVIDIA NIM — secondary fallback
     moonshot: ProviderConfig = Field(default_factory=ProviderConfig)
     minimax: ProviderConfig = Field(default_factory=ProviderConfig)
     aihubmix: ProviderConfig = Field(default_factory=ProviderConfig)  # AiHubMix API gateway
@@ -373,10 +374,14 @@ class Config(BaseSettings):
                 if spec.is_oauth or p.api_key:
                     return p, spec.name
 
-        # Fallback: gateways first, then others (follows registry order)
-        # OAuth providers are NOT valid fallbacks — they require explicit model selection
-        for spec in PROVIDERS:
-            if spec.is_oauth:
+        # Fallback: preferred order is grok → nvidia → openrouter, then rest of registry.
+        # OAuth providers are NOT valid fallbacks — they require explicit model selection.
+        from nanobot.providers.registry import find_by_name as _find_by_name
+        _preferred = ['grok', 'nvidia', 'openrouter']
+        _preferred_specs = [_find_by_name(n) for n in _preferred]
+        _rest = [s for s in PROVIDERS if s.name not in _preferred and not s.is_oauth]
+        for spec in _preferred_specs + _rest:
+            if spec is None:
                 continue
             p = getattr(self.providers, spec.name, None)
             if p and p.api_key:

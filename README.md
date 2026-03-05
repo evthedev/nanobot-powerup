@@ -48,7 +48,7 @@ The agent model is `google/gemini-3-flash-preview` via OpenRouter.
         │
         ▼
   ┌─────────────┐   HTTPS/WSS   ┌─────────────────────────────┐
-  │    nginx    │◄──────────────│   EC2 t3.small (Ubuntu 24)  │
+  │    nginx    │◄──────────────│   EC2 t3.micro (Ubuntu 24)  │
   │ (port 80/443│               │                             │
   │  basic auth)│               │  ┌────────────────────────┐ │
   └──────┬──────┘               │  │  nanobot-gateway        │ │
@@ -487,7 +487,7 @@ tail -f ~/.nanobot/logs/gateway.log
 
 | Component | Spec |
 |-----------|------|
-| Instance | `t3.small`, Ubuntu 24.04 LTS |
+| Instance | `t3.micro`, Ubuntu 24.04 LTS |
 | Root EBS | 20 GB — OS disk, replaced with the instance |
 | Data EBS | 10 GB, mounted at `/opt/nanobot` — separate persistent disk that survives instance replacement. EBS (Elastic Block Store) is AWS's virtual hard drive that can be detached from one EC2 instance and re-attached to another. |
 | Elastic IP | `13.54.226.177` → [`ec2-13-54-226-177.ap-southeast-2.compute.amazonaws.com`](https://ec2-13-54-226-177.ap-southeast-2.compute.amazonaws.com) |

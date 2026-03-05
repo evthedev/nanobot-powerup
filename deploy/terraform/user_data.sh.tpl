@@ -35,7 +35,7 @@ else
   echo "Data volume mounted at /opt/nanobot"
 fi
 
-# ── Swap file (2GB) — covers Playwright/Chromium memory spikes on t3.small ────
+# ── Swap file (2GB) — covers Playwright/Chromium memory spikes on t3.micro ────
 if [ ! -f /swapfile ]; then
   fallocate -l 2G /swapfile
   chmod 600 /swapfile

@@ -59,7 +59,11 @@ class HeartbeatService:
     The agent reads HEARTBEAT.md from the workspace and executes any
     tasks listed there. If nothing needs attention, it replies HEARTBEAT_OK.
     """
-    
+
+    # Tick timeout: 80% of the interval, so a hung tick can't swallow the next cycle.
+    # E.g. 30-min interval → 24-min tick timeout.
+    _TICK_TIMEOUT_RATIO = 0.8
+
     def __init__(
         self,
         workspace: Path,
@@ -106,11 +110,18 @@ class HeartbeatService:
     
     async def _run_loop(self) -> None:
         """Main heartbeat loop."""
+        tick_timeout = max(60, int(self.interval_s * self._TICK_TIMEOUT_RATIO))
         while self._running:
             try:
                 await asyncio.sleep(self.interval_s)
                 if self._running:
-                    await self._tick()
+                    try:
+                        await asyncio.wait_for(self._tick(), timeout=tick_timeout)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Heartbeat tick timed out after {}s — skipping to next cycle",
+                            tick_timeout,
+                        )
             except asyncio.CancelledError:
                 break
             except Exception as e:

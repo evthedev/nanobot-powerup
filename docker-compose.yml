@@ -34,7 +34,9 @@ services:
       context: ./dashboard
       dockerfile: Dockerfile
     restart: unless-stopped
-    volumes: *nanobot-volume
+    volumes:
+      - /opt/nanobot:/root/.nanobot
+      - /var/run/docker.sock:/var/run/docker.sock   # allows `docker restart nanobot-gateway`
     expose:
       - "3001"
     environment:

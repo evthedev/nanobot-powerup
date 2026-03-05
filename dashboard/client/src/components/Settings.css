@@ -869,3 +869,108 @@
 .btn-link:hover {
   color: var(--text-primary);
 }
+
+/* ─── Model selectors ───────────────────────────────────────────────────── */
+.model-selectors-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: visible;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  margin-bottom: 16px;
+}
+
+.model-selectors-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.model-selectors-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-provider-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 20px;
+  background: rgba(99, 179, 237, 0.15);
+  color: rgba(99, 179, 237, 0.9);
+  border: 1px solid rgba(99, 179, 237, 0.25);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.model-refresh-btn {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.model-selector-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.model-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--bg-elevated, #1e1e2e);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  max-height: 260px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.model-dropdown-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: background 0.1s;
+}
+
+.model-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.model-dropdown-item:hover,
+.model-dropdown-item.selected {
+  background: rgba(99, 179, 237, 0.1);
+}
+
+.model-dropdown-id {
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-primary);
+}
+
+.model-dropdown-name {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.model-dropdown-empty,
+.model-dropdown-more {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}

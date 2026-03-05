@@ -6,7 +6,9 @@ import json
 import os
 
 secrets = {
+    "GROK_API_KEY":               os.environ.get("GROK_API_KEY", ""),
     "OPENROUTER_API_KEY":         os.environ.get("OPENROUTER_API_KEY", ""),
+    "NVIDIA_API_KEY":             os.environ.get("NVIDIA_API_KEY", ""),
     "BRAVE_API_KEY":              os.environ.get("BRAVE_API_KEY", ""),
     "TAVILY_API_KEY":             os.environ.get("TAVILY_API_KEY", ""),
     "GOOGLE_STATIC_MAPS_API_KEY": os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", ""),

@@ -132,7 +132,9 @@ def main():
     print("\nPlease enter your API keys (leave blank to skip):")
     
     # LLM Providers
-    print("\n--- LLM Providers (NVIDIA NIM provides free credits at build.nvidia.com) ---")
+    print("\n--- LLM Providers ---")
+    print("  Priority: Grok (xAI) → NVIDIA NIM → OpenRouter")
+    grok_key = input("  Grok (xAI) API Key (xai-...): ").strip()
     nvidia_key = input("  NVIDIA NIM API Key (nvapi-...): ").strip()
     openrouter_key = input("  OpenRouter API Key (sk-or-v1-...): ").strip()
     
@@ -156,7 +158,18 @@ def main():
     google_client_id = input("  Google Client ID: ").strip()
     google_client_secret = input("  Google Client Secret: ").strip()
 
+    # Gmail (App Password)
+    print("\n--- Gmail App Password (Optional: for sending emails) ---")
+    print("  Generate one at: Google Account → Security → App passwords")
+    gmail_email = input("  Gmail Address: ").strip()
+    gmail_app_password = input("  Gmail App Password (16 chars): ").strip()
+
+    # Capsolver
+    print("\n--- Capsolver (Optional: for CAPTCHA solving in stealth-browser) ---")
+    capsolver_api_key = input("  Capsolver API Key: ").strip()
+
     # Apply defaults/provided values
+    set_nested(cfg, "providers.grok.apiKey", grok_key)
     set_nested(cfg, "providers.nvidia.apiKey", nvidia_key)
     set_nested(cfg, "providers.openrouter.apiKey", openrouter_key)
     
@@ -175,6 +188,11 @@ def main():
     # Tokens are written here by the dashboard OAuth flow.
     set_nested(cfg, "tools.google_calendar.clientId", google_client_id)
     set_nested(cfg, "tools.google_calendar.clientSecret", google_client_secret)
+    # Gmail (App Password SMTP)
+    set_nested(cfg, "tools.gmail.email", gmail_email)
+    set_nested(cfg, "tools.gmail.app_password", gmail_app_password)
+    # Capsolver
+    set_nested(cfg, "tools.capsolver.api_key", capsolver_api_key)
     
     # Telegram
     if telegram_token:
@@ -187,14 +205,19 @@ def main():
     set_nested(cfg, "channels.web.port", 18791)
     
     # Model Selection & Prioritization
-    # Priority 1: NVIDIA
-    if nvidia_key:
+    # Priority 1: Grok (xAI)
+    if grok_key:
+        print("  ✓ Grok (xAI) provided. Setting as primary provider.")
+        set_nested(cfg, "agents.defaults.model", "grok-3-mini")
+        set_nested(cfg, "agents.defaults.smart_model", "grok-3")
+    # Priority 2: NVIDIA NIM
+    elif nvidia_key:
         print("  ✓ NVIDIA NIM provided. Setting as primary provider.")
         # Llama 3.3 70B has much better tool-calling than 3.1 70B at the same speed.
         set_nested(cfg, "agents.defaults.model", "nvidia_nim/meta/llama-3.3-70b-instruct")
         # Llama 3.1 405B is the most capable model on NIM, used for smart subagents.
         set_nested(cfg, "agents.defaults.smart_model", "nvidia_nim/meta/llama-3.1-405b-instruct")
-    # Priority 2: OpenRouter
+    # Priority 3: OpenRouter
     elif openrouter_key:
         print("  ✓ OpenRouter provided. Setting as primary provider.")
         set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")

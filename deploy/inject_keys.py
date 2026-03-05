@@ -33,6 +33,8 @@ def _get(key: str) -> str:
     return _src.get(key, os.environ.get(key, "")).strip()
 
 
+grok_api_key          = _get("GROK_API_KEY")
+nvidia_api_key        = _get("NVIDIA_API_KEY")
 openrouter_key        = _get("OPENROUTER_API_KEY")
 brave_key             = _get("BRAVE_API_KEY")
 tavily_key            = _get("TAVILY_API_KEY")
@@ -45,6 +47,14 @@ gmail_email           = _get("GMAIL_EMAIL")
 gmail_app_password    = _get("GMAIL_APP_PASSWORD")
 github_token          = _get("GITHUB_TOKEN")
 github_repo           = _get("GITHUB_REPO")
+
+if grok_api_key and not grok_api_key.startswith("REPLACE"):
+    set_nested(cfg, "providers.grok.apiKey", grok_api_key)
+    print(f"  grok key set ({len(grok_api_key)} chars)")
+
+if nvidia_api_key and not nvidia_api_key.startswith("REPLACE"):
+    set_nested(cfg, "providers.nvidia.apiKey", nvidia_api_key)
+    print(f"  nvidia key set ({len(nvidia_api_key)} chars)")
 
 if openrouter_key and not openrouter_key.startswith("REPLACE"):
     set_nested(cfg, "providers.openrouter.apiKey", openrouter_key)

@@ -272,6 +272,25 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         model_overrides=(),
     ),
 
+    # Grok (xAI): OpenAI-compatible API for Grok models.
+    # Keys start with "xai-". LiteLLM uses "xai/" prefix.
+    ProviderSpec(
+        name="grok",
+        keywords=("grok", "xai"),
+        env_key="XAI_API_KEY",
+        display_name="Grok (xAI)",
+        litellm_prefix="xai",               # grok-3 → xai/grok-3
+        skip_prefixes=("xai/", "grok/"),    # avoid double-prefix
+        env_extras=(),
+        is_gateway=False,
+        is_local=False,
+        detect_by_key_prefix="xai-",
+        detect_by_base_keyword="x.ai",
+        default_api_base="https://api.x.ai/v1",
+        strip_model_prefix=False,
+        model_overrides=(),
+    ),
+
     # NVIDIA: NIM endpoints, OpenAI-compatible.
     ProviderSpec(
         name="nvidia",

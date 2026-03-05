@@ -23,6 +23,7 @@ tests/
 
 # Node / dashboard
 node_modules/
+dashboard/server/node_modules/
 .playwright-mcp/
 *.db
 *.db-shm

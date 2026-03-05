@@ -12,6 +12,9 @@ RUN npm run build
 # ── Stage 2: Production Express server ───────────────────────────────────────
 FROM node:20-alpine
 
+# docker CLI — used by /api/gateway/restart to restart the nanobot-gateway container
+RUN apk add --no-cache docker-cli
+
 WORKDIR /app
 
 # Server dependencies only

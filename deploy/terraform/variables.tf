@@ -11,9 +11,9 @@ variable "project_name" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type. t3.small (2 vCPU / 2GB) is sufficient for a PoC — idle stack uses ~760MB. A 2GB swap file in user_data covers Playwright spikes. Upgrade to t3.medium if you're running Playwright heavily or seeing OOM kills."
+  description = "EC2 instance type. t3.micro (2 vCPU / 2GB) is sufficient for a PoC — idle stack uses ~760MB. A 2GB swap file in user_data covers Playwright spikes. Upgrade to t3.medium if you're running Playwright heavily or seeing OOM kills."
   type        = string
-  default     = "t3.small"
+  default     = "t3.micro"
 }
 
 variable "key_pair_name" {
