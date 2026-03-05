@@ -84,6 +84,86 @@ function fileExt(filename) {
   return filename.includes('.') ? filename.split('.').pop().toLowerCase() : '';
 }
 
+// ── WhatsApp Section (pairing QR from dashboard) ──────────────────────────────
+function WhatsAppSection({ api, Field: FieldComponent }) {
+  const [status, setStatus] = useState({ enabled: false, pairing: false, connected: false });
+  const [qr, setQr] = useState(null);
+
+  const fetchStatus = useCallback(() => {
+    fetch(`${api}/api/whatsapp/status`)
+      .then(r => r.ok ? r.json() : {})
+      .then(d => setStatus(d))
+      .catch(() => setStatus({ enabled: false, pairing: false, connected: false }));
+  }, [api]);
+
+  const fetchQr = useCallback(() => {
+    fetch(`${api}/api/whatsapp/qr`)
+      .then(r => r.ok ? r.json() : {})
+      .then(d => d.status === 'pending' && d.qr ? setQr(d.qr) : setQr(null))
+      .catch(() => setQr(null));
+  }, [api]);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
+
+  useEffect(() => {
+    if (status.pairing) fetchQr();
+    else setQr(null);
+  }, [status.pairing, fetchQr]);
+
+  // Poll when pairing (QR refreshes every ~60s) or when enabled (to detect connect)
+  useEffect(() => {
+    if (!status.enabled) return;
+    const id = setInterval(() => {
+      fetchStatus();
+      if (status.pairing) fetchQr();
+    }, 3000);
+    return () => clearInterval(id);
+  }, [status.enabled, status.pairing, fetchStatus, fetchQr]);
+
+  const qrImageUrl = qr
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(qr)}`
+    : null;
+
+  return (
+    <section className="settings-section">
+      <h3>💬 WhatsApp</h3>
+      <FieldComponent
+        id="whatsapp_allowed_numbers"
+        label="Allowed Phone Numbers"
+        placeholder="61412345678, 61498765432"
+        helpText="Comma-separated, no + prefix"
+        isPassword={false}
+      />
+      {status.enabled && (
+        <div className="whatsapp-pairing" style={{ marginTop: '1rem' }}>
+          {status.connected && (
+            <p className="field-help" style={{ color: 'var(--success, #22c55e)' }}>
+              ✅ WhatsApp connected
+            </p>
+          )}
+          {status.pairing && qrImageUrl && (
+            <div className="whatsapp-qr-box" style={{ marginTop: '0.5rem' }}>
+              <p className="field-help">Scan with WhatsApp → Linked Devices</p>
+              <img
+                src={qrImageUrl}
+                alt="WhatsApp pairing QR"
+                style={{ display: 'block', marginTop: '0.5rem', border: '1px solid #ccc', borderRadius: 8 }}
+              />
+            </div>
+          )}
+          {status.enabled && !status.connected && !status.pairing && (
+            <p className="field-help" style={{ marginTop: '0.5rem' }}>
+              Waiting for bridge… Ensure the WhatsApp bridge container is running.
+            </p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function SkillsSection({ api }) {
   const [skills, setSkills]               = useState({ workspace: [], auto: [] });
   const [loading, setLoading]             = useState(true);
@@ -884,16 +964,7 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
           </section>
 
           {/* WhatsApp */}
-          <section className="settings-section">
-            <h3>💬 WhatsApp</h3>
-            <Field
-              id="whatsapp_allowed_numbers"
-              label="Allowed Phone Numbers"
-              placeholder="61412345678, 61498765432"
-              helpText="Comma-separated, no + prefix"
-              isPassword={false}
-            />
-          </section>
+          <WhatsAppSection api={API} Field={Field} />
 
           {/* Workspace Files */}
           <WorkspaceSection api={API} />

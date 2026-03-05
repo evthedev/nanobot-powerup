@@ -4,7 +4,12 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws';
+import { writeFileSync, unlinkSync, existsSync } from 'fs';
+import { join } from 'path';
 import { WhatsAppClient, InboundMessage } from './whatsapp.js';
+
+const QR_FILE = 'whatsapp-pending-qr.json';
+const STATUS_FILE = 'whatsapp-status.json';
 
 interface SendCommand {
   type: 'send';
@@ -34,8 +39,15 @@ export class BridgeServer {
     this.wa = new WhatsAppClient({
       authDir: this.authDir,
       onMessage: (msg) => this.broadcast({ type: 'message', ...msg }),
-      onQR: (qr) => this.broadcast({ type: 'qr', qr }),
-      onStatus: (status) => this.broadcast({ type: 'status', status }),
+      onQR: (qr) => {
+        this.broadcast({ type: 'qr', qr });
+        this.writeQrToFile(qr);
+      },
+      onStatus: (status) => {
+        this.broadcast({ type: 'status', status });
+        this.writeStatusFile(status);
+        if (status === 'connected') this.clearQrFile();
+      },
     });
 
     // Handle WebSocket connections
@@ -104,6 +116,36 @@ export class BridgeServer {
       if (client.readyState === WebSocket.OPEN) {
         client.send(data);
       }
+    }
+  }
+
+  /** Write QR to shared file so dashboard can display it without SSH. */
+  private writeQrToFile(qr: string): void {
+    try {
+      const qrPath = join(this.authDir, '..', QR_FILE);
+      writeFileSync(qrPath, JSON.stringify({ qr, timestamp: Date.now() }), 'utf8');
+    } catch (e) {
+      console.error('Failed to write QR file:', e);
+    }
+  }
+
+  /** Clear QR file when connected. */
+  private clearQrFile(): void {
+    try {
+      const qrPath = join(this.authDir, '..', QR_FILE);
+      if (existsSync(qrPath)) unlinkSync(qrPath);
+    } catch (e) {
+      console.error('Failed to clear QR file:', e);
+    }
+  }
+
+  /** Write connection status for dashboard. */
+  private writeStatusFile(status: string): void {
+    try {
+      const statusPath = join(this.authDir, '..', STATUS_FILE);
+      writeFileSync(statusPath, JSON.stringify({ status, timestamp: Date.now() }), 'utf8');
+    } catch (e) {
+      console.error('Failed to write status file:', e);
     }
   }
 

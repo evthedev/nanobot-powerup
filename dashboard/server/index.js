@@ -945,6 +945,48 @@ app.get('/api/telegram/stream', (req, res) => {
   });
 });
 
+// ── WhatsApp (pairing QR from bridge) ────────────────────────────────────────
+const WHATSAPP_QR_FILE = path.join(NANOBOT_HOME, 'whatsapp-pending-qr.json');
+const WHATSAPP_STATUS_FILE = path.join(NANOBOT_HOME, 'whatsapp-status.json');
+
+// GET /api/whatsapp/status — whether WhatsApp is enabled and pairing/connected
+app.get('/api/whatsapp/status', (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const wa = cfg?.channels?.whatsapp || {};
+    const enabled = !!wa.enabled;
+    let pairing = false;
+    let connected = false;
+    try {
+      if (fs.existsSync(WHATSAPP_QR_FILE)) {
+        const data = JSON.parse(fs.readFileSync(WHATSAPP_QR_FILE, 'utf8'));
+        pairing = !!(data.qr && data.qr.length > 0);
+      }
+      if (fs.existsSync(WHATSAPP_STATUS_FILE)) {
+        const data = JSON.parse(fs.readFileSync(WHATSAPP_STATUS_FILE, 'utf8'));
+        connected = data.status === 'connected';
+      }
+    } catch {}
+    res.json({ enabled, pairing, connected });
+  } catch {
+    res.json({ enabled: false, pairing: false, connected: false });
+  }
+});
+
+// GET /api/whatsapp/qr — returns current QR string if pairing, else null
+app.get('/api/whatsapp/qr', (req, res) => {
+  try {
+    if (!fs.existsSync(WHATSAPP_QR_FILE)) {
+      return res.json({ status: 'connected', qr: null });
+    }
+    const data = JSON.parse(fs.readFileSync(WHATSAPP_QR_FILE, 'utf8'));
+    if (!data.qr) return res.json({ status: 'connected', qr: null });
+    res.json({ status: 'pending', qr: data.qr, timestamp: data.timestamp });
+  } catch {
+    res.json({ status: 'unknown', qr: null });
+  }
+});
+
 // ── Workspace Docs ───────────────────────────────────────────────────────────
 const WORKSPACE_DOCS = ['SOUL.md', 'AGENTS.md', 'USER.md', 'TOOLS.md', 'HEARTBEAT.md'];
 
