@@ -40,6 +40,8 @@ brave_key             = _get("BRAVE_API_KEY")
 tavily_key            = _get("TAVILY_API_KEY")
 maps_key              = _get("GOOGLE_STATIC_MAPS_API_KEY")
 telegram_token        = _get("TELEGRAM_BOT_TOKEN")
+bridge_token          = _get("BRIDGE_TOKEN")
+whatsapp_allow_from   = _get("WHATSAPP_ALLOW_FROM")
 google_client_id      = _get("GOOGLE_CLIENT_ID")
 google_client_secret  = _get("GOOGLE_CLIENT_SECRET")
 capsolver_api_key     = _get("CAPSOLVER_API_KEY")
@@ -76,6 +78,16 @@ if telegram_token and not telegram_token.startswith("REPLACE"):
     set_nested(cfg, "channels.telegram.enabled", True)
     set_nested(cfg, "channels.telegram.token", telegram_token)
     print(f"  telegram token set, bot enabled")
+
+if bridge_token or whatsapp_allow_from:
+    set_nested(cfg, "channels.whatsapp.enabled", True)
+    set_nested(cfg, "channels.whatsapp.bridge_url", "ws://nanobot-whatsapp-bridge:3002")
+    if bridge_token and not bridge_token.startswith("REPLACE"):
+        set_nested(cfg, "channels.whatsapp.bridge_token", bridge_token)
+    if whatsapp_allow_from:
+        allow_list = [n.strip() for n in whatsapp_allow_from.split(",") if n.strip()]
+        set_nested(cfg, "channels.whatsapp.allow_from", allow_list)
+    print(f"  whatsapp channel enabled")
 
 if google_client_id and not google_client_id.startswith("REPLACE"):
     set_nested(cfg, "tools.google_calendar.clientId", google_client_id)

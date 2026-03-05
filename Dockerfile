@@ -1,4 +1,5 @@
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# linux/amd64 required: cloakbrowser only provides x64 Linux binaries (no arm64)
+FROM --platform=linux/amd64 ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 # Install Node.js 20, Chromium + dependencies for Playwright MCP
 RUN apt-get update && \

@@ -56,6 +56,8 @@ jobs:
           GOOGLE_CLIENT_SECRET:     ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_STATIC_MAPS_API_KEY: ${{ secrets.GOOGLE_STATIC_MAPS_API_KEY }}
           TELEGRAM_BOT_TOKEN:       ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          BRIDGE_TOKEN:             ${{ secrets.BRIDGE_TOKEN }}
+          WHATSAPP_ALLOW_FROM:      ${{ secrets.WHATSAPP_ALLOW_FROM }}
           CAPSOLVER_API_KEY:        ${{ secrets.CAPSOLVER_API_KEY }}
           GMAIL_EMAIL:              ${{ secrets.GMAIL_EMAIL }}
           GMAIL_APP_PASSWORD:       ${{ secrets.GMAIL_APP_PASSWORD }}
@@ -113,11 +115,16 @@ jobs:
             echo "--- syncing workspace ---"
             WORKSPACE_SRC="$REPO_DIR/workspace"
             WORKSPACE_DST="/opt/nanobot/workspace"
-            # Sync top-level workspace .md files (HEARTBEAT.md is runtime state — never overwrite)
+            # Sync top-level workspace .md files
+            # HEARTBEAT.md, USER.md are runtime state — never overwrite from repo
             for f in "$WORKSPACE_SRC"/*.md; do
-              [ -f "$f" ] && [ "$(basename $f)" != "HEARTBEAT.md" ] && \
-                cp "$f" "$WORKSPACE_DST/" && echo "  synced $(basename $f)"
+              [ -f "$f" ] || continue
+              bn=$(basename "$f")
+              case "$bn" in HEARTBEAT.md|USER.md) continue ;; esac
+              cp "$f" "$WORKSPACE_DST/" && echo "  synced $bn"
             done
+            # Ensure memory/ dir exists but never overwrite its contents (agent-managed)
+            mkdir -p "$WORKSPACE_DST/memory"
             # Sync base-layer skills from repo → instance.
             # NEVER touches skills-auto/ — that is the instance layer and belongs to the agent.
             for skill_dir in "$WORKSPACE_SRC"/skills/*/; do
@@ -133,6 +140,8 @@ jobs:
             # ── Inject API keys into config.json ──────────────────────────────────
             echo "--- injecting API keys ---"
             python3 "$REPO_DIR/deploy/inject_keys.py" --secrets /tmp/nanobot_secrets.json
+            # Write .env.docker for WhatsApp bridge (BRIDGE_TOKEN)
+            python3 "$REPO_DIR/deploy/write_docker_env.py"
             rm -f /tmp/nanobot_secrets.json
 
             # ── Migrate DB: replace any old hardcoded localhost URLs ───────────────
@@ -165,7 +174,7 @@ jobs:
               sleep 3
             done
             echo "--- starting fresh ---"
-            docker compose -f docker-compose.yml up -d
+            docker compose -f docker-compose.yml --env-file .env.docker up -d
             docker image prune -f
             echo "--- stack status ---"
             docker compose -f docker-compose.yml ps

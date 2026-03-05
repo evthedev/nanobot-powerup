@@ -11,7 +11,7 @@ help:
 	@echo "  make setup              - Run interactive local setup (creates venv)"
 	@echo "  make sync-workspace     - Sync all workspace files (docs + skills) from repo to ~/.nanobot"
 	@echo "  make sync-skills        - Re-sync base skills only from repo to ~/.nanobot"
-	@echo "  make up                 - Start all containers in background"
+	@echo "  make up                 - Start all containers (gateway, dashboard, nginx, WhatsApp bridge)"
 	@echo "  make down               - Stop all containers"
 	@echo "  make restart            - Restart all services"
 	@echo ""
@@ -32,7 +32,7 @@ setup:
 
 sync-workspace:
 	@echo "Syncing workspace docs → ~/.nanobot/workspace/ ..."
-	@rsync -a --exclude=skills/ --exclude=HEARTBEAT.md ./workspace/ ~/.nanobot/workspace/
+	@rsync -a --exclude=skills/ --exclude=HEARTBEAT.md --exclude=USER.md --exclude=memory/ ./workspace/ ~/.nanobot/workspace/
 	@echo "Syncing base skills → ~/.nanobot/workspace/skills/ ..."
 	@rsync -a --delete ./workspace/skills/ ~/.nanobot/workspace/skills/
 	@echo "Done."

@@ -87,7 +87,8 @@ if [ ! -f "$NANOBOT_DATA/config.json" ]; then
   },
   "channels": {
     "web": { "enabled": true, "port": 18791, "allowFrom": [] },
-    "telegram": { "enabled": false, "token": "", "allowFrom": [] }
+    "telegram": { "enabled": false, "token": "", "allowFrom": [] },
+    "whatsapp": { "enabled": false, "bridgeUrl": "ws://nanobot-whatsapp-bridge:3002", "bridgeToken": "", "allowFrom": [] }
   },
   "providers": {
     "openrouter": { "apiKey": "REPLACE_WITH_OPENROUTER_KEY" }

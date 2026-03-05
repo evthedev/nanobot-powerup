@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import sqlite3
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -10,6 +12,54 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import WhatsAppConfig
+
+_DB_PATH = str(Path.home() / ".nanobot" / "chat.db")
+
+
+def _ensure_whatsapp_table() -> None:
+    """Create whatsapp_messages table if it doesn't exist."""
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS whatsapp_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                direction TEXT NOT NULL CHECK(direction IN ('inbound','outbound')),
+                chat_id TEXT NOT NULL,
+                phone_number TEXT DEFAULT '',
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning("whatsapp: could not ensure whatsapp_messages table: {}", e)
+
+
+def _persist_whatsapp_sync(direction: str, chat_id: str, phone_number: str, content: str) -> None:
+    """Write a WhatsApp message to the shared SQLite database (called in executor)."""
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS whatsapp_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                direction TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                phone_number TEXT DEFAULT '',
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute(
+            "INSERT INTO whatsapp_messages (direction, chat_id, phone_number, content) VALUES (?, ?, ?, ?)",
+            (direction, chat_id, phone_number, content)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning("whatsapp: failed to persist message: {}", e)
 
 
 class WhatsAppChannel(BaseChannel):
@@ -34,6 +84,7 @@ class WhatsAppChannel(BaseChannel):
         
         bridge_url = self.config.bridge_url
         
+        _ensure_whatsapp_table()
         logger.info("Connecting to WhatsApp bridge at {}...", bridge_url)
         
         self._running = True
@@ -88,6 +139,13 @@ class WhatsAppChannel(BaseChannel):
                 "text": msg.content
             }
             await self._ws.send(json.dumps(payload, ensure_ascii=False))
+            # Persist outbound message to shared DB
+            phone = msg.chat_id.split("@")[0] if "@" in msg.chat_id else msg.chat_id
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, _persist_whatsapp_sync,
+                "outbound", msg.chat_id, phone, msg.content
+            )
         except Exception as e:
             logger.error("Error sending WhatsApp message: {}", e)
     
@@ -119,6 +177,13 @@ class WhatsAppChannel(BaseChannel):
                 logger.info("Voice message received from {}, but direct download from bridge is not yet supported.", sender_id)
                 content = "[Voice Message: Transcription not available for WhatsApp yet]"
             
+            # Persist inbound message to shared DB
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, _persist_whatsapp_sync,
+                "inbound", sender, sender_id, content
+            )
+
             await self._handle_message(
                 sender_id=sender_id,
                 chat_id=sender,  # Use full LID for replies

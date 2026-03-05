@@ -15,6 +15,8 @@ secrets = {
     "GOOGLE_CLIENT_ID":           os.environ.get("GOOGLE_CLIENT_ID", ""),
     "GOOGLE_CLIENT_SECRET":       os.environ.get("GOOGLE_CLIENT_SECRET", ""),
     "TELEGRAM_BOT_TOKEN":         os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+    "BRIDGE_TOKEN":               os.environ.get("BRIDGE_TOKEN", ""),
+    "WHATSAPP_ALLOW_FROM":        os.environ.get("WHATSAPP_ALLOW_FROM", ""),
     "CAPSOLVER_API_KEY":          os.environ.get("CAPSOLVER_API_KEY", ""),
     "GMAIL_EMAIL":                os.environ.get("GMAIL_EMAIL", ""),
     "GMAIL_APP_PASSWORD":         os.environ.get("GMAIL_APP_PASSWORD", ""),

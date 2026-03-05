@@ -30,8 +30,9 @@ Output: `<unix_timestamp> <hour_0_to_23>`
 Priority order:
 
 1. **calendar** — if `(now - last_calendar) >= 7200` AND `7 <= hour <= 22`
-2. **todos** — if `(now - last_todos) >= 1800`
-3. Neither condition met → reply `HEARTBEAT_OK`, stop here.
+2. **whatsapp** — if `(now - last_whatsapp) >= 1800`
+3. **todos** — if `(now - last_todos) >= 1800`
+4. No condition met → reply `HEARTBEAT_OK`, stop here.
 
 Use `0` for any key missing from the state file (treat as never run).
 
@@ -55,6 +56,25 @@ exec("python3 -c \"import json,time,pathlib; p=pathlib.Path.home()/'.nanobot/wor
 
 ---
 
+### `whatsapp` check
+
+```
+exec("python3 ~/.nanobot/workspace/skills/whatsapp-monitor/query_recent.py")
+```
+
+- If output is `NO_NEW_WHATSAPP_MESSAGES` → reply `HEARTBEAT_OK`.
+- If output contains messages:
+  1. Summarise into a tight digest: 1 line per contact (who sent what, how many messages).
+  2. Include the summary in your final reply (it will be delivered to Telegram).
+  3. Keep it under 10 lines. Mention the contact's number and the gist only.
+
+Update state:
+```
+exec("python3 -c \"import json,time,pathlib; p=pathlib.Path.home()/'.nanobot/workspace/heartbeat-state.json'; s=json.loads(p.read_text()) if p.exists() else {}; s['whatsapp']=int(time.time()); p.write_text(json.dumps(s))\"")
+```
+
+---
+
 ### `todos` check
 
 ```
@@ -68,6 +88,20 @@ Update state:
 ```
 exec("python3 -c \"import json,time,pathlib; p=pathlib.Path.home()/'.nanobot/workspace/heartbeat-state.json'; s=json.loads(p.read_text()) if p.exists() else {}; s['todos']=int(time.time()); p.write_text(json.dumps(s))\"")
 ```
+
+---
+
+### Step 3 — Record outcome (lightweight)
+
+**Only if the check produced a notification** (not on HEARTBEAT_OK), append one line to `memory/HISTORY.md`:
+
+```
+exec("echo '$(date +%Y-%m-%d\\ %H:%M) | heartbeat:<check_name> | <brief outcome>' >> ~/.nanobot/workspace/memory/HISTORY.md")
+```
+
+Example: `2026-03-04 14:30 | heartbeat:calendar | notified: Team standup in 45min`
+
+**Skip this step entirely on HEARTBEAT_OK** — do not log empty ticks.
 
 ---
 

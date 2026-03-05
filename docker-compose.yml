@@ -3,6 +3,23 @@ x-nanobot-volume: &nanobot-volume
 
 services:
 
+  # ── WhatsApp bridge (Baileys) ───────────────────────────────────────────────
+  # Runs alongside gateway; Python connects via ws://nanobot-whatsapp-bridge:3002
+  nanobot-whatsapp-bridge:
+    container_name: nanobot-whatsapp-bridge
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["/usr/bin/node"]
+    command: ["/app/bridge/dist/index.js"]
+    restart: unless-stopped
+    volumes: *nanobot-volume
+    environment:
+      - BRIDGE_PORT=3002
+      - BRIDGE_HOST=0.0.0.0
+      - BRIDGE_TOKEN=${BRIDGE_TOKEN:-}
+      - AUTH_DIR=/root/.nanobot/whatsapp-auth
+
   # ── nanobot gateway ─────────────────────────────────────────────────────────
   nanobot-gateway:
     container_name: nanobot-gateway

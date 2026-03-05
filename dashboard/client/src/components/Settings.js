@@ -7,7 +7,7 @@ const API = process.env.REACT_APP_API_URL || '';
 const WORKSPACE_DOC_META = {
   'SOUL.md':      { icon: '🧬', label: 'Soul',      badge: 'config',  desc: 'Agent identity & values' },
   'AGENTS.md':    { icon: '🤖', label: 'Agents',    badge: 'config',  desc: 'Agent behaviour rules' },
-  'USER.md':      { icon: '👤', label: 'User',       badge: 'config',  desc: 'User preferences & context' },
+  'USER.md':      { icon: '👤', label: 'User',       badge: 'runtime', desc: 'Agent-maintained user profile' },
   'TOOLS.md':     { icon: '🔧', label: 'Tools',     badge: 'config',  desc: 'Tool usage guidelines' },
   'HEARTBEAT.md': { icon: '💓', label: 'Heartbeat', badge: 'runtime', desc: 'Active task queue' },
 };
@@ -429,6 +429,8 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
     capsolver_api_key:        '',
     gmail_email:              '',
     gmail_app_password:       '',
+    github_token:             '',
+    github_repo:              '',
   });
 
   const loadModels = useCallback(async () => {
@@ -466,6 +468,8 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
         capsolver_api_key:        cfg.tools?.capsolver?.api_key           || '',
         gmail_email:              cfg.tools?.gmail?.email                 || '',
         gmail_app_password:       cfg.tools?.gmail?.app_password          || '',
+        github_token:             cfg.tools?.github?.token                || '',
+        github_repo:              cfg.tools?.github?.repo                 || '',
       });
     } catch (e) {
       setStatus({ type: 'error', msg: 'Failed to load config: ' + e.message });
@@ -513,15 +517,19 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
             smartModel: fields.smart_model.trim(),
           },
         },
-        tools: {
-          gmail: {
-            email:        fields.gmail_email.trim(),
-            app_password: fields.gmail_app_password.trim(),
-          },
-          capsolver: {
-            api_key: fields.capsolver_api_key.trim(),
-          },
+      tools: {
+        gmail: {
+          email:        fields.gmail_email.trim(),
+          app_password: fields.gmail_app_password.trim(),
         },
+        capsolver: {
+          api_key: fields.capsolver_api_key.trim(),
+        },
+        github: {
+          token: fields.github_token.trim(),
+          repo:  fields.github_repo.trim(),
+        },
+      },
         channels: {
           whatsapp: {
             allowFrom: fields.whatsapp_allowed_numbers
@@ -856,6 +864,22 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
               id="capsolver_api_key"
               label="Capsolver API Key"
               helpText="Used by the stealth-browser skill to solve CAPTCHAs automatically."
+            />
+          </section>
+
+          {/* GitHub */}
+          <section className="settings-section">
+            <h3>🐙 GitHub</h3>
+            <Field
+              id="github_token"
+              label="Personal Access Token"
+              helpText='Required for "Submit PR" — create a token at github.com/settings/tokens with repo scope.'
+            />
+            <Field
+              id="github_repo"
+              label="Repository"
+              isPassword={false}
+              helpText='Your fork, e.g. your-username/nanobot-powerup — PRs are raised against main.'
             />
           </section>
 

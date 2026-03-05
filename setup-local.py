@@ -151,6 +151,13 @@ def main():
     print("  3. Copy the bot token it gives you (format: 123456789:ABC...)")
     telegram_token = input("  Telegram Bot Token: ").strip()
 
+    # WhatsApp
+    print("\n--- WhatsApp (Optional: monitor & summarise to Telegram) ---")
+    print("  The bridge runs in Docker. Provide a shared token for auth (recommended).")
+    print("  Allowed numbers: comma-separated, no + (e.g. 61401234567,61498765432)")
+    whatsapp_bridge_token = input("  WhatsApp Bridge Token (leave blank to skip): ").strip()
+    whatsapp_allowed = input("  Allowed phone numbers: ").strip()
+
     # Google OAuth (for Calendar)
     print("\n--- Google OAuth (Optional: for Calendar integration) ---")
     print("  Note: You must add 'http://localhost:3001/api/google/auth/callback' to ")
@@ -199,6 +206,17 @@ def main():
         set_nested(cfg, "channels.telegram.enabled", True)
         set_nested(cfg, "channels.telegram.token", telegram_token)
         print("  ✓ Telegram bot token set, channel enabled.")
+
+    # WhatsApp (bridge runs in Docker; gateway connects to ws://nanobot-whatsapp-bridge:3002)
+    if whatsapp_bridge_token or whatsapp_allowed:
+        set_nested(cfg, "channels.whatsapp.enabled", True)
+        set_nested(cfg, "channels.whatsapp.bridge_url", "ws://nanobot-whatsapp-bridge:3002")
+        if whatsapp_bridge_token:
+            set_nested(cfg, "channels.whatsapp.bridge_token", whatsapp_bridge_token)
+        if whatsapp_allowed:
+            allow_list = [n.strip() for n in whatsapp_allowed.split(",") if n.strip()]
+            set_nested(cfg, "channels.whatsapp.allow_from", allow_list)
+        print("  ✓ WhatsApp channel enabled (bridge runs with make up).")
     
     # Core system settings
     set_nested(cfg, "channels.web.enabled", True)
@@ -264,6 +282,11 @@ def main():
       - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
       - PLAYWRIGHT_BROWSERS_PATH=/usr/bin
       - PYTHONPATH=/app                 # /app/nanobot shadows the installed pkg
+
+  # ── WhatsApp bridge (needs ~/.nanobot for auth on Mac; base uses /opt/nanobot) ─
+  nanobot-whatsapp-bridge:
+    volumes:
+      - {nanobot_home}:/root/.nanobot
 
   # ── Express API server ─────────────────────────────────────────────────────
   # index.js is mounted live; node --watch auto-restarts on every save.

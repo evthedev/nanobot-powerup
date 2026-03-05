@@ -21,6 +21,19 @@ try {
   console.warn('Could not load nanobot config:', e.message);
 }
 
+// ─── Server logger — writes to gateway.log in Loguru format so errors surface
+//     in the /logs dashboard page alongside gateway events.
+const LOG_PATH = path.join(NANOBOT_HOME, 'logs', 'gateway.log');
+function serverLog(level, module, msg) {
+  const now = new Date();
+  const ts = now.toISOString().replace('T', ' ').replace('Z', '').slice(0, 23);
+  const padded = level.padEnd(8);
+  const line = `${ts} | ${padded} | dashboard.${module}:- - ${msg}\n`;
+  try { fs.appendFileSync(LOG_PATH, line); } catch (_) { /* log dir may not exist yet */ }
+  if (level === 'ERROR' || level === 'CRITICAL') console.error(`[${module}]`, msg);
+  else console.log(`[${module}]`, msg);
+}
+
 // Nanobot web channel WebSocket endpoint
 const NANOBOT_WS = process.env.NANOBOT_WS || 'ws://127.0.0.1:18791';
 const NANOBOT_TIMEOUT_MS = 600_000; // 10 minutes — planner + evaluator + research can be slow
@@ -317,7 +330,7 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
     updateStats();
 
   } catch (err) {
-    console.error('Nanobot Error:', err.message);
+    serverLog('ERROR', 'gateway', `Nanobot Error: ${err.message}`);
     const errorMsg = err.message;
 
     const errMsgId = uuidv4();
@@ -387,7 +400,7 @@ async function fetchModelsForProvider(providerName, apiKey) {
       return { id, name: m.name || m.id };
     }).sort((a, b) => a.id.localeCompare(b.id));
   } catch (e) {
-    console.error(`[models] fetch error for ${providerName}:`, e.message);
+    serverLog('ERROR', 'models', `fetch error for ${providerName}: ${e.message}`);
   }
 
   if (models.length) modelsCache[providerName] = { models, ts: Date.now() };
@@ -421,7 +434,7 @@ app.get('/api/models', async (req, res) => {
       currentSmartModel: defaults.smartModel || defaults.smart_model || '',
     });
   } catch (e) {
-    console.error('[models] GET error:', e.message);
+    serverLog('ERROR', 'models', `GET error: ${e.message}`);
     res.status(500).json({ error: e.message });
   }
 });
@@ -442,7 +455,7 @@ app.post('/api/gateway/restart', (req, res) => {
 
   exec('docker restart nanobot-gateway', { timeout: 20000 }, (dockerErr) => {
     if (!dockerErr) {
-      console.log('[restart] docker restart nanobot-gateway succeeded');
+      serverLog('INFO', 'restart', 'docker restart nanobot-gateway succeeded');
       return res.json({ success: true, method: 'docker' });
     }
 
@@ -454,7 +467,7 @@ app.post('/api/gateway/restart', (req, res) => {
       const pid = parseInt(raw, 10);
       if (pid && !isNaN(pid)) {
         process.kill(pid, 'SIGTERM');
-        console.log(`[restart] sent SIGTERM to PID ${pid}`);
+        serverLog('INFO', 'restart', `sent SIGTERM to PID ${pid}`);
         return res.json({ success: true, method: 'sigterm', pid });
       }
     } catch (pidErr) {
@@ -815,7 +828,7 @@ app.get('/api/google/callback', async (req, res) => {
       </script>
     </body></html>`);
   } catch (err) {
-    console.error('Google OAuth error:', err.message);
+    serverLog('ERROR', 'oauth', `Google OAuth error: ${err.message}`);
     res.send(`<script>
       window.opener?.postMessage({ type: 'google_auth_error', message: '${err.message.replace(/'/g, "\\'")}' }, '*');
       window.close();
@@ -1073,8 +1086,14 @@ app.post('/api/skills/promote', async (req, res) => {
   const token = nanobotConfig.tools?.github?.token || process.env.GITHUB_TOKEN;
   const repo  = nanobotConfig.tools?.github?.repo  || process.env.GITHUB_REPO;
 
-  if (!token) return res.status(500).json({ error: 'GitHub token not configured — set tools.github.token in config.json or GITHUB_TOKEN env var' });
-  if (!repo)  return res.status(500).json({ error: 'GitHub repo not configured — set tools.github.repo ("owner/repo") in config.json or GITHUB_REPO env var' });
+  if (!token) {
+    serverLog('ERROR', 'skills', `promote '${skillName}': GitHub token not configured`);
+    return res.status(500).json({ error: 'GitHub token not configured — set tools.github.token in config.json or GITHUB_TOKEN env var' });
+  }
+  if (!repo) {
+    serverLog('ERROR', 'skills', `promote '${skillName}': GitHub repo not configured`);
+    return res.status(500).json({ error: 'GitHub repo not configured — set tools.github.repo ("owner/repo") in config.json or GITHUB_REPO env var' });
+  }
 
   const skillDir = path.resolve(WORKSPACE_DIR, 'skills-auto', skillName);
   if (!skillDir.startsWith(path.resolve(WORKSPACE_DIR, 'skills-auto') + path.sep)) {
@@ -1147,10 +1166,10 @@ app.post('/api/skills/promote', async (req, res) => {
       prNumber = pr.number;
     }
 
-    console.log(`[promote-skill] PR #${prNumber} for '${skillName}': ${prUrl}`);
+    serverLog('INFO', 'skills', `PR #${prNumber} for '${skillName}': ${prUrl}`);
     res.json({ prUrl, prNumber, branch: branchName });
   } catch (e) {
-    console.error('[promote-skill]', e.message);
+    serverLog('ERROR', 'skills', `promote '${req.body?.skillName}': ${e.message}`);
     res.status(500).json({ error: e.message });
   }
 });

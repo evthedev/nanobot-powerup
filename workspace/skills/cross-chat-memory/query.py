@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cross-channel keyword search across web chat + Telegram.
+Cross-channel keyword search across web chat, Telegram, and WhatsApp.
 
 Usage:
     python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py <keyword>
@@ -17,6 +17,13 @@ import sqlite3
 from pathlib import Path
 
 DB = Path.home() / ".nanobot" / "chat.db"
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    return row is not None
+
 
 def run(keyword: str, full: bool = False, limit: int = 10) -> None:
     if not DB.exists():
@@ -39,13 +46,26 @@ def run(keyword: str, full: bool = False, limit: int = 10) -> None:
     """, (kw, limit)).fetchall()
 
     # ── Telegram ──────────────────────────────────────────────────────────
-    tg_rows = conn.execute(f"""
-        SELECT direction, sender_name, substr(content, 1, {snippet_len}) AS snippet, created_at
-        FROM telegram_messages
-        WHERE lower(content) LIKE lower(?)
-        ORDER BY id DESC
-        LIMIT ?
-    """, (kw, limit)).fetchall()
+    tg_rows: list = []
+    if _table_exists(conn, "telegram_messages"):
+        tg_rows = conn.execute(f"""
+            SELECT direction, sender_name, substr(content, 1, {snippet_len}) AS snippet, created_at
+            FROM telegram_messages
+            WHERE lower(content) LIKE lower(?)
+            ORDER BY id DESC
+            LIMIT ?
+        """, (kw, limit)).fetchall()
+
+    # ── WhatsApp ──────────────────────────────────────────────────────────
+    wa_rows: list = []
+    if _table_exists(conn, "whatsapp_messages"):
+        wa_rows = conn.execute(f"""
+            SELECT direction, phone_number, substr(content, 1, {snippet_len}) AS snippet, created_at
+            FROM whatsapp_messages
+            WHERE lower(content) LIKE lower(?)
+            ORDER BY id DESC
+            LIMIT ?
+        """, (kw, limit)).fetchall()
 
     conn.close()
 
@@ -62,7 +82,14 @@ def run(keyword: str, full: bool = False, limit: int = 10) -> None:
         print(f"  {r['snippet']}")
         print()
 
-    if not web_rows and not tg_rows:
+    print(f"=== WhatsApp — {len(wa_rows)} hit(s) for '{keyword}' ===")
+    for r in wa_rows:
+        label = r['phone_number'] if r['phone_number'] else r['direction']
+        print(f"[{r['created_at']}] {r['direction']} ({label}):")
+        print(f"  {r['snippet']}")
+        print()
+
+    if not web_rows and not tg_rows and not wa_rows:
         print("No results found.")
 
 
