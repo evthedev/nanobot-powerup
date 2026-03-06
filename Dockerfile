@@ -1,7 +1,7 @@
 # linux/amd64 required: cloakbrowser only provides x64 Linux binaries (no arm64)
 FROM --platform=linux/amd64 ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-# Install Node.js 20, Chromium + dependencies for Playwright MCP
+# Install Node.js 20, Chromium + dependencies for Playwright MCP, Tesseract OCR + Poppler for image/PDF recognition
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg git && \
     mkdir -p /etc/apt/keyrings && \
@@ -11,7 +11,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends nodejs \
         chromium libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
         libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-        libgbm1 libasound2 libpango-1.0-0 libcairo2 fonts-liberation && \
+        libgbm1 libasound2 libpango-1.0-0 libcairo2 fonts-liberation \
+        tesseract-ocr tesseract-ocr-eng poppler-utils && \
     apt-get purge -y gnupg && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
