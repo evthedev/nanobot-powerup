@@ -222,12 +222,20 @@ function SkillsSection({ api }) {
     e.stopPropagation();
     setPrState(s => ({ ...s, [skillName]: { status: 'loading' } }));
     try {
-      const r    = await fetch(`${api}/api/skills/promote`, {
+      const r = await fetch(`${api}/api/skills/promote`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ skillName }),
+        credentials: 'include', // ensure HTTP Basic Auth is sent behind nginx
       });
-      const data = await r.json();
+      const text = await r.text();
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (_) {
+        // 401/500 may return HTML from nginx; surface a clear message
+        throw new Error(r.status === 401 ? 'Authentication required — please log in again' : `Request failed (${r.status})`);
+      }
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
       setPrState(s => ({ ...s, [skillName]: { status: 'success', prUrl: data.prUrl, prNumber: data.prNumber } }));
     } catch (err) {
@@ -325,7 +333,7 @@ function SkillsSection({ api }) {
                     )}
                     {pr.status === 'error' && (
                       <span className="skill-pr-error" title={pr.error}>
-                        ✗ Failed
+                        ✗ {pr.error.length > 50 ? pr.error.slice(0, 47) + '…' : pr.error}
                         <button className="skill-pr-retry" onClick={e => submitPr(skill.name, e)}>retry</button>
                       </span>
                     )}

@@ -1125,6 +1125,11 @@ app.post('/api/skills/promote', async (req, res) => {
     return res.status(400).json({ error: 'Invalid skill name' });
   }
 
+  // Reload config from disk so we pick up tokens saved via UI or inject_keys
+  try {
+    nanobotConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  } catch (_) { /* keep in-memory config */ }
+
   const token = nanobotConfig.tools?.github?.token || process.env.GITHUB_TOKEN;
   const repo  = nanobotConfig.tools?.github?.repo  || process.env.GITHUB_REPO;
 
