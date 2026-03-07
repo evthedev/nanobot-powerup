@@ -271,21 +271,21 @@ class ScreenshotPagesTool(Tool):
         lines = [
             f"## screenshot_pages results for '{safe_slug}'\n",
             f"Captured {sum(1 for r in results if r['ok'])}/{len(results)} pages successfully.\n",
-            "\n### Image URLs\n",
-            "⚠️ CRITICAL: Only embed URLs marked ✅ USABLE — those files were saved to disk.\n"
-            "DO NOT embed ❌ FAILED URLs — those files do NOT exist and will show as broken images.\n\n",
+            "\n### Ready-to-embed markdown (COPY THESE EXACTLY — do NOT reconstruct URLs)\n",
+            "⚠️ CRITICAL: Copy the exact markdown lines below. "
+            "The filenames are lowercased — if you construct the URL yourself it will be wrong.\n\n",
         ]
         for r in results:
-            rewrite_note = " [Google URL redirected to DuckDuckGo]" if r.get("rewritten") else ""
             search_warn = (
                 " ❌ [SEARCH RESULTS PAGE — does not verify factual claims. "
                 "Re-screenshot using Wikipedia/TripAdvisor/official source page instead.]"
             ) if r.get("search_results_warning") else ""
             if r["ok"]:
-                lines.append(f"- **{r['label']}** ✅ USABLE{rewrite_note}{search_warn}: `{r['img_url']}`\n")
+                rewrite_note = " <!-- Google URL redirected to DuckDuckGo -->" if r.get("rewritten") else ""
+                lines.append(f"- ✅ COPY THIS: `![{r['label']}]({r['img_url']})`{rewrite_note}{search_warn}\n")
             else:
                 lines.append(
-                    f"- **{r['label']}** ❌ FAILED — file NOT saved — DO NOT EMBED: `{r['img_url']}`\n"
+                    f"- ❌ DO NOT EMBED: `![{r['label']}]({r['img_url']})` — file NOT saved on disk\n"
                 )
 
         lines.append("\n")
@@ -300,9 +300,9 @@ class ScreenshotPagesTool(Tool):
 
         lines.append(
             "Extract all relevant data (prices, names, availability, etc.) from the content above. "
-            "Embed ONLY the ✅ USABLE image URLs in your response — never the ❌ FAILED ones.\n"
-            "For any ❌ FAILED page, retry with a different URL (e.g. Wikipedia or TripAdvisor) "
-            "rather than embedding a broken URL.\n"
+            "Embed ONLY the ✅ markdown lines listed above — copy them character-for-character.\n"
+            "NEVER reconstruct image URLs yourself — the filenames are lowercased and may differ from your label.\n"
+            "For any ❌ FAILED page, retry with a different URL (e.g. Wikipedia or TripAdvisor).\n"
         )
 
         return "".join(lines)

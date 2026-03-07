@@ -282,10 +282,11 @@ screenshot_pages(
 )
 ```
 
-After the tool returns, embed **only ✅ USABLE** image URLs in your response:
+After the tool returns, copy the **exact** markdown lines marked `✅ COPY THIS` from the tool output into your response. **Never construct image URLs yourself** — filenames are lowercased by the tool and will not match what you type.
 
+Example tool output (copy the backtick-wrapped markdown line verbatim):
 ```
-![Label](/api/screenshots/<slug>-<label>.jpg)
+- ✅ COPY THIS: `![hybe_insight](/api/screenshots/bts-sources-hybe_insight.jpg)`
 ```
 
 Do this for every cited source — menus, flights, hotels, review sites, news articles, etc.

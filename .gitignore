@@ -37,3 +37,4 @@ deploy/terraform/.terraform.lock.hcl
 deploy/terraform/terraform.tfstate
 deploy/terraform/terraform.tfstate.backup
 docker-compose.override.yml
+test_screenshots_browser.py
