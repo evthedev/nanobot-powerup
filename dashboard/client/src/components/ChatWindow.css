@@ -140,6 +140,21 @@
   transition: opacity 0.15s;
 }
 .chat-img-thumb:hover { opacity: 0.8; }
+
+.chat-img-broken {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80px;
+  padding: 12px;
+  margin: 8px 0;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-medium);
+  background: rgba(0,0,0,0.2);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .message-bubble li { margin-bottom: 4px; }
 .message-bubble code {
   background: rgba(0,0,0,0.3);

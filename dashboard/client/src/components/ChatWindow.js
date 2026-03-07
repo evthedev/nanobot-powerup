@@ -6,6 +6,26 @@ import Zoom from 'yet-another-react-lightbox/plugins/zoom';
 import 'yet-another-react-lightbox/styles.css';
 import './ChatWindow.css';
 
+function ChatImg({ src, alt, onLightbox }) {
+  const [broken, setBroken] = useState(false);
+  const imgSrc = src?.startsWith('/') ? `${window.location.origin}${src}` : src;
+  if (broken) {
+    return (
+      <div className="chat-img-broken" title={src}>
+        <span>Image unavailable</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={imgSrc}
+      alt={alt || ''}
+      className="chat-img-thumb"
+      onClick={() => onLightbox(imgSrc)}
+      onError={() => setBroken(true)}
+    />
+  );
+}
 
 export default function ChatWindow({
   conversation,
@@ -58,18 +78,7 @@ export default function ChatWindow({
   }
 
   const mdComponents = {
-    img: ({ src, alt }) => {
-      // Ensure absolute URL for screenshots (avoids base-URL / auth edge cases)
-      const imgSrc = src?.startsWith('/') ? `${window.location.origin}${src}` : src;
-      return (
-        <img
-          src={imgSrc}
-          alt={alt || ''}
-          className="chat-img-thumb"
-          onClick={() => setLightboxSrc(imgSrc)}
-        />
-      );
-    },
+    img: ({ src, alt }) => <ChatImg src={src} alt={alt} onLightbox={setLightboxSrc} />,
   };
 
   return (

@@ -106,7 +106,8 @@ const SCREENSHOTS_DIR = path.join(NANOBOT_HOME, 'workspace', 'screenshots');
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 // Fallback: agent embeds .png but screenshot_pages saves .jpg (and lowercases labels)
 app.use('/api/screenshots', (req, res, next) => {
-  const requested = req.path.replace(/^\//, '');
+  let requested = req.path.replace(/^\//, '');
+  if (requested.includes('/')) requested = requested.split('/').pop(); // handle full path
   if (requested.endsWith('.png')) {
     const pngPath = path.join(SCREENSHOTS_DIR, requested);
     if (fs.existsSync(pngPath)) return next();
