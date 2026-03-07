@@ -852,6 +852,100 @@
   color: rgba(248, 113, 113, 1);
 }
 
+.skill-delete-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+  line-height: 1;
+}
+.skill-delete-btn:hover {
+  opacity: 1;
+  background: rgba(234, 67, 53, 0.1);
+}
+
+/* ─── Delete confirmation modal ─────────────────────────────────────────── */
+.skill-delete-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.skill-delete-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+.skill-delete-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 6px;
+}
+.skill-delete-modal-name {
+  font-size: 13px;
+  font-family: monospace;
+  color: var(--accent-light);
+  background: var(--bg-tertiary);
+  padding: 4px 10px;
+  border-radius: 4px;
+  margin: 0 0 12px;
+}
+.skill-delete-modal-warn {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+.skill-delete-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.skill-delete-cancel {
+  padding: 7px 16px;
+  background: transparent;
+  border: 1px solid var(--border-medium);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.skill-delete-cancel:hover {
+  background: var(--bg-elevated);
+}
+.skill-delete-confirm {
+  padding: 7px 16px;
+  background: #ea4335;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.skill-delete-confirm:hover:not(:disabled) {
+  background: #c5392d;
+}
+.skill-delete-confirm:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 /* ─── btn-link ──────────────────────────────────────────────────────────── */
 .btn-link {
   background: none;

@@ -1156,6 +1156,33 @@ async function githubRequest(token, method, urlPath, body) {
   return data;
 }
 
+// ── Skills Delete — remove a skill from skills-auto ──────────────────────────
+app.delete('/api/skills', (req, res) => {
+  const { skillName } = req.body || {};
+
+  if (!skillName || /[./\\]/.test(skillName)) {
+    return res.status(400).json({ error: 'Invalid skill name' });
+  }
+
+  const skillPath = path.resolve(WORKSPACE_DIR, 'skills-auto', skillName);
+  const allowed   = path.resolve(WORKSPACE_DIR, 'skills-auto');
+
+  if (!skillPath.startsWith(allowed + path.sep)) {
+    return res.status(400).json({ error: 'Path traversal not allowed' });
+  }
+
+  if (!fs.existsSync(skillPath)) {
+    return res.status(404).json({ error: 'Skill not found' });
+  }
+
+  try {
+    fs.rmSync(skillPath, { recursive: true, force: true });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/skills/promote', async (req, res) => {
   const { skillName } = req.body || {};
 

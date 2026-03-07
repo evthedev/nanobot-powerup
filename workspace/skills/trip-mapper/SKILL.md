@@ -1,3 +1,14 @@
+---
+name: trip-mapper
+description: Generate a map image with numbered pins for a list of locations, plus a clickable Google Maps directions link.
+triggers:
+  - "map these locations"
+  - "show on a map"
+  - "map out my itinerary"
+  - "visualise these stops"
+  - "route between"
+---
+
 # Trip Mapper Skill
 
 Generate a map image with numbered pins for a list of locations, plus a clickable Google Maps directions link.
