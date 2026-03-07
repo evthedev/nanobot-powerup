@@ -127,27 +127,11 @@ class WhatsAppChannel(BaseChannel):
             self._ws = None
     
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through WhatsApp."""
-        if not self._ws or not self._connected:
-            logger.warning("WhatsApp bridge not connected")
-            return
-        
-        try:
-            payload = {
-                "type": "send",
-                "to": msg.chat_id,
-                "text": msg.content
-            }
-            await self._ws.send(json.dumps(payload, ensure_ascii=False))
-            # Persist outbound message to shared DB
-            phone = msg.chat_id.split("@")[0] if "@" in msg.chat_id else msg.chat_id
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, _persist_whatsapp_sync,
-                "outbound", msg.chat_id, phone, msg.content
-            )
-        except Exception as e:
-            logger.error("Error sending WhatsApp message: {}", e)
+        """WhatsApp is monitor-only. Replying via WhatsApp is disabled."""
+        logger.warning(
+            "whatsapp: outbound reply blocked — WhatsApp is monitor-only. "
+            "Use Telegram to notify the owner instead."
+        )
     
     async def _handle_bridge_message(self, raw: str) -> None:
         """Handle a message from the bridge."""
@@ -160,39 +144,24 @@ class WhatsAppChannel(BaseChannel):
         msg_type = data.get("type")
         
         if msg_type == "message":
-            # Incoming message from WhatsApp
-            # Deprecated by whatsapp: old phone number style typically: <phone>@s.whatspp.net
-            pn = data.get("pn", "")
-            # New LID sytle typically: 
+            # WhatsApp is monitor-only — persist to DB, never route to agent for reply.
             sender = data.get("sender", "")
             content = data.get("content", "")
-            
-            # Extract just the phone number or lid as chat_id
+            if not content:
+                return
+
+            # Best-effort phone number extraction: prefer legacy pn (phone@s.whatsapp.net),
+            # fall back to the LID prefix as a display identifier.
+            pn = data.get("pn", "")
             user_id = pn if pn else sender
-            sender_id = user_id.split("@")[0] if "@" in user_id else user_id
-            logger.info("Sender {}", sender)
-            
-            # Handle voice transcription if it's a voice message
-            if content == "[Voice Message]":
-                logger.info("Voice message received from {}, but direct download from bridge is not yet supported.", sender_id)
-                content = "[Voice Message: Transcription not available for WhatsApp yet]"
-            
-            # Persist inbound message to shared DB
+            phone_number = user_id.split("@")[0] if "@" in user_id else user_id
+
+            logger.info("whatsapp: inbound from {} — persisting to DB (monitor-only)", phone_number)
+
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None, _persist_whatsapp_sync,
-                "inbound", sender, sender_id, content
-            )
-
-            await self._handle_message(
-                sender_id=sender_id,
-                chat_id=sender,  # Use full LID for replies
-                content=content,
-                metadata={
-                    "message_id": data.get("id"),
-                    "timestamp": data.get("timestamp"),
-                    "is_group": data.get("isGroup", False)
-                }
+                "inbound", sender, phone_number, content
             )
         
         elif msg_type == "status":
