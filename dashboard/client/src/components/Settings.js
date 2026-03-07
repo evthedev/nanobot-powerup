@@ -176,6 +176,9 @@ function SkillsSection({ api }) {
   const [prState, setPrState]             = useState({});
   // toggleState[`source/skillName`] = 'idle' | 'saving'
   const [toggleState, setToggleState]     = useState({});
+  // deleteConfirm = skillName to confirm, or null
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleteState, setDeleteState]     = useState({});   // skillName → 'deleting'|'error'
 
   useEffect(() => {
     fetch(`${api}/api/skills`)
@@ -279,6 +282,26 @@ function SkillsSection({ api }) {
     }
   }
 
+  async function deleteSkill(skillName) {
+    setDeleteState(s => ({ ...s, [skillName]: 'deleting' }));
+    try {
+      const r = await fetch(`${api}/api/skills`, {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ skillName }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
+      setSkills(prev => ({ ...prev, auto: prev.auto.filter(s => s.name !== skillName) }));
+      setDeleteConfirm(null);
+      if (expandedKey === `skills-auto/${skillName}`) setExpandedKey(null);
+    } catch (err) {
+      setDeleteState(s => ({ ...s, [skillName]: 'error' }));
+      setDeleteConfirm(null);
+    } finally {
+      setDeleteState(s => ({ ...s, [skillName]: undefined }));
+    }
+  }
+
   function SkillGroup({ label, badge, source, list }) {
     if (!list.length) return null;
     const isAuto = source === 'skills-auto';
@@ -337,6 +360,13 @@ function SkillsSection({ api }) {
                         <button className="skill-pr-retry" onClick={e => submitPr(skill.name, e)}>retry</button>
                       </span>
                     )}
+                    <button
+                      className="skill-delete-btn"
+                      onClick={e => { e.stopPropagation(); setDeleteConfirm(skill.name); }}
+                      title="Delete this skill"
+                    >
+                      🗑
+                    </button>
                   </div>
                 )}
               </div>
@@ -391,6 +421,26 @@ function SkillsSection({ api }) {
         <div className="skills-list">
           <SkillGroup label="Workspace"     badge="workspace" source="skills"      list={skills.workspace} />
           <SkillGroup label="Auto-Generated" badge="auto"     source="skills-auto" list={skills.auto} />
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div className="skill-delete-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="skill-delete-modal" onClick={e => e.stopPropagation()}>
+            <p className="skill-delete-modal-title">Delete skill?</p>
+            <p className="skill-delete-modal-name">{deleteConfirm}</p>
+            <p className="skill-delete-modal-warn">This permanently removes the skill folder from skills-auto. This cannot be undone.</p>
+            <div className="skill-delete-modal-actions">
+              <button className="skill-delete-cancel" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+              <button
+                className="skill-delete-confirm"
+                onClick={() => deleteSkill(deleteConfirm)}
+                disabled={deleteState[deleteConfirm] === 'deleting'}
+              >
+                {deleteState[deleteConfirm] === 'deleting' ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
