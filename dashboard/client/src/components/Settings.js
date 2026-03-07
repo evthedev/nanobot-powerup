@@ -472,9 +472,17 @@ function ModelSelector({ id, label, value, onChange, options, loading, helpText 
                 onMouseDown={e => { e.preventDefault(); select(opt.id); }}
               >
                 <span className="model-dropdown-id">{opt.id}</span>
-                {opt.name && opt.name !== opt.id && (
-                  <span className="model-dropdown-name">{opt.name}</span>
-                )}
+                <span className="model-dropdown-meta">
+                  {opt.name && opt.name !== opt.id && (
+                    <span className="model-dropdown-name">{opt.name}</span>
+                  )}
+                  {(opt.inputCost != null || opt.outputCost != null) && (
+                    <span className="model-dropdown-pricing">
+                      {opt.inputCost  != null && <span title="Input cost per 1M tokens">↑${opt.inputCost  < 0.01 ? opt.inputCost.toFixed(3)  : opt.inputCost.toFixed(2)}/1M</span>}
+                      {opt.outputCost != null && <span title="Output cost per 1M tokens">↓${opt.outputCost < 0.01 ? opt.outputCost.toFixed(3) : opt.outputCost.toFixed(2)}/1M</span>}
+                    </span>
+                  )}
+                </span>
               </div>
             ))}
             {!loading && filtered.length > 150 && (
