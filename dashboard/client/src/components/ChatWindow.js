@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import Lightbox from 'yet-another-react-lightbox';
+import Zoom from 'yet-another-react-lightbox/plugins/zoom';
+import 'yet-another-react-lightbox/styles.css';
 import './ChatWindow.css';
 
 
@@ -13,9 +16,10 @@ export default function ChatWindow({
   onToggleSidebar,
   sidebarOpen,
 }) {
-  const [input, setInput] = useState('');
-  const bottomRef = useRef(null);
-  const textareaRef = useRef(null);
+  const [input, setInput]       = useState('');
+  const [lightboxSrc, setLightboxSrc] = useState(null);
+  const bottomRef               = useRef(null);
+  const textareaRef             = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -53,8 +57,28 @@ export default function ChatWindow({
     } catch { return ''; }
   }
 
+  const mdComponents = {
+    img: ({ src, alt }) => (
+      <img
+        src={src}
+        alt={alt || ''}
+        className="chat-img-thumb"
+        onClick={() => setLightboxSrc(src)}
+      />
+    ),
+  };
+
   return (
     <div className="chat-window">
+      <Lightbox
+        open={!!lightboxSrc}
+        close={() => setLightboxSrc(null)}
+        slides={lightboxSrc ? [{ src: lightboxSrc }] : []}
+        plugins={[Zoom]}
+        zoom={{ maxZoomPixelRatio: 8, doubleTapDelay: 300 }}
+        carousel={{ finite: true }}
+        render={{ buttonPrev: () => null, buttonNext: () => null }}
+      />
       {/* Header */}
       <div className="chat-header">
         {!sidebarOpen && (
@@ -80,7 +104,7 @@ export default function ChatWindow({
               <div className="message-body">
                 <div className={`message-bubble ${msg.error ? 'error' : ''} ${msg.streaming ? 'streaming' : ''}`}>
                   {msg.role === 'assistant' ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
                       {msg.content || (msg.streaming ? '…' : '')}
                     </ReactMarkdown>
                   ) : (
