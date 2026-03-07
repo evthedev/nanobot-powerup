@@ -134,6 +134,14 @@ jobs:
                 cp -r "$skill_dir"* "$WORKSPACE_DST/skills/$skill_name/"
               echo "  synced skill: $skill_name"
             done
+            # Remove skills deleted from repo (skills present on instance but not in git)
+            for live_dir in "$WORKSPACE_DST/skills/"/*/; do
+              skill_name=$(basename "$live_dir")
+              if [ ! -d "$WORKSPACE_SRC/skills/$skill_name" ]; then
+                rm -rf "$live_dir"
+                echo "  removed deleted skill: $skill_name"
+              fi
+            done
             # Ensure instance layer directory exists so the agent can write to it immediately
             mkdir -p "$WORKSPACE_DST/skills-auto"
 
