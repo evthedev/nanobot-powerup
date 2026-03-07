@@ -32,7 +32,8 @@ Priority order:
 1. **calendar** — if `(now - last_calendar) >= 7200` AND `7 <= hour <= 22`
 2. **whatsapp** — if `(now - last_whatsapp) >= 1800`
 3. **todos** — if `(now - last_todos) >= 1800`
-4. No condition met → reply `HEARTBEAT_OK`, stop here.
+4. **reddit** — if `(now - last_reddit) >= 82800` AND `7 <= hour <= 10`
+5. No condition met → reply `HEARTBEAT_OK`, stop here.
 
 Use `0` for any key missing from the state file (treat as never run).
 
@@ -87,6 +88,51 @@ exec("grep -A 200 '## Todos' ~/.nanobot/workspace/memory/MEMORY.md")
 Update state:
 ```
 exec("python3 -c \"import json,time,pathlib; p=pathlib.Path.home()/'.nanobot/workspace/heartbeat-state.json'; s=json.loads(p.read_text()) if p.exists() else {}; s['todos']=int(time.time()); p.write_text(json.dumps(s))\"")
+```
+
+---
+
+### `reddit` check
+
+Fetch hot posts from all 5 subreddits simultaneously (one call per subreddit):
+
+```
+reddit_search(query="world news", subreddit="worldnews", sort="hot", limit=25)
+reddit_search(query="australia", subreddit="australia", sort="hot", limit=20)
+reddit_search(query="finance economy", subreddit="ausfinance", sort="hot", limit=15)
+reddit_search(query="artificial intelligence", subreddit="MachineLearning", sort="hot", limit=25)
+reddit_search(query="LLM model release", subreddit="LocalLLaMA", sort="hot", limit=20)
+```
+
+From all results combined:
+- Sort each category's posts by score descending.
+- Take the top 10 per category. Do NOT filter, summarise, or editorially exclude anything.
+- Format each post as a markdown link using the exact permalink from the search result.
+
+Format exactly like this:
+
+```
+📰 Reddit — {Day Date}
+
+🌍 Global
+• [title](permalink_url)
+• [title](permalink_url)
+...
+
+🇦🇺 Australia
+• [title](permalink_url)
+...
+
+🤖 AI
+• [title](permalink_url)
+...
+```
+
+Use the exact post title — do not paraphrase or shorten. Do not add scores, commentary, or any other text.
+
+Update state:
+```
+exec("python3 -c \"import json,time,pathlib; p=pathlib.Path.home()/'.nanobot/workspace/heartbeat-state.json'; s=json.loads(p.read_text()) if p.exists() else {}; s['reddit']=int(time.time()); p.write_text(json.dumps(s))\"")
 ```
 
 ---
