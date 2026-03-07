@@ -104,16 +104,27 @@ if (fs.existsSync(CLIENT_BUILD)) {
 // Serve agent-captured screenshots
 const SCREENSHOTS_DIR = path.join(NANOBOT_HOME, 'workspace', 'screenshots');
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
-// Fallback: agent embeds .png but screenshot_pages saves .jpg — serve .jpg when .png missing
+// Fallback: agent embeds .png but screenshot_pages saves .jpg (and lowercases labels)
 app.use('/api/screenshots', (req, res, next) => {
   const requested = req.path.replace(/^\//, '');
   if (requested.endsWith('.png')) {
     const pngPath = path.join(SCREENSHOTS_DIR, requested);
-    const jpgPath = path.join(SCREENSHOTS_DIR, requested.slice(0, -4) + '.jpg');
-    if (!fs.existsSync(pngPath) && fs.existsSync(jpgPath)) {
+    if (fs.existsSync(pngPath)) return next();
+    const base = requested.slice(0, -4);
+    const jpgPath = path.join(SCREENSHOTS_DIR, base + '.jpg');
+    if (fs.existsSync(jpgPath)) {
       res.setHeader('Content-Type', 'image/jpeg');
       return res.sendFile(jpgPath);
     }
+    // Case-insensitive: screenshot_pages lowercases labels (Flight_Prices → flight_prices)
+    try {
+      const files = fs.readdirSync(SCREENSHOTS_DIR);
+      const match = files.find(f => f.toLowerCase() === (base + '.jpg').toLowerCase());
+      if (match) {
+        res.setHeader('Content-Type', 'image/jpeg');
+        return res.sendFile(path.join(SCREENSHOTS_DIR, match));
+      }
+    } catch (_) { /* dir read failed */ }
   }
   next();
 });

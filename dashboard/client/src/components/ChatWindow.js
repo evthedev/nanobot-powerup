@@ -58,14 +58,18 @@ export default function ChatWindow({
   }
 
   const mdComponents = {
-    img: ({ src, alt }) => (
-      <img
-        src={src}
-        alt={alt || ''}
-        className="chat-img-thumb"
-        onClick={() => setLightboxSrc(src)}
-      />
-    ),
+    img: ({ src, alt }) => {
+      // Ensure absolute URL for screenshots (avoids base-URL / auth edge cases)
+      const imgSrc = src?.startsWith('/') ? `${window.location.origin}${src}` : src;
+      return (
+        <img
+          src={imgSrc}
+          alt={alt || ''}
+          className="chat-img-thumb"
+          onClick={() => setLightboxSrc(imgSrc)}
+        />
+      );
+    },
   };
 
   return (
