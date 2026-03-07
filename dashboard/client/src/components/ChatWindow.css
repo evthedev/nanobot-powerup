@@ -128,7 +128,8 @@
 .message-bubble ul, .message-bubble ol { margin: 8px 0 8px 20px; }
 
 /* Images — constrain to bubble width and add a subtle frame */
-.message-bubble img {
+.message-bubble img,
+.chat-img-thumb {
   max-width: 100%;
   height: auto;
   display: block;
@@ -136,7 +137,9 @@
   margin: 8px 0;
   border: 1px solid var(--border-subtle);
   cursor: zoom-in;
+  transition: opacity 0.15s;
 }
+.chat-img-thumb:hover { opacity: 0.8; }
 .message-bubble li { margin-bottom: 4px; }
 .message-bubble code {
   background: rgba(0,0,0,0.3);
