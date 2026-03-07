@@ -19,7 +19,7 @@ WORKDIR /app
 
 # Server dependencies only
 COPY server/package*.json ./
-RUN npm ci --only=production --silent
+RUN npm install --only=production --silent
 
 COPY server/ ./
 
