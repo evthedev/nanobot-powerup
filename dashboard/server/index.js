@@ -1019,6 +1019,35 @@ app.get('/api/whatsapp/qr', (req, res) => {
   }
 });
 
+// POST /api/whatsapp/reset-auth — clear pairing state and restart bridge
+app.post('/api/whatsapp/reset-auth', (req, res) => {
+  const authDir = path.join(NANOBOT_HOME, 'whatsapp-auth');
+  try {
+    // Clear auth files so bridge generates a fresh QR on restart
+    if (fs.existsSync(authDir)) {
+      for (const f of fs.readdirSync(authDir)) {
+        fs.rmSync(path.join(authDir, f), { recursive: true, force: true });
+      }
+    }
+    // Clear stale QR and status files
+    [WHATSAPP_QR_FILE, WHATSAPP_STATUS_FILE].forEach(f => {
+      try { fs.unlinkSync(f); } catch {}
+    });
+  } catch (err) {
+    return res.status(500).json({ error: `Failed to clear auth: ${err.message}` });
+  }
+
+  // Restart the bridge container so it picks up the cleared auth
+  exec('docker restart nanobot-whatsapp-bridge', { timeout: 20000 }, (err) => {
+    if (err) {
+      serverLog('WARN', 'whatsapp-reset', `docker restart failed: ${err.message}`);
+      return res.status(500).json({ error: `Auth cleared but bridge restart failed: ${err.message}` });
+    }
+    serverLog('INFO', 'whatsapp-reset', 'auth cleared and bridge restarted');
+    res.json({ ok: true });
+  });
+});
+
 // ── Workspace Docs ───────────────────────────────────────────────────────────
 const WORKSPACE_DOCS = ['SOUL.md', 'AGENTS.md', 'USER.md', 'TOOLS.md', 'HEARTBEAT.md'];
 

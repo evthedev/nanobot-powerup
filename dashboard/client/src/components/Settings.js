@@ -88,6 +88,8 @@ function fileExt(filename) {
 function WhatsAppSection({ api, Field: FieldComponent }) {
   const [status, setStatus] = useState({ enabled: false, pairing: false, connected: false });
   const [qr, setQr] = useState(null);
+  const [resetting, setResetting] = useState(false);
+  const [resetMsg, setResetMsg] = useState(null);
 
   const fetchStatus = useCallback(() => {
     fetch(`${api}/api/whatsapp/status`)
@@ -126,6 +128,22 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
     ? `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(qr)}`
     : null;
 
+  async function resetAuth() {
+    setResetting(true);
+    setResetMsg(null);
+    try {
+      const r = await fetch(`${api}/api/whatsapp/reset-auth`, { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setResetMsg({ type: 'success', text: 'Auth cleared — scan the new QR to re-pair.' });
+      setTimeout(() => fetchStatus(), 3000);
+    } catch (e) {
+      setResetMsg({ type: 'error', text: e.message });
+    } finally {
+      setResetting(false);
+    }
+  }
+
   return (
     <section className="settings-section">
       <h3>💬 WhatsApp</h3>
@@ -139,11 +157,16 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
       {status.enabled && (
         <div className="whatsapp-pairing" style={{ marginTop: '1rem' }}>
           {status.connected && (
-            <p className="field-help" style={{ color: 'var(--success, #22c55e)' }}>
-              ✅ WhatsApp connected
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <p className="field-help" style={{ color: 'var(--success, #22c55e)', margin: 0 }}>
+                ✅ WhatsApp connected
+              </p>
+              <button className="btn-danger-sm" onClick={resetAuth} disabled={resetting}>
+                {resetting ? 'Disconnecting…' : 'Disconnect'}
+              </button>
+            </div>
           )}
-          {status.pairing && qrImageUrl && (
+          {!status.connected && status.pairing && qrImageUrl && (
             <div className="whatsapp-qr-box" style={{ marginTop: '0.5rem' }}>
               <p className="field-help">Scan with WhatsApp → Linked Devices</p>
               <img
@@ -153,9 +176,19 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
               />
             </div>
           )}
-          {status.enabled && !status.connected && !status.pairing && (
-            <p className="field-help" style={{ marginTop: '0.5rem' }}>
-              Waiting for bridge… Ensure the WhatsApp bridge container is running.
+          {!status.connected && !status.pairing && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: '0.5rem' }}>
+              <p className="field-help" style={{ margin: 0 }}>
+                Not connected. Reset pairing to generate a new QR.
+              </p>
+              <button className="btn-danger-sm" onClick={resetAuth} disabled={resetting}>
+                {resetting ? 'Resetting…' : '🔄 Reset Pairing'}
+              </button>
+            </div>
+          )}
+          {resetMsg && (
+            <p className="field-help" style={{ marginTop: '0.5rem', color: resetMsg.type === 'error' ? 'var(--error)' : 'var(--success, #22c55e)' }}>
+              {resetMsg.text}
             </p>
           )}
         </div>
