@@ -104,6 +104,19 @@ if (fs.existsSync(CLIENT_BUILD)) {
 // Serve agent-captured screenshots
 const SCREENSHOTS_DIR = path.join(NANOBOT_HOME, 'workspace', 'screenshots');
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+// Fallback: agent embeds .png but screenshot_pages saves .jpg — serve .jpg when .png missing
+app.use('/api/screenshots', (req, res, next) => {
+  const requested = req.path.replace(/^\//, '');
+  if (requested.endsWith('.png')) {
+    const pngPath = path.join(SCREENSHOTS_DIR, requested);
+    const jpgPath = path.join(SCREENSHOTS_DIR, requested.slice(0, -4) + '.jpg');
+    if (!fs.existsSync(pngPath) && fs.existsSync(jpgPath)) {
+      res.setHeader('Content-Type', 'image/jpeg');
+      return res.sendFile(jpgPath);
+    }
+  }
+  next();
+});
 app.use('/api/screenshots', express.static(SCREENSHOTS_DIR));
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

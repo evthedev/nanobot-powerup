@@ -285,7 +285,7 @@ screenshot_pages(
 After the tool returns, embed **only ✅ USABLE** image URLs in your response:
 
 ```
-![Label](/api/screenshots/<slug>-<label>.png)
+![Label](/api/screenshots/<slug>-<label>.jpg)
 ```
 
 Do this for every cited source — menus, flights, hotels, review sites, news articles, etc.
