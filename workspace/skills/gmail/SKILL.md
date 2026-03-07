@@ -4,6 +4,26 @@ Send emails from the configured Gmail account. No extra packages needed — uses
 
 ---
 
+## ⚠️ MANDATORY: Always Get Explicit Approval Before Sending
+
+**NEVER send an email without the user's explicit approval.** This rule has no exceptions — even if the user previously asked you to send an email, you MUST pause and confirm before executing the send.
+
+Before running any send script, you MUST:
+
+1. Show the user a full preview of the email:
+   - **To:** (recipient addresses)
+   - **CC:** (if any)
+   - **Subject:**
+   - **Body:** (full content)
+   - **Attachments:** (if any)
+2. Ask explicitly: *"Shall I send this email? Please confirm yes or no."*
+3. Wait for the user's response.
+4. Only proceed if the user says yes (or clear equivalent). If they say no or don't respond clearly, do NOT send.
+
+This approval step is non-negotiable and must happen every single time, regardless of prior instructions in the conversation.
+
+---
+
 ## Ready-to-Run Script — Start Here
 
 **Do NOT write a new email script from scratch.** Copy the working script:

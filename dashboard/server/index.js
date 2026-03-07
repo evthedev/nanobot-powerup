@@ -397,7 +397,14 @@ async function fetchModelsForProvider(providerName, apiKey) {
     models = (data.data || []).map(m => {
       // NVIDIA NIM model IDs must be prefixed with "nvidia_nim/" for LiteLLM routing
       const id = providerName === 'nvidia' ? `nvidia_nim/${m.id}` : m.id;
-      return { id, name: m.name || m.id };
+      const model = { id, name: m.name || m.id };
+      if (m.pricing) {
+        const inp = parseFloat(m.pricing.prompt);
+        const out = parseFloat(m.pricing.completion);
+        if (!isNaN(inp)) model.inputCost  = inp * 1_000_000;   // $/1M tokens
+        if (!isNaN(out)) model.outputCost = out * 1_000_000;   // $/1M tokens
+      }
+      return model;
     }).sort((a, b) => a.id.localeCompare(b.id));
   } catch (e) {
     serverLog('ERROR', 'models', `fetch error for ${providerName}: ${e.message}`);
@@ -1114,7 +1121,13 @@ async function githubRequest(token, method, urlPath, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.message || `GitHub API ${res.status}`);
+  if (!res.ok) {
+    let msg = data.message || `GitHub API ${res.status}`;
+    if (res.status === 403 && msg.includes('Resource not accessible by personal access token')) {
+      msg = 'GitHub token lacks permission to create pull requests. Use a classic Personal Access Token with the "repo" scope (github.com/settings/tokens → Generate new token (classic) → check "repo").';
+    }
+    throw new Error(msg);
+  }
   return data;
 }
 

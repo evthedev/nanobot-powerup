@@ -962,9 +962,30 @@
   color: var(--text-primary);
 }
 
+.model-dropdown-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .model-dropdown-name {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.model-dropdown-pricing {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.model-dropdown-pricing span {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-muted);
+  opacity: 0.75;
+  white-space: nowrap;
 }
 
 .model-dropdown-empty,

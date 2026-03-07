@@ -6,6 +6,8 @@ import re
 import shutil
 from pathlib import Path
 
+from loguru import logger
+
 # Default builtin skills directory (relative to this file)
 BUILTIN_SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
@@ -111,6 +113,9 @@ class SkillsLoader:
             if content:
                 content = self._strip_frontmatter(content)
                 parts.append(f"### Skill: {name}\n\n{content}")
+                logger.info("🔧 Skill always-loaded into context: {}", name)
+            else:
+                logger.warning("🔧 Skill always-load failed (not found): {}", name)
         
         return "\n\n---\n\n".join(parts) if parts else ""
     
