@@ -170,6 +170,8 @@ jobs:
             cd /opt/nanobot-app
             # Remove local dev override so it never pollutes the EC2 environment
             rm -f docker-compose.override.yml
+            echo "--- pruning build cache to free disk space ---"
+            docker builder prune -af
             echo "--- building ---"
             docker compose -f docker-compose.yml build --pull
             echo "--- stopping old containers (prevents name-conflict on recreate) ---"
