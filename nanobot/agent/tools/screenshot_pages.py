@@ -5,14 +5,57 @@ Decoupled from any domain: the caller constructs the URLs. Works for travel rese
 product reviews, restaurant lookups, news pages, or anything else.
 """
 
+import json
 import os
 import re
+import subprocess
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, parse_qs, urlencode, quote_plus
 
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
+
+_VALIDATE_SCRIPT = Path.home() / ".nanobot/workspace/skills/validate-evidence/validate_evidence.py"
+
+
+def _evaluate_screenshot(filepath: str, dom_text: str, label: str, url: str) -> tuple[bool, str, str]:
+    """
+    Run validate_evidence.py against the screenshot + DOM text.
+    Returns (is_blocked, reason, ocr_excerpt).
+    Delegates all detection — OCR and LLM — to the validate-evidence skill.
+    """
+    if not _VALIDATE_SCRIPT.exists():
+        logger.warning("screenshot_pages: validate_evidence.py not found at {}", _VALIDATE_SCRIPT)
+        return False, "", ""
+
+    payload = {
+        "claim": f"The page rendered accessible {label} content (not a bot challenge, login wall, or access denial)",
+        "evidence": [
+            {"type": "screenshot", "path": filepath, "label": "screenshot"},
+            {"type": "text",       "content": dom_text, "label": "dom_text"},
+        ],
+    }
+    try:
+        result = subprocess.run(
+            ["python3", str(_VALIDATE_SCRIPT)],
+            input=json.dumps(payload),
+            capture_output=True, text=True, timeout=60,
+        )
+        data = json.loads(result.stdout)
+        verdict    = data.get("verdict", "INCONCLUSIVE")
+        reasoning  = data.get("reasoning", "")
+        ocr_excerpt = ""
+        for ev in data.get("evidence_results", []):
+            if ev.get("type") == "screenshot":
+                ocr_excerpt = ev.get("text_excerpt", "")
+                break
+        is_blocked = verdict == "UNSUPPORTED"
+        return is_blocked, reasoning if is_blocked else "", ocr_excerpt
+    except Exception as exc:
+        logger.warning("screenshot_pages: evaluation failed — {}", exc)
+        return False, "", ""
 
 
 def _rewrite_google_url(url: str) -> tuple[str, bool]:
@@ -243,10 +286,22 @@ class ScreenshotPagesTool(Tool):
                             pass
                         content = (await page.inner_text("body"))[:5000]
                         await page.screenshot(path=filepath, type="jpeg", quality=82, full_page=False)
-                        ok = True
-                        logger.info("screenshot_pages: ✅ {} saved → {}", label, filepath)
+                        # ── Evaluate: OCR + LLM via validate-evidence skill ───
+                        is_blocked, blocked_reason, ocr_excerpt = _evaluate_screenshot(
+                            filepath, content, label, url
+                        )
+                        if is_blocked:
+                            ok = False
+                            logger.warning(
+                                "screenshot_pages: 🚫 {} BLOCKED — {}", label, blocked_reason
+                            )
+                        else:
+                            ok = True
+                            logger.info("screenshot_pages: ✅ {} saved → {}", label, filepath)
                     except Exception as exc:
                         logger.warning("screenshot_pages: ⚠️ {} failed: {}", label, exc)
+                        ocr_excerpt = ""
+                        blocked_reason = ""
                         try:
                             await page.screenshot(path=filepath, type="jpeg", quality=82)
                         except Exception:
@@ -260,6 +315,8 @@ class ScreenshotPagesTool(Tool):
                         "ok": ok,
                         "rewritten": was_rewritten,
                         "search_results_warning": _is_search_results and label not in _price_labels,
+                        "blocked_reason": blocked_reason if not ok else "",
+                        "ocr_excerpt": ocr_excerpt,
                     })
 
                 await browser.close()
@@ -283,6 +340,11 @@ class ScreenshotPagesTool(Tool):
             if r["ok"]:
                 rewrite_note = " <!-- Google URL redirected to DuckDuckGo -->" if r.get("rewritten") else ""
                 lines.append(f"- ✅ COPY THIS: `![{r['label']}]({r['img_url']})`{rewrite_note}{search_warn}\n")
+            elif r.get("blocked_reason"):
+                lines.append(
+                    f"- 🚫 BLOCKED: `![{r['label']}]({r['img_url']})` — {r['blocked_reason']}.\n"
+                    f"  → Retry using scrapling skill (--mode stealth) or stealth-browser skill.\n"
+                )
             else:
                 lines.append(
                     f"- ❌ DO NOT EMBED: `![{r['label']}]({r['img_url']})` — file NOT saved on disk\n"
@@ -290,13 +352,20 @@ class ScreenshotPagesTool(Tool):
 
         lines.append("\n")
         for r in results:
-            status = "✅" if r["ok"] else "⚠️ no content"
+            if r["ok"]:
+                status = "✅"
+            elif r.get("blocked_reason"):
+                status = f"🚫 BLOCKED — {r['blocked_reason']}"
+            else:
+                status = "⚠️ no content"
             lines.append(f"### {r['label'].upper()} page content ({status})\n")
             lines.append(f"Source: {r['url']}\n")
             if r["content"]:
                 lines.append(f"```\n{r['content']}\n```\n\n")
             else:
                 lines.append("```\n(failed to load)\n```\n\n")
+            if r.get("ocr_excerpt"):
+                lines.append(f"OCR (what was visually rendered):\n```\n{r['ocr_excerpt']}\n```\n\n")
 
         lines.append(
             "Extract all relevant data (prices, names, availability, etc.) from the content above. "

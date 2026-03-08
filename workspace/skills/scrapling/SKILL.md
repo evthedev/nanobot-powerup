@@ -33,23 +33,22 @@ python -c "from scrapling.fetchers import StealthyFetcher; print('ok')"
 
 ## Running the Script
 
-Script path: `~/.nanobot/workspace/skills/scrapling/scripts/scrapling_fetch.py`
 
 ```bash
 # Auto mode — tries fast first, falls back to stealth on 403/429/503
-python3 ~/.nanobot/workspace/skills/scrapling/scripts/scrapling_fetch.py <url>
+python3 ~/.nanobot/workspace/skills/scrapling/scrapling_fetch.py <url>
 
 # Fast mode — TLS/JA3 fingerprint spoofing only (no browser, instant)
-python3 ~/.nanobot/workspace/skills/scrapling/scripts/scrapling_fetch.py <url> --mode fast
+python3 ~/.nanobot/workspace/skills/scrapling/scrapling_fetch.py <url> --mode fast
 
 # Stealth mode — headless browser, canvas noise, Cloudflare Turnstile bypass
-python3 ~/.nanobot/workspace/skills/scrapling/scripts/scrapling_fetch.py <url> --mode stealth
+python3 ~/.nanobot/workspace/skills/scrapling/scrapling_fetch.py <url> --mode stealth
 
 # Stealth without Cloudflare auto-solve (faster if page has no Turnstile)
-python3 ~/.nanobot/workspace/skills/scrapling/scripts/scrapling_fetch.py <url> --mode stealth --no-solve-cf
+python3 ~/.nanobot/workspace/skills/scrapling/scrapling_fetch.py <url> --mode stealth --no-solve-cf
 
 # Limit output size
-python3 ~/.nanobot/workspace/skills/scrapling/scripts/scrapling_fetch.py <url> --max-chars 20000
+python3 ~/.nanobot/workspace/skills/scrapling/scrapling_fetch.py <url> --max-chars 20000
 ```
 
 Output is JSON: `{ url, mode, status, length, truncated, text, error? }`
