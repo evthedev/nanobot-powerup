@@ -7,12 +7,66 @@ product reviews, restaurant lookups, news pages, or anything else.
 
 import os
 import re
+import shutil
+import subprocess
 from typing import Any
 from urllib.parse import urlparse, parse_qs, urlencode, quote_plus
 
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
+
+# ── Block detection ───────────────────────────────────────────────────────────
+# Phrases that indicate the page is a bot wall, login gate, or access denial
+# rather than the intended content. Checked against both DOM text and OCR text.
+_BLOCK_PATTERNS = [
+    "are you a person or a robot",
+    "verify you are not a robot",
+    "please verify you are human",
+    "just a moment",           # Cloudflare interstitial
+    "checking your browser",   # Cloudflare
+    "attention required",      # Cloudflare
+    "enable javascript",
+    "access denied",
+    "403 forbidden",
+    "sign in to continue",
+    "log in to see",
+    "before you continue",     # Google consent wall
+    "ray id",                  # Cloudflare Ray ID footer
+    "too many requests",
+    "rate limited",
+]
+# Pages with fewer combined chars than this are blank/failed-to-render
+_MIN_CONTENT_CHARS = 120
+
+
+def _ocr_image(filepath: str) -> str:
+    """Run Tesseract OCR on a screenshot. Returns '' if tesseract unavailable."""
+    if not shutil.which("tesseract"):
+        return ""
+    try:
+        result = subprocess.run(
+            ["tesseract", filepath, "stdout", "--psm", "3", "-l", "eng"],
+            capture_output=True, text=True, timeout=20,
+        )
+        return result.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _detect_block(dom_text: str, ocr_text: str) -> tuple[bool, str]:
+    """
+    Returns (is_blocked, reason).
+    Checks DOM text and OCR text against known bot/access-block patterns,
+    and flags pages that rendered too little content to be meaningful.
+    """
+    combined = (dom_text + " " + ocr_text).lower()
+    for pattern in _BLOCK_PATTERNS:
+        if pattern in combined:
+            return True, f'block pattern detected: "{pattern}"'
+    if len(dom_text.strip()) + len(ocr_text.strip()) < _MIN_CONTENT_CHARS:
+        return True, "page appears blank or failed to render meaningful content"
+    return False, ""
 
 
 def _rewrite_google_url(url: str) -> tuple[str, bool]:
@@ -243,10 +297,21 @@ class ScreenshotPagesTool(Tool):
                             pass
                         content = (await page.inner_text("body"))[:5000]
                         await page.screenshot(path=filepath, type="jpeg", quality=82, full_page=False)
-                        ok = True
-                        logger.info("screenshot_pages: ✅ {} saved → {}", label, filepath)
+                        # ── Tier 1: block detection ───────────────────────────
+                        ocr_text = _ocr_image(filepath)
+                        is_blocked, blocked_reason = _detect_block(content, ocr_text)
+                        if is_blocked:
+                            ok = False
+                            logger.warning(
+                                "screenshot_pages: 🚫 {} BLOCKED — {}", label, blocked_reason
+                            )
+                        else:
+                            ok = True
+                            logger.info("screenshot_pages: ✅ {} saved → {}", label, filepath)
                     except Exception as exc:
                         logger.warning("screenshot_pages: ⚠️ {} failed: {}", label, exc)
+                        ocr_text = ""
+                        blocked_reason = ""
                         try:
                             await page.screenshot(path=filepath, type="jpeg", quality=82)
                         except Exception:
@@ -260,6 +325,8 @@ class ScreenshotPagesTool(Tool):
                         "ok": ok,
                         "rewritten": was_rewritten,
                         "search_results_warning": _is_search_results and label not in _price_labels,
+                        "blocked_reason": blocked_reason if not ok else "",
+                        "ocr_excerpt": ocr_text[:400] if ocr_text else "",
                     })
 
                 await browser.close()
@@ -283,6 +350,11 @@ class ScreenshotPagesTool(Tool):
             if r["ok"]:
                 rewrite_note = " <!-- Google URL redirected to DuckDuckGo -->" if r.get("rewritten") else ""
                 lines.append(f"- ✅ COPY THIS: `![{r['label']}]({r['img_url']})`{rewrite_note}{search_warn}\n")
+            elif r.get("blocked_reason"):
+                lines.append(
+                    f"- 🚫 BLOCKED: `![{r['label']}]({r['img_url']})` — {r['blocked_reason']}.\n"
+                    f"  → Retry using scrapling skill (--mode stealth) or stealth-browser skill.\n"
+                )
             else:
                 lines.append(
                     f"- ❌ DO NOT EMBED: `![{r['label']}]({r['img_url']})` — file NOT saved on disk\n"
@@ -290,13 +362,20 @@ class ScreenshotPagesTool(Tool):
 
         lines.append("\n")
         for r in results:
-            status = "✅" if r["ok"] else "⚠️ no content"
+            if r["ok"]:
+                status = "✅"
+            elif r.get("blocked_reason"):
+                status = f"🚫 BLOCKED — {r['blocked_reason']}"
+            else:
+                status = "⚠️ no content"
             lines.append(f"### {r['label'].upper()} page content ({status})\n")
             lines.append(f"Source: {r['url']}\n")
             if r["content"]:
                 lines.append(f"```\n{r['content']}\n```\n\n")
             else:
                 lines.append("```\n(failed to load)\n```\n\n")
+            if r.get("ocr_excerpt"):
+                lines.append(f"OCR (what was visually rendered):\n```\n{r['ocr_excerpt']}\n```\n\n")
 
         lines.append(
             "Extract all relevant data (prices, names, availability, etc.) from the content above. "
