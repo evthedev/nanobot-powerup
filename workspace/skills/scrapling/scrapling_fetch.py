@@ -3,15 +3,12 @@
 Stealthy page fetcher using Scrapling.
 
 USAGE:
-  python3 scrapling_fetch.py <url> [--mode fast|stealth] [--max-chars N]
+  python3 scrapling_fetch.py <url> [--mode fast|stealth|auto] [--max-chars N]
 
 MODES:
   fast    — Fetcher: TLS/JA3 fingerprint spoofing + real browser headers (no browser binary)
-  stealth — StealthyFetcher: full headless browser with canvas noise, CDP removal, Cloudflare bypass
-
-SETUP (run once inside Docker):
-  pip install scrapling
-  scrapling install           # downloads browser binaries for stealth mode
+  stealth — StealthyFetcher: full headless browser with canvas noise, Cloudflare bypass
+  auto    — tries fast first, falls back to stealth on 403/429/503 or error (default)
 
 OUTPUT: JSON with keys: url, mode, status, length, truncated, text, error
 """
@@ -21,7 +18,6 @@ import json
 import re
 import html
 import argparse
-from pathlib import Path
 
 MAX_CHARS_DEFAULT = 50_000
 
@@ -49,34 +45,46 @@ def _to_markdown(raw_html: str) -> str:
     return _normalize(_strip_tags(text))
 
 
-def extract_text(page_or_response, use_readability: bool = True) -> str:
-    """Extract readable text from a Scrapling Page or raw HTML string."""
-    raw = page_or_response if isinstance(page_or_response, str) else str(page_or_response.html)
-    if use_readability:
-        try:
-            from readability import Document
-            doc = Document(raw)
-            title = doc.title() or ""
-            body = _to_markdown(doc.summary())
-            return f"# {title}\n\n{body}" if title else body
-        except ImportError:
-            pass
-    return _normalize(_strip_tags(raw))
+def _extract(html_content: str) -> str:
+    """Extract readable text from raw HTML string via readability, fallback to strip."""
+    try:
+        from readability import Document
+        doc = Document(html_content)
+        title = doc.title() or ""
+        body = _to_markdown(doc.summary())
+        return f"# {title}\n\n{body}" if title else body
+    except Exception:
+        return _normalize(_strip_tags(html_content))
+
+
+def _response_html(response) -> str:
+    """Safely get HTML string from a Scrapling response object."""
+    # Scrapling responses expose the raw HTML via .html_content or .text
+    for attr in ("html_content", "text", "content"):
+        val = getattr(response, attr, None)
+        if val and isinstance(val, str):
+            return val
+        if val and isinstance(val, bytes):
+            return val.decode("utf-8", errors="replace")
+    return str(response)
+
+
+def _response_status(response) -> int:
+    """Get HTTP status from a Scrapling response (attribute name varies by fetcher)."""
+    return getattr(response, "status", None) or getattr(response, "status_code", 0)
 
 
 def fetch_fast(url: str, max_chars: int) -> dict:
-    """Use Scrapling Fetcher — TLS fingerprint spoofing, no browser binary needed."""
+    """Fetcher — TLS fingerprint spoofing, no browser binary needed."""
     from scrapling.fetchers import Fetcher
-
-    fetcher = Fetcher(auto_match=False)
     try:
-        response = fetcher.get(url, stealthy_headers=True, follow_redirects=True)
-        text = extract_text(response)
+        response = Fetcher.get(url, stealthy_headers=True, follow_redirects=True)
+        text = _extract(_response_html(response))
         truncated = len(text) > max_chars
         return {
             "url": url,
             "mode": "fast",
-            "status": response.status,
+            "status": _response_status(response),
             "length": len(text),
             "truncated": truncated,
             "text": text[:max_chars],
@@ -85,27 +93,37 @@ def fetch_fast(url: str, max_chars: int) -> dict:
         return {"url": url, "mode": "fast", "error": str(e)}
 
 
-def fetch_stealth(url: str, max_chars: int, solve_cloudflare: bool = True) -> dict:
-    """Use Scrapling StealthyFetcher — headless browser with canvas noise, Cloudflare bypass."""
-    from scrapling.fetchers import StealthyFetcher
-
+def _ensure_patchright() -> None:
+    """Install patchright browser binary if missing (first run after image build)."""
     try:
-        # StealthyFetcher.fetch() is synchronous (handles its own event loop internally)
+        from scrapling.fetchers import StealthyFetcher  # noqa: F401
+    except Exception:
+        import subprocess, sys
+        subprocess.run([sys.executable, "-m", "pip", "install", "scrapling[all]", "-q"], check=False)
+        subprocess.run(["scrapling", "install"], check=False)
+
+
+def fetch_stealth(url: str, max_chars: int, solve_cloudflare: bool = True) -> dict:
+    """StealthyFetcher — headless browser with canvas noise, Cloudflare bypass."""
+    _ensure_patchright()
+    from scrapling.fetchers import StealthyFetcher
+    try:
         response = StealthyFetcher.fetch(
             url,
             headless=True,
             network_idle=True,
             block_webrtc=True,
             allow_webgl=False,
+            timeout=60000,
             extra_headers={"Accept-Language": "en-US,en;q=0.9"},
             solve_cloudflare=solve_cloudflare,
         )
-        text = extract_text(response)
+        text = _extract(_response_html(response))
         truncated = len(text) > max_chars
         return {
             "url": url,
             "mode": "stealth",
-            "status": response.status,
+            "status": _response_status(response),
             "length": len(text),
             "truncated": truncated,
             "text": text[:max_chars],
@@ -117,27 +135,30 @@ def fetch_stealth(url: str, max_chars: int, solve_cloudflare: bool = True) -> di
 def main():
     parser = argparse.ArgumentParser(description="Stealthy page fetcher using Scrapling")
     parser.add_argument("url", help="URL to fetch")
-    parser.add_argument("--mode", choices=["fast", "stealth", "auto"], default="auto",
-                        help="fast=TLS spoofing only, stealth=full browser, auto=fast then stealth on failure")
+    parser.add_argument("--mode", choices=["fast", "stealth", "auto"], default="auto")
     parser.add_argument("--max-chars", type=int, default=MAX_CHARS_DEFAULT, dest="max_chars")
     parser.add_argument("--no-solve-cf", action="store_true",
                         help="Disable Cloudflare Turnstile auto-solve (stealth mode only)")
     args = parser.parse_args()
 
-    url = args.url
     solve_cf = not args.no_solve_cf
 
     if args.mode == "fast":
-        result = fetch_fast(url, args.max_chars)
+        result = fetch_fast(args.url, args.max_chars)
     elif args.mode == "stealth":
-        result = fetch_stealth(url, args.max_chars, solve_cloudflare=solve_cf)
+        result = fetch_stealth(args.url, args.max_chars, solve_cloudflare=solve_cf)
     else:  # auto
-        result = fetch_fast(url, args.max_chars)
-        if "error" in result or result.get("status", 200) in (403, 429, 503):
+        result = fetch_fast(args.url, args.max_chars)
+        blocked = "error" in result or _response_status_from_result(result) in (403, 429, 503)
+        if blocked:
             print(json.dumps({"info": "fast mode blocked, retrying with stealth..."}), flush=True)
-            result = fetch_stealth(url, args.max_chars, solve_cloudflare=solve_cf)
+            result = fetch_stealth(args.url, args.max_chars, solve_cloudflare=solve_cf)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def _response_status_from_result(result: dict) -> int:
+    return result.get("status", 0)
 
 
 if __name__ == "__main__":

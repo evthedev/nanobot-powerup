@@ -229,7 +229,7 @@ class ScreenshotPagesTool(Tool):
                 _exec_path = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None
                 browser = await pw.chromium.launch(headless=_headless, executable_path=_exec_path)
                 # 1024px viewport keeps content readable while roughly halving file size vs 1280px
-                page = await browser.new_page(viewport={"width": 1024, "height": 768})
+                page = await browser.new_page(viewport={"width": 1024, "height": 768}, ignore_https_errors=True)
 
                 for entry in pages[:5]:
                     url = entry.get("url", "").strip()

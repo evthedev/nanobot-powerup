@@ -11,10 +11,13 @@ Drop-in replacement for `web_fetch` on bot-protected pages.
 
 | Signal | Action |
 |---|---|
+| Site is a **JS SPA** (Skyscanner, Google Flights, Kayak, booking sites) | **Use `screenshot_pages` directly** — scrapling returns empty/bot-blocked HTML from SPAs |
 | `web_fetch` returns 403, 429, 503 | Retry with `scrapling_fetch.py --mode fast` |
 | Cloudflare interstitial / "Just a moment..." | Use `--mode stealth` |
-| Trustpilot, LinkedIn, Indeed, Glassdoor | Start with stealth |
+| Trustpilot, LinkedIn, Indeed, Glassdoor | Start with `--mode stealth` |
 | Regular site, no signs of protection | Keep using `web_fetch` |
+
+**STOP after 1 scrapling attempt.** If it returns a bot-block page or empty content, switch to `screenshot_pages`. Do NOT retry scrapling multiple times or write custom scripts.
 
 ## Setup (once per Docker container)
 

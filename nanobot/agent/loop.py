@@ -354,9 +354,12 @@ class AgentLoop:
                 # Evaluation gate: if plan_task was called but evaluate was not, block
                 # the response and force the agent to evaluate before sending.
                 # Max 2 evaluate attempts per turn to prevent infinite retry loops.
+                # Disable with: NANOBOT_DISABLE_EVAL_GATE=1
                 plan_tool = self.tools.get("plan_task")
+                _eval_gate_enabled = os.environ.get("NANOBOT_DISABLE_EVAL_GATE", "0") != "1"
                 if (
-                    isinstance(plan_tool, PlanTaskTool)
+                    _eval_gate_enabled
+                    and isinstance(plan_tool, PlanTaskTool)
                     and plan_tool.has_pending_evaluation()
                     and not plan_tool.evaluation_limit_reached()
                 ):
@@ -383,7 +386,7 @@ class AgentLoop:
                     }]
                     continue  # re-enter the loop, agent must now call evaluate
 
-                if isinstance(plan_tool, PlanTaskTool) and plan_tool.evaluation_limit_reached():
+                if _eval_gate_enabled and isinstance(plan_tool, PlanTaskTool) and plan_tool.evaluation_limit_reached():
                     last_failed = plan_tool.get_last_failed()
                     if last_failed and not plan_tool.disclosure_already_injected():
                         failed_summary = "; ".join(

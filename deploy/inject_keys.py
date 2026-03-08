@@ -120,6 +120,9 @@ if github_repo and not github_repo.startswith("REPLACE"):
 set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
 print("  agent model: google/gemini-3-flash-preview")
 
+set_nested(cfg, "ssl_verify", False)
+print("  ssl_verify: False (bypass corporate proxy cert)")
+
 with open(cfg_path, "w") as f:
     json.dump(cfg, f, indent=2)
 

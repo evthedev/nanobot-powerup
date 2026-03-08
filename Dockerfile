@@ -39,14 +39,14 @@ WORKDIR /app/bridge
 RUN npm install && npm run build
 WORKDIR /app
 
-# Install Scrapling with all optional deps (patchright, curl_cffi, browserforge are not pulled
-# by bare 'pip install scrapling' — they are extras required by StealthyFetcher and Fetcher).
-# The patchright Chromium binary is NOT baked into the image layer (saves ~200MB, prevents
-# "no space left on device" on the EC2 root disk during parallel builds).
-# Instead PATCHRIGHT_BROWSERS_PATH is redirected into the persisted /root/.nanobot volume
-# so the binary is downloaded once on first agent use and survives container restarts.
-ENV PATCHRIGHT_BROWSERS_PATH=/root/.nanobot/.patchright
-RUN pip install "scrapling[all]"
+# Install Scrapling with all optional deps and bake the patchright browser binary into the image.
+# PATCHRIGHT_BROWSERS_PATH must be set BEFORE 'scrapling install' so the binary lands in the
+# image layer, not deferred to runtime (deferred = StealthyFetcher crashes on first use).
+ENV PATCHRIGHT_BROWSERS_PATH=/root/.patchright
+ENV PYTHONHTTPSVERIFY=0
+ENV CURL_CA_BUNDLE=""
+ENV REQUESTS_CA_BUNDLE=""
+RUN pip install "scrapling[all]" && scrapling install
 
 # Create config directory
 RUN mkdir -p /root/.nanobot
