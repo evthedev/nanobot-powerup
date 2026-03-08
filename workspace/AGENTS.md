@@ -292,3 +292,23 @@ Example tool output (copy the backtick-wrapped markdown line verbatim):
 Do this for every cited source — menus, flights, hotels, review sites, news articles, etc.
 
 > **Why not `spawn`?** `spawn` subagents run asynchronously — their "Reply with" message arrives as a *separate* message after your response is already sent. The screenshot will never appear inline. `screenshot_pages` is synchronous and returns the URL immediately so you can embed it in the same response.
+
+### ⛔ ABSOLUTE RULE — Image Hallucination is Forbidden
+
+**NEVER embed an image markdown reference (`![...](...))`) unless ALL of the following are true:**
+
+1. You called `screenshot_pages` for that exact URL in this conversation
+2. The tool output contained a `✅ COPY THIS:` line for that image
+3. You are copying that line **character-for-character** from the tool output
+
+**Violations that will cause broken images and user-visible failures:**
+- Inventing a filename like `![label](/api/screenshots/something_you_made_up.png)` — **forbidden**
+- Constructing a `/api/screenshots/` path from memory or from a label you assigned — **forbidden**
+- Embedding external image URLs (e.g. Google Maps Static API, any `?key=` URL) with placeholder values — **forbidden**
+- Referencing a screenshot from a previous conversation or a prior tool call in this conversation that did not emit a `✅ COPY THIS:` line — **forbidden**
+
+**If a screenshot was BLOCKED (`🚫`) or FAILED (`❌`), that image does NOT exist.** Do not embed it. Do not reference it. Instead:
+- Retry with `scrapling` (stealth mode) or the stealth-browser skill
+- Or acknowledge to the user that the source could not be captured
+
+**The only valid image source in a response is a `✅ COPY THIS:` line from the current `screenshot_pages` call.**

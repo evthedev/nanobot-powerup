@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# One-shot SSH into the nanobot EC2 instance via EC2 Instance Connect.
+# No permanent key needed — pushes a fresh temp key each time (60s TTL).
+#
+# Usage:
+#   ./ec2ssh                  # interactive shell
+#   ./ec2ssh "docker ps"      # run a command and exit
+
+set -euo pipefail
+
+INSTANCE_ID="i-04318580f0559f7ef"
+REGION="ap-southeast-2"
+USER="ubuntu"
+HOST="13.54.226.177"
+KEY="/tmp/ec2-ic-key"
+
+# Generate key if it doesn't exist (reuse within the same session)
+[[ -f "$KEY" ]] || ssh-keygen -t rsa -b 2048 -f "$KEY" -N "" -q
+
+aws ec2-instance-connect send-ssh-public-key \
+  --region "$REGION" \
+  --instance-id "$INSTANCE_ID" \
+  --instance-os-user "$USER" \
+  --ssh-public-key "file://${KEY}.pub" \
+  --output text --query 'Success' > /dev/null
+
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$KEY" "$USER@$HOST" "$@"
