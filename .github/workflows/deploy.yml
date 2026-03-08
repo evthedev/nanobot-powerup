@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [clyde]
+        environment: [clyde, shantelle]
     environment: ${{ matrix.environment }}
 
     env:
