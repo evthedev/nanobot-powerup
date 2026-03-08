@@ -90,6 +90,16 @@ export class WhatsAppClient {
 
         if (shouldReconnect && !this.reconnecting) {
           this.reconnecting = true;
+          // 408 = stale session; clear creds so next connect generates a fresh QR
+          if (statusCode === 408) {
+            try {
+              const fs = await import('fs');
+              for (const f of fs.readdirSync(this.options.authDir)) {
+                fs.rmSync(`${this.options.authDir}/${f}`, { recursive: true, force: true });
+              }
+              console.log('Stale session cleared, will show QR on reconnect');
+            } catch {}
+          }
           console.log('Reconnecting in 5 seconds...');
           setTimeout(() => {
             this.reconnecting = false;

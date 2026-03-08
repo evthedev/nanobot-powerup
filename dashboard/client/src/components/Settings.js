@@ -114,15 +114,14 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
     else setQr(null);
   }, [status.pairing, fetchQr]);
 
-  // Poll when pairing (QR refreshes every ~60s) or when enabled (to detect connect)
+  // Always poll to detect QR appearance, connection, and disconnection
   useEffect(() => {
-    if (!status.enabled) return;
     const id = setInterval(() => {
       fetchStatus();
       if (status.pairing) fetchQr();
     }, 3000);
     return () => clearInterval(id);
-  }, [status.enabled, status.pairing, fetchStatus, fetchQr]);
+  }, [status.pairing, fetchStatus, fetchQr]);
 
   const qrImageUrl = qr
     ? `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(qr)}`
@@ -133,7 +132,9 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
     setResetMsg(null);
     try {
       const r = await fetch(`${api}/api/whatsapp/reset-auth`, { method: 'POST' });
-      const d = await r.json();
+      const text = await r.text();
+      let d = {};
+      try { d = text ? JSON.parse(text) : {}; } catch {}
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
       setResetMsg({ type: 'success', text: 'Auth cleared — scan the new QR to re-pair.' });
       setTimeout(() => fetchStatus(), 3000);
@@ -154,8 +155,7 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
         helpText="Comma-separated, no + prefix"
         isPassword={false}
       />
-      {status.enabled && (
-        <div className="whatsapp-pairing" style={{ marginTop: '1rem' }}>
+      <div className="whatsapp-pairing" style={{ marginTop: '1rem' }}>
           {status.connected && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <p className="field-help" style={{ color: 'var(--success, #22c55e)', margin: 0 }}>
@@ -192,7 +192,6 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
             </p>
           )}
         </div>
-      )}
     </section>
   );
 }

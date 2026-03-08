@@ -992,7 +992,8 @@ app.get('/api/whatsapp/status', (req, res) => {
     try {
       if (fs.existsSync(WHATSAPP_QR_FILE)) {
         const data = JSON.parse(fs.readFileSync(WHATSAPP_QR_FILE, 'utf8'));
-        pairing = !!(data.qr && data.qr.length > 0);
+        const age = Date.now() - (data.timestamp || 0);
+        pairing = !!(data.qr && data.qr.length > 0 && age <= 60000);
       }
       if (fs.existsSync(WHATSAPP_STATUS_FILE)) {
         const data = JSON.parse(fs.readFileSync(WHATSAPP_STATUS_FILE, 'utf8'));
@@ -1013,6 +1014,8 @@ app.get('/api/whatsapp/qr', (req, res) => {
     }
     const data = JSON.parse(fs.readFileSync(WHATSAPP_QR_FILE, 'utf8'));
     if (!data.qr) return res.json({ status: 'connected', qr: null });
+    const age = Date.now() - (data.timestamp || 0);
+    if (age > 60000) return res.json({ status: 'expired', qr: null });
     res.json({ status: 'pending', qr: data.qr, timestamp: data.timestamp });
   } catch {
     res.json({ status: 'unknown', qr: null });
@@ -1038,14 +1041,11 @@ app.post('/api/whatsapp/reset-auth', (req, res) => {
   }
 
   // Restart the bridge container so it picks up the cleared auth
-  exec('docker restart nanobot-whatsapp-bridge', { timeout: 20000 }, (err) => {
-    if (err) {
-      serverLog('WARN', 'whatsapp-reset', `docker restart failed: ${err.message}`);
-      return res.status(500).json({ error: `Auth cleared but bridge restart failed: ${err.message}` });
-    }
-    serverLog('INFO', 'whatsapp-reset', 'auth cleared and bridge restarted');
-    res.json({ ok: true });
-  });
+  serverLog('INFO', 'whatsapp-reset', 'auth cleared');
+  const { spawn } = require('child_process');
+  const child = spawn('docker', ['restart', 'nanobot-whatsapp-bridge'], { detached: true, stdio: 'ignore' });
+  child.unref();
+  res.json({ ok: true });
 });
 
 // ── Workspace Docs ───────────────────────────────────────────────────────────
