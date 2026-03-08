@@ -20,8 +20,9 @@
 
 **Symptom:**
 ```
-write .../_rust.abi3.so: no space left on device
+write .../chromium_headless_shell-1194/.../headless_shell: no space left on device
 ```
+or `_rust.abi3.so` / any layer extract during `docker compose build`.
 
 **Diagnose:**
 ```bash
@@ -46,8 +47,8 @@ write .../_rust.abi3.so: no space left on device
 ./ec2ssh "docker system prune -af --volumes && docker builder prune -af"
 ```
 
-> `image prune -af` won't touch images used by running containers.  
-> Build cache is the biggest offender (~2 GB in our case).
+> `image prune -af` won't touch images used by running containers — **stop containers first** (`docker compose down`) so old nanobot images can be pruned.  
+> CI deploy now does: down → image prune -af → builder prune -af → build → up, and root volume default is 30GB for new Terraform instances.
 
 ---
 

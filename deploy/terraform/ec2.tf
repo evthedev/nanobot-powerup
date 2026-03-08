@@ -23,7 +23,7 @@ resource "aws_instance" "nanobot" {
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.nanobot.id]
 
-  # Root volume: OS + Docker layers (Python 3.12 + Node 20 + Chromium layers = ~10GB)
+  # Root volume: OS + Docker layers (Python, Node, Chromium, Patchright). 30GB default avoids "no space left" during layer extraction.
   root_block_device {
     volume_type           = "gp3"
     volume_size           = var.root_volume_size_gb

@@ -11,10 +11,8 @@ terraform {
   # S3 backend — bucket name passed at init time via -backend-config (see deploy.yml)
   # This keeps the bucket name out of the code and in GitHub secrets instead.
   backend "s3" {
-    key     = "nanobot/terraform.tfstate"
     encrypt = true
-    # bucket and region are injected by CI:
-    #   terraform init -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="region=..."
+    # bucket, region, and key are all injected by CI via -backend-config
   }
 }
 

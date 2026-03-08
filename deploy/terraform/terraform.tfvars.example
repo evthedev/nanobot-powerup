@@ -18,6 +18,6 @@ repo_branch = "main"
 # Restrict SSH to your IP for better security (find yours at https://ifconfig.me)
 # allowed_ssh_cidrs = ["1.2.3.4/32"]
 
-# EBS volume sizes (GB)
-root_volume_size_gb = 20
+# EBS volume sizes (GB). Root 30GB avoids "no space left" during Docker build (Patchright/Chromium layers).
+root_volume_size_gb = 30
 data_volume_size_gb = 10
