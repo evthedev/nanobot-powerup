@@ -5,10 +5,11 @@ Decoupled from any domain: the caller constructs the URLs. Works for travel rese
 product reviews, restaurant lookups, news pages, or anything else.
 """
 
+import json
 import os
 import re
-import shutil
 import subprocess
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, parse_qs, urlencode, quote_plus
 
@@ -16,57 +17,45 @@ from loguru import logger
 
 from nanobot.agent.tools.base import Tool
 
-# ── Block detection ───────────────────────────────────────────────────────────
-# Phrases that indicate the page is a bot wall, login gate, or access denial
-# rather than the intended content. Checked against both DOM text and OCR text.
-_BLOCK_PATTERNS = [
-    "are you a person or a robot",
-    "verify you are not a robot",
-    "please verify you are human",
-    "just a moment",           # Cloudflare interstitial
-    "checking your browser",   # Cloudflare
-    "attention required",      # Cloudflare
-    "enable javascript",
-    "access denied",
-    "403 forbidden",
-    "sign in to continue",
-    "log in to see",
-    "before you continue",     # Google consent wall
-    "ray id",                  # Cloudflare Ray ID footer
-    "too many requests",
-    "rate limited",
-]
-# Pages with fewer combined chars than this are blank/failed-to-render
-_MIN_CONTENT_CHARS = 120
+_VALIDATE_SCRIPT = Path.home() / ".nanobot/workspace/skills/validate-evidence/validate_evidence.py"
 
 
-def _ocr_image(filepath: str) -> str:
-    """Run Tesseract OCR on a screenshot. Returns '' if tesseract unavailable."""
-    if not shutil.which("tesseract"):
-        return ""
+def _evaluate_screenshot(filepath: str, dom_text: str, label: str, url: str) -> tuple[bool, str, str]:
+    """
+    Run validate_evidence.py against the screenshot + DOM text.
+    Returns (is_blocked, reason, ocr_excerpt).
+    Delegates all detection — OCR and LLM — to the validate-evidence skill.
+    """
+    if not _VALIDATE_SCRIPT.exists():
+        logger.warning("screenshot_pages: validate_evidence.py not found at {}", _VALIDATE_SCRIPT)
+        return False, "", ""
+
+    payload = {
+        "claim": f"The page rendered accessible {label} content (not a bot challenge, login wall, or access denial)",
+        "evidence": [
+            {"type": "screenshot", "path": filepath, "label": "screenshot"},
+            {"type": "text",       "content": dom_text, "label": "dom_text"},
+        ],
+    }
     try:
         result = subprocess.run(
-            ["tesseract", filepath, "stdout", "--psm", "3", "-l", "eng"],
-            capture_output=True, text=True, timeout=20,
+            ["python3", str(_VALIDATE_SCRIPT)],
+            input=json.dumps(payload),
+            capture_output=True, text=True, timeout=60,
         )
-        return result.stdout.strip()
-    except Exception:
-        return ""
-
-
-def _detect_block(dom_text: str, ocr_text: str) -> tuple[bool, str]:
-    """
-    Returns (is_blocked, reason).
-    Checks DOM text and OCR text against known bot/access-block patterns,
-    and flags pages that rendered too little content to be meaningful.
-    """
-    combined = (dom_text + " " + ocr_text).lower()
-    for pattern in _BLOCK_PATTERNS:
-        if pattern in combined:
-            return True, f'block pattern detected: "{pattern}"'
-    if len(dom_text.strip()) + len(ocr_text.strip()) < _MIN_CONTENT_CHARS:
-        return True, "page appears blank or failed to render meaningful content"
-    return False, ""
+        data = json.loads(result.stdout)
+        verdict    = data.get("verdict", "INCONCLUSIVE")
+        reasoning  = data.get("reasoning", "")
+        ocr_excerpt = ""
+        for ev in data.get("evidence_results", []):
+            if ev.get("type") == "screenshot":
+                ocr_excerpt = ev.get("text_excerpt", "")
+                break
+        is_blocked = verdict == "UNSUPPORTED"
+        return is_blocked, reasoning if is_blocked else "", ocr_excerpt
+    except Exception as exc:
+        logger.warning("screenshot_pages: evaluation failed — {}", exc)
+        return False, "", ""
 
 
 def _rewrite_google_url(url: str) -> tuple[str, bool]:
@@ -297,9 +286,10 @@ class ScreenshotPagesTool(Tool):
                             pass
                         content = (await page.inner_text("body"))[:5000]
                         await page.screenshot(path=filepath, type="jpeg", quality=82, full_page=False)
-                        # ── Tier 1: block detection ───────────────────────────
-                        ocr_text = _ocr_image(filepath)
-                        is_blocked, blocked_reason = _detect_block(content, ocr_text)
+                        # ── Evaluate: OCR + LLM via validate-evidence skill ───
+                        is_blocked, blocked_reason, ocr_excerpt = _evaluate_screenshot(
+                            filepath, content, label, url
+                        )
                         if is_blocked:
                             ok = False
                             logger.warning(
@@ -310,7 +300,7 @@ class ScreenshotPagesTool(Tool):
                             logger.info("screenshot_pages: ✅ {} saved → {}", label, filepath)
                     except Exception as exc:
                         logger.warning("screenshot_pages: ⚠️ {} failed: {}", label, exc)
-                        ocr_text = ""
+                        ocr_excerpt = ""
                         blocked_reason = ""
                         try:
                             await page.screenshot(path=filepath, type="jpeg", quality=82)
@@ -326,7 +316,7 @@ class ScreenshotPagesTool(Tool):
                         "rewritten": was_rewritten,
                         "search_results_warning": _is_search_results and label not in _price_labels,
                         "blocked_reason": blocked_reason if not ok else "",
-                        "ocr_excerpt": ocr_text[:400] if ocr_text else "",
+                        "ocr_excerpt": ocr_excerpt,
                     })
 
                 await browser.close()
