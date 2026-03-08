@@ -522,101 +522,103 @@ class AgentLoop:
         if msg.channel == "system":
             channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
                                 else ("cli", msg.chat_id))
-            logger.info("Processing system message from {}", msg.sender_id)
-            key = f"{channel}:{chat_id}"
-            session = self.sessions.get_or_create(key)
-            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
-            messages = self.context.build_messages(
-                history=session.get_history(max_messages=self.memory_window),
-                current_message=msg.content, channel=channel, chat_id=chat_id,
-            )
-            final_content, _ = await self._run_agent_loop(messages)
-            session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
-            session.add_message("assistant", final_content or "Background task completed.")
-            self.sessions.save(session)
+            with logger.contextualize(chat_id=f"{channel}:{chat_id}"):
+                logger.info("Processing system message from {}", msg.sender_id)
+                key = f"{channel}:{chat_id}"
+                session = self.sessions.get_or_create(key)
+                self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
+                messages = self.context.build_messages(
+                    history=session.get_history(max_messages=self.memory_window),
+                    current_message=msg.content, channel=channel, chat_id=chat_id,
+                )
+                final_content, _ = await self._run_agent_loop(messages)
+                session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
+                session.add_message("assistant", final_content or "Background task completed.")
+                self.sessions.save(session)
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
 
-        logger.info(">>> INBOUND [{}:{}]: {}", msg.channel, msg.sender_id, msg.content)
+        with logger.contextualize(chat_id=f"{msg.channel}:{msg.chat_id}"):
+            logger.info(">>> INBOUND [{}:{}]: {}", msg.channel, msg.sender_id, msg.content)
 
-        key = session_key or msg.session_key
-        session = self.sessions.get_or_create(key)
+            key = session_key or msg.session_key
+            session = self.sessions.get_or_create(key)
 
-        # Slash commands
-        cmd = msg.content.strip().lower()
-        if cmd == "/new":
-            messages_to_archive = session.messages.copy()
-            session.clear()
+            # Slash commands
+            cmd = msg.content.strip().lower()
+            if cmd == "/new":
+                messages_to_archive = session.messages.copy()
+                session.clear()
+                self.sessions.save(session)
+                self.sessions.invalidate(session.key)
+
+                async def _consolidate_and_cleanup():
+                    temp = Session(key=session.key)
+                    temp.messages = messages_to_archive
+                    await self._consolidate_memory(temp, archive_all=True)
+
+                asyncio.create_task(_consolidate_and_cleanup())
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content="New session started. Memory consolidation in progress.")
+            if cmd == "/help":
+                return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
+                                      content="🐈 nanobot commands:\n/new — Start a new conversation\n/help — Show available commands")
+
+            if len(session.messages) > self.memory_window and session.key not in self._consolidating:
+                self._consolidating.add(session.key)
+
+                async def _consolidate_and_unlock():
+                    try:
+                        await self._consolidate_memory(session)
+                    finally:
+                        self._consolidating.discard(session.key)
+
+                asyncio.create_task(_consolidate_and_unlock())
+
+            self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
+            if message_tool := self.tools.get("message"):
+                if isinstance(message_tool, MessageTool):
+                    message_tool.start_turn()
+            if plan_tool := self.tools.get("plan_task"):
+                if isinstance(plan_tool, PlanTaskTool):
+                    plan_tool.reset_turn()
+
+            initial_messages = self.context.build_messages(
+                history=session.get_history(max_messages=self.memory_window),
+                current_message=msg.content,
+                media=msg.media if msg.media else None,
+                channel=msg.channel, chat_id=msg.chat_id,
+            )
+
+            async def _bus_progress(content: str) -> None:
+                meta = dict(msg.metadata or {})
+                meta["_progress"] = True
+                await self.bus.publish_outbound(OutboundMessage(
+                    channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
+                ))
+
+            final_content, tools_used = await self._run_agent_loop(
+                initial_messages, on_progress=on_progress or _bus_progress,
+            )
+
+            if final_content is None:
+                final_content = "I've completed processing but have no response to give."
+
+            logger.info("<<< OUTBOUND [{}:{}]: {}", msg.channel, msg.sender_id, final_content)
+
+            session.add_message("user", msg.content)
+            session.add_message("assistant", final_content,
+                                tools_used=tools_used if tools_used else None)
             self.sessions.save(session)
-            self.sessions.invalidate(session.key)
 
-            async def _consolidate_and_cleanup():
-                temp = Session(key=session.key)
-                temp.messages = messages_to_archive
-                await self._consolidate_memory(temp, archive_all=True)
+            if message_tool := self.tools.get("message"):
+                if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
+                    return None
 
-            asyncio.create_task(_consolidate_and_cleanup())
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="New session started. Memory consolidation in progress.")
-        if cmd == "/help":
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐈 nanobot commands:\n/new — Start a new conversation\n/help — Show available commands")
-
-        if len(session.messages) > self.memory_window and session.key not in self._consolidating:
-            self._consolidating.add(session.key)
-
-            async def _consolidate_and_unlock():
-                try:
-                    await self._consolidate_memory(session)
-                finally:
-                    self._consolidating.discard(session.key)
-
-            asyncio.create_task(_consolidate_and_unlock())
-
-        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
-        if message_tool := self.tools.get("message"):
-            if isinstance(message_tool, MessageTool):
-                message_tool.start_turn()
-        if plan_tool := self.tools.get("plan_task"):
-            if isinstance(plan_tool, PlanTaskTool):
-                plan_tool.reset_turn()
-
-        initial_messages = self.context.build_messages(
-            history=session.get_history(max_messages=self.memory_window),
-            current_message=msg.content,
-            media=msg.media if msg.media else None,
-            channel=msg.channel, chat_id=msg.chat_id,
-        )
-
-        async def _bus_progress(content: str) -> None:
-            meta = dict(msg.metadata or {})
-            meta["_progress"] = True
-            await self.bus.publish_outbound(OutboundMessage(
-                channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
-            ))
-
-        final_content, tools_used = await self._run_agent_loop(
-            initial_messages, on_progress=on_progress or _bus_progress,
-        )
-
-        if final_content is None:
-            final_content = "I've completed processing but have no response to give."
-
-        logger.info("<<< OUTBOUND [{}:{}]: {}", msg.channel, msg.sender_id, final_content)
-
-        session.add_message("user", msg.content)
-        session.add_message("assistant", final_content,
-                            tools_used=tools_used if tools_used else None)
-        self.sessions.save(session)
-
-        if message_tool := self.tools.get("message"):
-            if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
-                return None
-
-        return OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id, content=final_content,
-            metadata=msg.metadata or {},
-        )
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id, content=final_content,
+                metadata=msg.metadata or {},
+            )
 
     async def _consolidate_memory(self, session, archive_all: bool = False) -> None:
         """Delegate to MemoryStore.consolidate()."""

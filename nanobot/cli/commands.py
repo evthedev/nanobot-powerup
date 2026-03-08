@@ -363,12 +363,14 @@ def gateway(
     _log_dir = Path(os.path.expanduser("~/.nanobot/logs"))
     _log_dir.mkdir(parents=True, exist_ok=True)
     _log_file = _log_dir / "gateway.log"
+    # Ensure every record has a chat_id field (empty string when outside a session)
+    _logger.configure(patcher=lambda record: record["extra"].setdefault("chat_id", ""))
     _logger.add(
         str(_log_file),
         level="DEBUG",
         rotation="20 MB",
         retention=3,
-        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {name}:{function}:{line} - {message}",
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {name}:{function}:{line} | {extra[chat_id]} - {message}",
         enqueue=True,
     )
     # ─────────────────────────────────────────────────────────────────────────

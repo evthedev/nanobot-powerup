@@ -28,7 +28,7 @@ function serverLog(level, module, msg) {
   const now = new Date();
   const ts = now.toISOString().replace('T', ' ').replace('Z', '').slice(0, 23);
   const padded = level.padEnd(8);
-  const line = `${ts} | ${padded} | dashboard.${module}:- - ${msg}\n`;
+  const line = `${ts} | ${padded} | dashboard.${module}:-:0 |  - ${msg}\n`;
   try { fs.appendFileSync(LOG_PATH, line); } catch (_) { /* log dir may not exist yet */ }
   if (level === 'ERROR' || level === 'CRITICAL') console.error(`[${module}]`, msg);
   else console.log(`[${module}]`, msg);
@@ -575,17 +575,18 @@ app.get('/api/status', (req, res) => {
 // ── Log streaming ────────────────────────────────────────────────────────────
 const LOG_FILE = path.join(NANOBOT_HOME, 'logs', 'gateway.log');
 
-// Loguru format: "2026-02-24 19:36:07.123 | INFO     | nanobot.agent.loop:fn:42 - message"
+// Loguru format: "2026-02-24 19:36:07.123 | INFO     | nanobot.agent.loop:fn:42 | chat_id - message"
+// chat_id field is present when a session is active (e.g. "telegram:12345"), empty otherwise.
 function parseLogLine(raw) {
   const line = raw.trim();
   if (!line) return null;
 
   const m = line.match(
-    /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \| (\w+)\s+\| ([\w.]+):[^|]+ - (.+)$/
+    /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \| (\w+)\s*\| ([\w.]+:\w+:\d+) \| (.*?) - (.+)$/
   );
-  if (!m) return { ts: new Date().toISOString(), level: 'RAW', type: 'system', module: '', msg: line, raw: line };
+  if (!m) return { ts: new Date().toISOString(), level: 'RAW', type: 'system', module: '', msg: line, chat_id: '', raw: line };
 
-  const [, ts, level, module, msg] = m;
+  const [, ts, level, module, chatId, msg] = m;
 
   // Determine source type
   let type = 'system';
@@ -623,6 +624,7 @@ function parseLogLine(raw) {
     module,
     msg,
     category,
+    chat_id:    chatId || '',
     model:      tokenMatch?.[1] || modelMatch?.[1] || null,
     subagentId: subagentIdMatch?.[1] || null,
     tokens: tokenMatch ? {
