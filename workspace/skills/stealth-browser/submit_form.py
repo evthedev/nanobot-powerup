@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-Stealth form submission: CloakBrowser (fingerprint evasion) + CapSolver (CAPTCHA solving).
+Stealth form submission: Patchright (fingerprint evasion) + CapSolver (CAPTCHA solving).
 Handles reCAPTCHA v2 checkbox, v2 invisible, and v3 invisible automatically.
+
+Patchright is installed as part of scrapling[all] — same stealth level as CloakBrowser,
+no separate binary download required.
 
 USAGE:
   1. Copy:   cp submit_form.py ~/.nanobot/workspace/my_task.py
@@ -9,8 +12,7 @@ USAGE:
   3. Run:    python3 my_task.py
 
 RULES (do not modify the logic below CONFIG):
-  - Sync API only — never wrap launch() in asyncio.run()
-  - Async variant: from cloakbrowser import launch_async  (NOT async_launch)
+  - Sync API only — uses patchright.sync_api (same interface as Playwright sync API)
   - Never use page.wait_for_timeout() — use time.sleep() instead (CDP leak)
 """
 import json
@@ -69,7 +71,6 @@ except Exception as e:
 
 # Memory-saving flags — required on small EC2 instances (< 4GB RAM)
 BROWSER_ARGS = [
-    "--fingerprint=42069",
     "--no-sandbox",
     "--disable-dev-shm-usage",
     "--disable-gpu",
@@ -79,10 +80,11 @@ BROWSER_ARGS = [
     "--disable-background-networking",
 ]
 
-# ── Step 1 — Launch CloakBrowser (sync API — never use asyncio.run()) ────────
-log("[1/6] Launching CloakBrowser...")
-from cloakbrowser import launch
-browser = launch(headless=True, args=BROWSER_ARGS)
+# ── Step 1 — Launch Patchright stealth browser (sync API) ────────────────────
+log("[1/6] Launching Patchright stealth browser...")
+from patchright.sync_api import sync_playwright as _sync_playwright
+_pw_ctx = _sync_playwright().__enter__()
+browser = _pw_ctx.chromium.launch(headless=True, args=BROWSER_ARGS)
 page = browser.new_page()
 log("      OK")
 
@@ -159,7 +161,7 @@ try:
         else:
             captcha_type = "v2_checkbox"
     else:
-        log("      No CAPTCHA detected — page may have cleared naturally via CloakBrowser")
+        log("      No CAPTCHA detected — page may have cleared naturally via Patchright stealth")
 
     if sitekey:
         log(f"      Type    : {captcha_type}")
@@ -339,5 +341,6 @@ except Exception as e:
 
 finally:
     browser.close()
+    _pw_ctx.__exit__(None, None, None)
     log("Browser closed.")
     log("=== submit_form.py done ===")

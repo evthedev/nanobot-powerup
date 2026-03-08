@@ -1,4 +1,4 @@
-# linux/amd64 required: cloakbrowser only provides x64 Linux binaries (no arm64)
+# linux/amd64 required: patchright (scrapling stealth browser) only provides x64 Linux binaries
 FROM --platform=linux/amd64 ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 # Install Node.js 20, Chromium + dependencies for Playwright MCP, Tesseract OCR + Poppler for image/PDF recognition
@@ -39,14 +39,10 @@ WORKDIR /app/bridge
 RUN npm install && npm run build
 WORKDIR /app
 
-# Install CloakBrowser + pre-download stealth Chromium binary (~200MB, cached in image layer)
-RUN pip install cloakbrowser && \
-    python -c "from cloakbrowser import ensure_binary; ensure_binary()"
-
 # Install Scrapling with all optional deps (patchright, curl_cffi, browserforge are not pulled
 # by bare 'pip install scrapling' — they are extras required by StealthyFetcher and Fetcher).
 # Patchright uses PLAYWRIGHT_BROWSERS_PATH to locate its browser, but that env var is already
-# pointed at /usr/bin for the system Chromium used by Playwright/CloakBrowser. Override it to
+# pointed at /usr/bin for the system Chromium used by Playwright MCP. Override it to
 # a dedicated path so patchright installs its patched Chromium without conflicting.
 ENV PATCHRIGHT_BROWSERS_PATH=/root/.patchright
 RUN pip install "scrapling[all]" && \

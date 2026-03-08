@@ -228,7 +228,7 @@ skills/stealth-browser/SKILL.md
 3. Fill and submit the form
 
 **⛔ PROHIBITED — writing new browser automation scripts with `write_file`.**
-The working script already exists. Any `write_file` call that creates a new `.py` file using `cloakbrowser`, `capsolver`, or `playwright` is forbidden. It will reproduce bugs that are already fixed and waste CapSolver credits.
+The working script already exists. Any `write_file` call that creates a new `.py` file using `patchright`, `capsolver`, or plain `playwright` is forbidden. It will reproduce bugs that are already fixed and waste CapSolver credits.
 
 **✅ REQUIRED — always copy and use the existing script:**
 ```bash
