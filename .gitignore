@@ -36,5 +36,9 @@ deploy/terraform/.terraform/
 deploy/terraform/.terraform.lock.hcl
 deploy/terraform/terraform.tfstate
 deploy/terraform/terraform.tfstate.backup
+deploy/terraform/bootstrap/.terraform/
+deploy/terraform/bootstrap/.terraform.lock.hcl
+# Bootstrap state contains secrets (IAM access keys) — never commit
+deploy/terraform/bootstrap/state/
 docker-compose.override.yml
 test_screenshots_browser.py
