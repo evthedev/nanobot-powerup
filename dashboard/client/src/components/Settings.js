@@ -136,8 +136,13 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
       let d = {};
       try { d = text ? JSON.parse(text) : {}; } catch {}
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      setResetMsg({ type: 'success', text: 'Auth cleared — scan the new QR to re-pair.' });
-      setTimeout(() => fetchStatus(), 3000);
+      setResetMsg({
+        type: d.warning ? 'warning' : 'success',
+        text: d.warning || 'Auth cleared — scan the new QR to re-pair.',
+      });
+      // Poll for new QR a few times (bridge may take several seconds to restart and emit QR)
+      fetchStatus();
+      [2000, 5000, 10000].forEach((ms) => setTimeout(fetchStatus, ms));
     } catch (e) {
       setResetMsg({ type: 'error', text: e.message });
     } finally {
@@ -187,7 +192,10 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
             </div>
           )}
           {resetMsg && (
-            <p className="field-help" style={{ marginTop: '0.5rem', color: resetMsg.type === 'error' ? 'var(--error)' : 'var(--success, #22c55e)' }}>
+            <p className="field-help" style={{
+              marginTop: '0.5rem',
+              color: resetMsg.type === 'error' ? 'var(--error)' : resetMsg.type === 'warning' ? 'var(--warning, #eab308)' : 'var(--success, #22c55e)',
+            }}>
               {resetMsg.text}
             </p>
           )}

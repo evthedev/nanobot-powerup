@@ -485,7 +485,8 @@ app.post('/api/models/refresh', async (req, res) => {
 app.post('/api/gateway/restart', (req, res) => {
   const { exec } = require('child_process');
 
-  exec('docker restart nanobot-gateway', { timeout: 20000 }, (dockerErr) => {
+  const docker = process.env.DOCKER_CLI_PATH || '/usr/bin/docker';
+  exec(`${docker} restart nanobot-gateway`, { timeout: 20000 }, (dockerErr) => {
     if (!dockerErr) {
       serverLog('INFO', 'restart', 'docker restart nanobot-gateway succeeded');
       return res.json({ success: true, method: 'docker' });
@@ -1040,12 +1041,19 @@ app.post('/api/whatsapp/reset-auth', (req, res) => {
     return res.status(500).json({ error: `Failed to clear auth: ${err.message}` });
   }
 
-  // Restart the bridge container so it picks up the cleared auth
+  // Restart the bridge container so it picks up the cleared auth (best-effort;
+  // docker may not be in PATH inside the dashboard container, e.g. in prod).
   serverLog('INFO', 'whatsapp-reset', 'auth cleared');
-  const { spawn } = require('child_process');
-  const child = spawn('docker', ['restart', 'nanobot-whatsapp-bridge'], { detached: true, stdio: 'ignore' });
-  child.unref();
-  res.json({ ok: true });
+  const { exec } = require('child_process');
+  const docker = process.env.DOCKER_CLI_PATH || '/usr/bin/docker';
+  exec(`${docker} restart nanobot-whatsapp-bridge`, { timeout: 15000 }, (err) => {
+    if (err) {
+      console.warn('[whatsapp-reset] docker restart failed:', err.message, '— restart bridge manually to get a new QR');
+      return res.json({ ok: true, warning: 'Auth cleared. The new QR code should appear shortly—if it doesn’t within a minute, your system administrator may need to restart the WhatsApp bridge service.' });
+    }
+    serverLog('INFO', 'whatsapp-reset', 'bridge restarted');
+    res.json({ ok: true });
+  });
 });
 
 // ── Workspace Docs ───────────────────────────────────────────────────────────

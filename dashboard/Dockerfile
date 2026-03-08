@@ -12,7 +12,8 @@ RUN npm run build
 # ── Stage 2: Production Express server ───────────────────────────────────────
 FROM node:20-alpine
 
-# docker CLI — used by /api/gateway/restart to restart the nanobot-gateway container
+# Docker CLI — used by dashboard to restart gateway and WhatsApp bridge (Settings → Save, WhatsApp reset).
+# Requires the host to mount: -v /var/run/docker.sock:/var/run/docker.sock
 RUN apk add --no-cache docker-cli
 
 WORKDIR /app

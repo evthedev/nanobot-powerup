@@ -53,7 +53,7 @@ services:
     restart: unless-stopped
     volumes:
       - /opt/nanobot:/root/.nanobot
-      - /var/run/docker.sock:/var/run/docker.sock   # allows `docker restart nanobot-gateway`
+      - /var/run/docker.sock:/var/run/docker.sock   # allows `docker restart` for gateway + WhatsApp bridge
     expose:
       - "3001"
     environment:
@@ -61,6 +61,7 @@ services:
       - NANOBOT_WS=ws://nanobot-gateway:18791
       - NANOBOT_HOME=/root/.nanobot
       - DB_PATH=/root/.nanobot/chat.db
+      - DOCKER_API_VERSION=1.43   # Match host daemon so docker CLI can restart containers
     depends_on:
       - nanobot-gateway
 

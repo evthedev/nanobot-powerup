@@ -14,7 +14,15 @@ class Base(BaseModel):
 
 
 class WhatsAppConfig(Base):
-    """WhatsApp channel configuration."""
+    """
+    WhatsApp channel configuration.
+
+    Reply-allowed logic (when the channel is not monitor-only):
+    - allow_from: list of phone numbers (e.g. ["61434992528"]). Only messages
+      from these senders are passed to the agent; replies go to the same chat
+      (DM or group) the message came from.
+    - If allow_from is empty, all senders are allowed (see channels.base.is_allowed).
+    """
 
     enabled: bool = False
     bridge_url: str = "ws://localhost:3001"
