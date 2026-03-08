@@ -43,9 +43,14 @@ WORKDIR /app
 RUN pip install cloakbrowser && \
     python -c "from cloakbrowser import ensure_binary; ensure_binary()"
 
-# Install Scrapling + pre-download its browser binary for StealthyFetcher
-RUN pip install scrapling && \
-    scrapling install
+# Install Scrapling with all optional deps (patchright, curl_cffi, browserforge are not pulled
+# by bare 'pip install scrapling' — they are extras required by StealthyFetcher and Fetcher).
+# Patchright uses PLAYWRIGHT_BROWSERS_PATH to locate its browser, but that env var is already
+# pointed at /usr/bin for the system Chromium used by Playwright/CloakBrowser. Override it to
+# a dedicated path so patchright installs its patched Chromium without conflicting.
+ENV PATCHRIGHT_BROWSERS_PATH=/root/.patchright
+RUN pip install "scrapling[all]" && \
+    PLAYWRIGHT_BROWSERS_PATH=/root/.patchright scrapling install
 
 # Create config directory
 RUN mkdir -p /root/.nanobot
