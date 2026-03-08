@@ -41,12 +41,12 @@ WORKDIR /app
 
 # Install Scrapling with all optional deps (patchright, curl_cffi, browserforge are not pulled
 # by bare 'pip install scrapling' — they are extras required by StealthyFetcher and Fetcher).
-# Patchright uses PLAYWRIGHT_BROWSERS_PATH to locate its browser, but that env var is already
-# pointed at /usr/bin for the system Chromium used by Playwright MCP. Override it to
-# a dedicated path so patchright installs its patched Chromium without conflicting.
-ENV PATCHRIGHT_BROWSERS_PATH=/root/.patchright
-RUN pip install "scrapling[all]" && \
-    PLAYWRIGHT_BROWSERS_PATH=/root/.patchright scrapling install
+# The patchright Chromium binary is NOT baked into the image layer (saves ~200MB, prevents
+# "no space left on device" on the EC2 root disk during parallel builds).
+# Instead PATCHRIGHT_BROWSERS_PATH is redirected into the persisted /root/.nanobot volume
+# so the binary is downloaded once on first agent use and survives container restarts.
+ENV PATCHRIGHT_BROWSERS_PATH=/root/.nanobot/.patchright
+RUN pip install "scrapling[all]"
 
 # Create config directory
 RUN mkdir -p /root/.nanobot

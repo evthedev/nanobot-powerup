@@ -82,6 +82,15 @@ BROWSER_ARGS = [
 
 # ── Step 1 — Launch Patchright stealth browser (sync API) ────────────────────
 log("[1/6] Launching Patchright stealth browser...")
+
+# Ensure the patchright Chromium binary is present (downloaded once to the persisted volume)
+import subprocess as _sp
+_check = _sp.run(["scrapling", "install"], capture_output=True, text=True)
+if _check.returncode != 0:
+    log(f"      WARNING: scrapling install failed: {_check.stderr.strip()}")
+else:
+    log("      patchright browser OK")
+
 from patchright.sync_api import sync_playwright as _sync_playwright
 _pw_ctx = _sync_playwright().__enter__()
 browser = _pw_ctx.chromium.launch(headless=True, args=BROWSER_ARGS)

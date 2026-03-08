@@ -165,7 +165,8 @@ They solve different problems. Both are required for fully protected forms.
 
 ## Installation
 
-Patchright is pre-installed in the Docker image as part of `scrapling[all]`. No separate binary download required.
+Patchright Python package is pre-installed in the Docker image as part of `scrapling[all]`.
+The Chromium binary is downloaded on first use (stored in the persisted `/root/.nanobot/.patchright` volume — no re-download after restarts). The `submit_form.py` template handles this automatically.
 
 ```bash
 # If running locally:
