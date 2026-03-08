@@ -35,6 +35,11 @@ jobs:
           terraform_version: "~1.7"
           terraform_wrapper: false  # wrapper interferes with output parsing
 
+      - name: Debug credentials
+        run: |
+          echo "KEY_ID=${AWS_ACCESS_KEY_ID:0:8}..."
+          echo "SECRET_LEN=${#AWS_SECRET_ACCESS_KEY}"
+
       - name: Terraform init
         working-directory: deploy/terraform
         run: |
