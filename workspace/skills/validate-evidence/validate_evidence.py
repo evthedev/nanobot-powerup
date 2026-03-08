@@ -34,7 +34,7 @@ OUTPUT:
     "confidence": 0.0–1.0,
     "reasoning": "...",
     "issues":   ["specific problems found"],
-    "evidence_results": [{"label": ..., "type": ..., "text_excerpt": ..., "blocked": bool}]
+    "evidence_results": [{"label": ..., "type": ..., "text_excerpt": ...}]
   }
 """
 
@@ -46,25 +46,6 @@ import subprocess
 import sys
 import argparse
 from pathlib import Path
-
-# ── Block patterns — fast check before burning an LLM call ───────────────────
-_BLOCK_PATTERNS = [
-    "are you a person or a robot",
-    "verify you are not a robot",
-    "please verify you are human",
-    "just a moment",
-    "checking your browser",
-    "attention required",
-    "enable javascript",
-    "access denied",
-    "403 forbidden",
-    "sign in to continue",
-    "log in to see",
-    "before you continue",
-    "ray id",
-    "too many requests",
-    "ddos protection",
-]
 
 _EVAL_SYSTEM_PROMPT = """\
 You are an evidence verifier for an AI assistant. You will be given:
@@ -106,15 +87,10 @@ def ocr_image(path: str) -> str:
         return f"[OCR error: {e}]"
 
 
-def is_blocked(text: str) -> bool:
-    lower = text.lower()
-    return any(p in lower for p in _BLOCK_PATTERNS)
-
-
 def collect_evidence_text(items: list[dict]) -> list[dict]:
     """
     Resolve each evidence item to its text representation.
-    Returns list of {label, type, text, blocked}.
+    Returns list of {label, type, text}.
     """
     resolved = []
     for item in items:
@@ -127,7 +103,7 @@ def collect_evidence_text(items: list[dict]) -> list[dict]:
                 resolved.append({
                     "label": label, "type": ev_type,
                     "text": f"[file not found: {path}]",
-                    "blocked": False, "error": True,
+                    "error": True,
                 })
                 continue
             text = ocr_image(path)
@@ -142,7 +118,6 @@ def collect_evidence_text(items: list[dict]) -> list[dict]:
             "label": label,
             "type": ev_type,
             "text": text,
-            "blocked": is_blocked(text),
             "error": False,
         })
 
@@ -225,9 +200,8 @@ def call_llm(claim: str, evidence_blocks: list[dict]) -> dict:
     # Build evidence section of the prompt
     evidence_text = ""
     for i, ev in enumerate(evidence_blocks, 1):
-        blocked_note = " ⚠️ [POSSIBLE BOT/ACCESS BLOCK]" if ev.get("blocked") else ""
         excerpt = ev["text"][:3000]  # keep tokens reasonable
-        evidence_text += f"\n--- Evidence {i}: {ev['label']} ({ev['type']}){blocked_note} ---\n{excerpt}\n"
+        evidence_text += f"\n--- Evidence {i}: {ev['label']} ({ev['type']}) ---\n{excerpt}\n"
 
     user_msg = f"CLAIM:\n{claim}\n\nEVIDENCE:{evidence_text}"
 
@@ -274,21 +248,9 @@ def validate(payload: dict) -> dict:
     if not evidence_items:
         return {"error": "missing 'evidence' array"}
 
-    # Resolve all evidence to text
+    # Resolve all evidence to text, then pass everything to the LLM
     resolved = collect_evidence_text(evidence_items)
-
-    # Fast path: if ALL evidence is blocked, skip the LLM call
-    all_blocked = all(ev.get("blocked") or ev.get("error") for ev in resolved)
-    if all_blocked:
-        block_reasons = [ev["text"][:100] for ev in resolved if ev.get("blocked")]
-        result = {
-            "verdict": "UNSUPPORTED",
-            "confidence": 0.0,
-            "reasoning": "all evidence items appear to be bot/access blocks or errors",
-            "issues": block_reasons,
-        }
-    else:
-        result = call_llm(claim, resolved)
+    result = call_llm(claim, resolved)
 
     return {
         "verdict":          result.get("verdict", "INCONCLUSIVE"),
@@ -300,7 +262,6 @@ def validate(payload: dict) -> dict:
             {
                 "label":        ev["label"],
                 "type":         ev["type"],
-                "blocked":      ev.get("blocked", False),
                 "text_excerpt": ev["text"][:300],
             }
             for ev in resolved
