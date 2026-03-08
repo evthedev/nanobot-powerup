@@ -18,14 +18,17 @@ Drop-in replacement for `web_fetch` on bot-protected pages.
 
 ## Setup (once per Docker container)
 
+Baked into the Docker image — no manual setup needed in prod.
+
+If running manually (e.g. debugging outside Docker):
 ```bash
-pip install scrapling
-scrapling install        # downloads browser binary (~150MB) — needed for stealth mode only
+pip install "scrapling[all]"   # bare 'scrapling' omits patchright/curl_cffi/browserforge
+PLAYWRIGHT_BROWSERS_PATH=/root/.patchright scrapling install  # keep separate from system Chromium
 ```
 
-Check if already installed:
+Check if correctly installed:
 ```bash
-python -c "import scrapling; print(scrapling.__version__)"
+python -c "from scrapling.fetchers import StealthyFetcher; print('ok')"
 ```
 
 ## Running the Script
