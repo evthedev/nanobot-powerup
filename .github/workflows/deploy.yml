@@ -41,7 +41,7 @@ jobs:
           terraform init \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
             -backend-config="region=${{ vars.AWS_REGION }}" \
-            -backend-config="key=${{ vars.PROJECT_NAME }}/terraform.tfstate"
+            -backend-config="key=${{ vars.PROJECT_NAME || 'nanobot' }}/terraform.tfstate"
 
       - name: Terraform apply
         working-directory: deploy/terraform
