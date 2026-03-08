@@ -83,6 +83,23 @@ def _rewrite_google_url(url: str) -> tuple[str, bool]:
 
 _SCREENSHOTS_URL = os.environ.get("SCREENSHOTS_BASE_URL", "/api/screenshots")
 _SCREENSHOTS_DIR = os.path.expanduser("~/.nanobot/workspace/screenshots")
+_SCREENSHOT_MAX_AGE_HOURS = int(os.environ.get("SCREENSHOT_MAX_AGE_HOURS", "24"))
+
+
+def _prune_old_screenshots(directory: str, max_age_hours: int) -> None:
+    """Delete screenshot files older than max_age_hours. Runs before each capture batch."""
+    import time
+    cutoff = time.time() - max_age_hours * 3600
+    try:
+        for f in Path(directory).glob("*.jpg"):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+                    logger.debug("screenshot_pages: pruned old screenshot {}", f.name)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 class ScreenshotPagesTool(Tool):
@@ -181,6 +198,7 @@ class ScreenshotPagesTool(Tool):
         import math as _math
         safe_slug = re.sub(r"[^a-z0-9-]", "-", slug.lower()).strip("-")
         os.makedirs(_SCREENSHOTS_DIR, exist_ok=True)
+        _prune_old_screenshots(_SCREENSHOTS_DIR, _SCREENSHOT_MAX_AGE_HOURS)
 
         # Hard limit: reject > 5 pages and tell the agent exactly how to split
         if len(pages) > 5:
