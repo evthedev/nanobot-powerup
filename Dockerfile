@@ -43,6 +43,10 @@ WORKDIR /app
 RUN pip install cloakbrowser && \
     python -c "from cloakbrowser import ensure_binary; ensure_binary()"
 
+# Install Scrapling + pre-download its browser binary for StealthyFetcher
+RUN pip install scrapling && \
+    scrapling install
+
 # Create config directory
 RUN mkdir -p /root/.nanobot
 
