@@ -22,6 +22,7 @@ export default function Sidebar({
   const showLogs      = location.pathname === '/logs';
   const showTelegram  = location.pathname === '/telegram';
   const showWhatsApp  = location.pathname === '/whatsapp';
+  const showPicoClaw  = location.pathname === '/picoclaw';
   const showSettings  = location.pathname === '/settings';
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
@@ -97,6 +98,14 @@ export default function Sidebar({
         >
           <span className="btn-icon">💬</span>
           {isOpen && <span>WhatsApp</span>}
+        </button>
+        <button
+          className={`logs-nav-btn ${showPicoClaw ? 'active' : ''}`}
+          onClick={() => navigate('/picoclaw')}
+          title="Picoclaw"
+        >
+          <span className="btn-icon">🦐</span>
+          {isOpen && <span>Picoclaw</span>}
         </button>
         <button
           className={`logs-nav-btn ${showLogs ? 'active' : ''}`}

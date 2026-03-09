@@ -18,6 +18,7 @@ REGION="${AWS_REGION:-ap-southeast-2}"
 USER="${EC2_SSH_USER:-ubuntu}"
 HOST="${EC2_HOST:-$DEFAULT_HOST}"
 KEY="${EC2_SSH_KEY_PATH:-/tmp/ec2-ic-key}"
+PROFILE="${AWS_PROFILE:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,6 +32,8 @@ while [[ $# -gt 0 ]]; do
       USER="$2"; shift 2 ;;
     --key)
       KEY="$2"; shift 2 ;;
+    --profile)
+      PROFILE="$2"; shift 2 ;;
     --)
       shift; break ;;
     *)
@@ -41,7 +44,25 @@ done
 # Generate key if it doesn't exist (reuse within the same session)
 [[ -f "$KEY" ]] || ssh-keygen -t rsa -b 2048 -f "$KEY" -N "" -q
 
-aws ec2-instance-connect send-ssh-public-key \
+AWS_BASE=(aws)
+if [[ -n "$PROFILE" ]]; then
+  AWS_BASE+=(--profile "$PROFILE")
+fi
+
+# Preflight: validate AWS identity and confirm instance exists in this account/region.
+if ! "${AWS_BASE[@]}" sts get-caller-identity >/dev/null 2>&1; then
+  echo "ERROR: AWS credentials are invalid for profile '${PROFILE:-default}'." >&2
+  echo "Hint: refresh the profile credentials (or set --profile to a valid one)." >&2
+  exit 2
+fi
+
+if ! "${AWS_BASE[@]}" ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" >/dev/null 2>&1; then
+  echo "ERROR: Instance '$INSTANCE_ID' not found in profile '${PROFILE:-default}' / region '$REGION'." >&2
+  echo "Hint: account/profile mismatch is likely. Re-run with --profile <correct-profile>." >&2
+  exit 3
+fi
+
+"${AWS_BASE[@]}" ec2-instance-connect send-ssh-public-key \
   --region "$REGION" \
   --instance-id "$INSTANCE_ID" \
   --instance-os-user "$USER" \

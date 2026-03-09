@@ -1043,6 +1043,63 @@ app.get('/api/whatsapp/stream', (req, res) => {
   });
 });
 
+// ── Picoclaw ─────────────────────────────────────────────────────────────────
+
+app.get('/api/picoclaw/messages', (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '300', 10), 1000);
+    const tableExists = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='picoclaw_messages'"
+    ).get();
+    if (!tableExists) return res.json([]);
+    const msgs = db.prepare(
+      'SELECT * FROM picoclaw_messages ORDER BY id DESC LIMIT ?'
+    ).all(limit).reverse();
+    res.json(msgs);
+  } catch { res.json([]); }
+});
+
+app.get('/api/picoclaw/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (res.socket) res.socket.setNoDelay(true);
+
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
+  const headerLastId = parseInt(req.headers['last-event-id'] || '0', 10);
+  let lastId = headerLastId || parseInt(req.query.lastId || '0', 10);
+
+  if (!lastId) {
+    try {
+      const row = db.prepare('SELECT MAX(id) as maxId FROM picoclaw_messages').get();
+      lastId = row?.maxId || 0;
+    } catch {}
+  }
+
+  const poll = setInterval(() => {
+    try {
+      const msgs = db.prepare(
+        'SELECT * FROM picoclaw_messages WHERE id > ? ORDER BY id ASC LIMIT 100'
+      ).all(lastId);
+      for (const msg of msgs) {
+        res.write(`id: ${msg.id}\ndata: ${JSON.stringify(msg)}\n\n`);
+        lastId = msg.id;
+      }
+    } catch {}
+  }, 1000);
+
+  req.on('close', () => { clearInterval(heartbeat); clearInterval(poll); });
+});
+
+app.get('/api/picoclaw/status', (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const pc = cfg?.channels?.picoclaw || {};
+    res.json({ enabled: !!pc.enabled, port: pc.port || 18792 });
+  } catch { res.json({ enabled: false }); }
+});
+
 // ── WhatsApp (pairing QR from bridge) ────────────────────────────────────────
 const WHATSAPP_QR_FILE = path.join(NANOBOT_HOME, 'whatsapp-pending-qr.json');
 const WHATSAPP_STATUS_FILE = path.join(NANOBOT_HOME, 'whatsapp-status.json');

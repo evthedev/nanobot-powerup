@@ -7,6 +7,7 @@ import Settings from './components/Settings';
 import LogsPanel from './components/LogsPanel';
 import TelegramView from './components/TelegramView';
 import WhatsAppView from './components/WhatsAppView';
+import PicoClawView from './components/PicoClawView';
 import './App.css';
 
 const API = process.env.REACT_APP_API_URL || '';
@@ -347,6 +348,15 @@ function AppInner() {
             path="/whatsapp"
             element={
               <WhatsAppView
+                onToggleSidebar={() => setSidebarOpen(p => !p)}
+                sidebarOpen={sidebarOpen}
+              />
+            }
+          />
+          <Route
+            path="/picoclaw"
+            element={
+              <PicoClawView
                 onToggleSidebar={() => setSidebarOpen(p => !p)}
                 sidebarOpen={sidebarOpen}
               />

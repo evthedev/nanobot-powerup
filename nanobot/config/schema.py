@@ -182,6 +182,15 @@ class WebConfig(Base):
     allow_from: list[str] = Field(default_factory=list)
 
 
+class PicoClawConfig(Base):
+    """Picoclaw edge device channel configuration."""
+
+    enabled: bool = False
+    port: int = 18792
+    token: str = ""
+    allow_from: list[str] = Field(default_factory=list)
+
+
 class ChannelsConfig(Base):
     """Configuration for chat channels."""
 
@@ -195,6 +204,7 @@ class ChannelsConfig(Base):
     slack: SlackConfig = Field(default_factory=SlackConfig)
     qq: QQConfig = Field(default_factory=QQConfig)
     web: WebConfig = Field(default_factory=WebConfig)
+    picoclaw: PicoClawConfig = Field(default_factory=PicoClawConfig)
 
 
 class AgentDefaults(Base):
