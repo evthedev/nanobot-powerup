@@ -191,6 +191,18 @@ class PicoClawConfig(Base):
     allow_from: list[str] = Field(default_factory=list)
 
 
+class ReachyBridgeConfig(Base):
+    """Reachy robot bridge configuration.
+
+    Enables Reachy command interception in WhatsApp and bridge enrichment.
+    The bridge HTTP server runs separately (bridge/src/reachy.ts).
+    """
+
+    enabled: bool = False
+    url: str = "http://localhost:18790"  # Bridge HTTP server URL
+    secret: str = ""  # HMAC-SHA256 secret for signed requests
+
+
 class ChannelsConfig(Base):
     """Configuration for chat channels."""
 
@@ -205,6 +217,7 @@ class ChannelsConfig(Base):
     qq: QQConfig = Field(default_factory=QQConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     picoclaw: PicoClawConfig = Field(default_factory=PicoClawConfig)
+    reachy_bridge: ReachyBridgeConfig = Field(default_factory=ReachyBridgeConfig)
 
 
 class AgentDefaults(Base):

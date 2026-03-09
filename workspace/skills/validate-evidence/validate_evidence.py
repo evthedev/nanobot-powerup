@@ -137,36 +137,42 @@ def collect_evidence_text(items: list[dict]) -> list[dict]:
 def load_llm_config() -> dict:
     """
     Read ~/.nanobot/config.json and return {model, api_key, api_base, provider}.
-    Priority: openrouter → grok → nvidia → groq.
+    Uses the provider registry for prefix/env-var resolution.
     """
     config_path = Path.home() / ".nanobot" / "config.json"
     if not config_path.exists():
         return {}
-
     try:
         config = json.loads(config_path.read_text())
     except Exception:
         return {}
 
-    # Use smart_model for evaluation — fast and cheap, not the main model
+    defaults = config.get("agents", {}).get("defaults", {})
     model = (
-        config.get("agents", {}).get("defaults", {}).get("smartModel")
-        or config.get("agents", {}).get("defaults", {}).get("smart_model")
+        defaults.get("smartModel")
+        or defaults.get("smart_model")
+        or defaults.get("model", "")
     )
 
-    providers = config.get("providers", {})
-    priority = ["openrouter", "grok", "nvidia", "groq"]
+    try:
+        from nanobot.providers.registry import find_by_name
+    except ImportError:
+        find_by_name = None
 
-    for name in priority:
-        p = providers.get(name, {})
+    for name, p in config.get("providers", {}).items():
         key = p.get("apiKey") or p.get("api_key", "")
+        if not key:
+            continue
         base = p.get("apiBase") or p.get("api_base", "")
-        if key:
-            # When routing through openrouter, prefix the model name so litellm
-            # sends to openrouter regardless of the model's native provider prefix.
-            if name == "openrouter" and model and not model.startswith("openrouter/"):
-                model = f"openrouter/{model}"
-            return {"model": model, "api_key": key, "api_base": base, "provider": name}
+        spec = find_by_name(name) if find_by_name else None
+        resolved_model = model
+        if spec:
+            if not base:
+                base = spec.default_api_base
+            if spec.litellm_prefix and resolved_model:
+                if not any(resolved_model.startswith(p) for p in spec.skip_prefixes):
+                    resolved_model = f"{spec.litellm_prefix}/{resolved_model}"
+        return {"model": resolved_model, "api_key": key, "api_base": base, "provider": name, "spec": spec}
 
     return {}
 
@@ -194,18 +200,13 @@ def call_llm(claim: str, evidence_blocks: list[dict], image_paths: list[dict] = 
             "issues": ["configure openrouter, grok, nvidia, or groq in ~/.nanobot/config.json"],
         }
 
-    provider = cfg.get("provider", "")
     api_key = cfg["api_key"]
     api_base = cfg.get("api_base", "")
-
-    env_key_map = {
-        "openrouter": "OPENROUTER_API_KEY",
-        "grok":       "XAI_API_KEY",
-        "nvidia":     "NVIDIA_API_KEY",
-        "groq":       "GROQ_API_KEY",
-    }
-    if provider in env_key_map:
-        os.environ.setdefault(env_key_map[provider], api_key)
+    spec = cfg.get("spec")
+    if spec and spec.env_key:
+        os.environ.setdefault(spec.env_key, api_key)
+        for extra_key, extra_val in spec.env_extras:
+            os.environ.setdefault(extra_key, extra_val.format(api_key=api_key, api_base=api_base))
     if api_base:
         litellm.api_base = api_base
 

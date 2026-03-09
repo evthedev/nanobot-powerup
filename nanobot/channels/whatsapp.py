@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sqlite3
+import time as _time
 from pathlib import Path
 from typing import Any
 
@@ -136,6 +137,21 @@ class WhatsAppChannel(BaseChannel):
     
     async def send(self, msg: OutboundMessage) -> None:
         """Send a reply via the WhatsApp bridge. Only sends to destinations on the allow list."""
+        # Dual-response diagnostic
+        _send_key = f"{msg.chat_id}:{int(_time.time()) // 30}"
+        if not hasattr(self, "_send_counter"):
+            self._send_counter: dict[str, int] = {}
+        self._send_counter[_send_key] = self._send_counter.get(_send_key, 0) + 1
+        if self._send_counter[_send_key] > 1:
+            logger.warning(
+                "DUAL RESPONSE DETECTED: {} sends to {} in 30s window",
+                self._send_counter[_send_key], msg.chat_id,
+            )
+        if len(self._send_counter) > 20:
+            for k in sorted(self._send_counter)[:-20]:
+                del self._send_counter[k]
+        logger.info("send() called: chat_id={} content_len={}", msg.chat_id, len(msg.content))
+
         if not self._ws or not self._connected:
             logger.warning("WhatsApp bridge not connected")
             return
@@ -197,6 +213,22 @@ class WhatsAppChannel(BaseChannel):
                 self._allowed_chat_ids.add(sender)
                 while len(self._allowed_chat_ids) > self._MAX_ALLOWED_CHATS:
                     self._allowed_chat_ids.pop()
+
+                # Optional Reachy command interception (requires channels.reachy_bridge.enabled)
+                from nanobot.config.loader import load_config
+                _cfg = load_config()
+                _rb = _cfg.channels.reachy_bridge
+                if _rb.enabled:
+                    from nanobot.channels.reachy_bridge import handle_reachy_command, enrich_via_bridge
+                    reachy_resp = await handle_reachy_command(content, _rb)
+                    if reachy_resp:
+                        logger.info("Reachy command intercepted: {}", content[:40])
+                        if self._ws and self._connected:
+                            await self._ws.send(json.dumps({"type": "send", "to": sender, "text": reachy_resp}))
+                        return
+                    enrichment = await enrich_via_bridge(content, phone_number, _rb)
+                    content = enrichment + content if enrichment else content
+
                 await self._handle_message(
                     sender_id=phone_number,
                     chat_id=sender,
