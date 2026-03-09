@@ -62,6 +62,8 @@ jobs:
         env:
           EC2_HOST:                 ${{ steps.tf.outputs.ec2_host }}
           OPENROUTER_API_KEY:       ${{ secrets.OPENROUTER_API_KEY }}
+          NVIDIA_API_KEY:           ${{ secrets.NVIDIA_API_KEY }}
+          GROK_API_KEY:             ${{ secrets.GROK_API_KEY }}
           BRAVE_API_KEY:            ${{ secrets.BRAVE_API_KEY }}
           TAVILY_API_KEY:           ${{ secrets.TAVILY_API_KEY }}
           GOOGLE_CLIENT_ID:         ${{ secrets.GOOGLE_CLIENT_ID }}
