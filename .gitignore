@@ -40,5 +40,9 @@ deploy/terraform/bootstrap/.terraform/
 deploy/terraform/bootstrap/.terraform.lock.hcl
 # Bootstrap state contains secrets (IAM access keys) — never commit
 deploy/terraform/bootstrap/state/
+# Any nested or duplicated terraform working dirs/states
+**/.terraform/
+*.tfstate
+*.tfstate.*
 docker-compose.override.yml
 test_screenshots_browser.py

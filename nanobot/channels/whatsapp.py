@@ -174,6 +174,7 @@ class WhatsAppChannel(BaseChannel):
         if msg_type == "message":
             sender = data.get("sender", "")
             content = data.get("content", "")
+            direction = data.get("direction", "inbound")
             if not content:
                 return
 
@@ -181,10 +182,14 @@ class WhatsAppChannel(BaseChannel):
             user_id = pn if pn else sender
             phone_number = user_id.split("@")[0] if "@" in user_id else user_id
 
+            logger.info(
+                "whatsapp: {} from {} — persisting to DB",
+                direction, phone_number
+            )
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None, _persist_whatsapp_sync,
-                "inbound", sender, phone_number, content
+                direction, sender, phone_number, content
             )
 
             # Only route to agent if sender is on allow list; track this chat_id so we can reply to it.

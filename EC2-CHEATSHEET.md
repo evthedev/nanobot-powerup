@@ -14,6 +14,21 @@
 ./ec2ssh "some command"    # run and exit
 ```
 
+`ec2ssh` now supports parameterised target selection:
+
+```bash
+# via env vars
+EC2_INSTANCE_ID=i-xxxx EC2_HOST=1.2.3.4 ./ec2ssh
+
+# via flags
+./ec2ssh --instance-id i-xxxx --host 1.2.3.4
+./ec2ssh --region ap-southeast-2 --user ubuntu --key /tmp/my-ec2-key
+./ec2ssh --instance-id i-xxxx --host 1.2.3.4 "docker ps"
+```
+
+Supported env vars: `EC2_INSTANCE_ID`, `EC2_HOST`, `AWS_REGION`, `EC2_SSH_USER`, `EC2_SSH_KEY_PATH`.
+Equivalent flags: `--instance-id`, `--host`, `--region`, `--user`, `--key`.
+
 ---
 
 ## Scenario 1: Docker build fails with "no space left on device"
@@ -111,8 +126,8 @@ echo "Profile: ${AWS_PROFILE:-default}"
 
 ```bash
 aws ec2 describe-instances \
-  --region ap-southeast-2 \
-  --filters "Name=ip-address,Values=13.54.226.177" \
+  --region "${AWS_REGION:-ap-southeast-2}" \
+  --filters "Name=ip-address,Values=${EC2_HOST:-13.54.226.177}" \
   --query "Reservations[0].Instances[0].InstanceId" \
   --output text
 ```
@@ -123,9 +138,9 @@ aws ec2 describe-instances \
 
 | | |
 |---|---|
-| Instance ID | `i-04318580f0559f7ef` |
-| IP | `13.54.226.177` |
-| Region | `ap-southeast-2` |
-| OS user | `ubuntu` |
+| Instance ID | default in `ec2ssh` (`EC2_INSTANCE_ID` / `--instance-id` to override) |
+| Host/IP | default in `ec2ssh` (`EC2_HOST` / `--host` to override) |
+| Region | `ap-southeast-2` by default (`AWS_REGION` / `--region`) |
+| OS user | `ubuntu` by default (`EC2_SSH_USER` / `--user`) |
 | Data volume | `/opt/nanobot` (EBS, persists across deploys) |
 | App dir | `/opt/nanobot-app` (replaced on each deploy) |

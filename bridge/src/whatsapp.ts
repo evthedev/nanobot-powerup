@@ -21,6 +21,7 @@ export interface InboundMessage {
   id: string;
   sender: string;
   pn: string;
+  direction: 'inbound' | 'outbound';
   content: string;
   timestamp: number;
   isGroup: boolean;
@@ -120,9 +121,6 @@ export class WhatsAppClient {
       if (type !== 'notify') return;
 
       for (const msg of messages) {
-        // Skip own messages
-        if (msg.key.fromMe) continue;
-
         // Skip status updates
         if (msg.key.remoteJid === 'status@broadcast') continue;
 
@@ -130,11 +128,13 @@ export class WhatsAppClient {
         if (!content) continue;
 
         const isGroup = msg.key.remoteJid?.endsWith('@g.us') || false;
+        const direction: 'inbound' | 'outbound' = msg.key.fromMe ? 'outbound' : 'inbound';
 
         this.options.onMessage({
           id: msg.key.id || '',
           sender: msg.key.remoteJid || '',
           pn: msg.key.remoteJidAlt || '',
+          direction,
           content,
           timestamp: msg.messageTimestamp as number,
           isGroup,

@@ -5,14 +5,38 @@
 # Usage:
 #   ./ec2ssh                  # interactive shell
 #   ./ec2ssh "docker ps"      # run a command and exit
+#   EC2_INSTANCE_ID=i-xxxx EC2_HOST=x.x.x.x ./ec2ssh
+#   ./ec2ssh --instance-id i-xxxx --host x.x.x.x "docker ps"
 
 set -euo pipefail
 
-INSTANCE_ID="i-04318580f0559f7ef"
-REGION="ap-southeast-2"
-USER="ubuntu"
-HOST="13.54.226.177"
-KEY="/tmp/ec2-ic-key"
+DEFAULT_INSTANCE_ID="i-04a3f10548f4f97f0"
+DEFAULT_HOST="13.54.226.177"
+
+INSTANCE_ID="${EC2_INSTANCE_ID:-$DEFAULT_INSTANCE_ID}"
+REGION="${AWS_REGION:-ap-southeast-2}"
+USER="${EC2_SSH_USER:-ubuntu}"
+HOST="${EC2_HOST:-$DEFAULT_HOST}"
+KEY="${EC2_SSH_KEY_PATH:-/tmp/ec2-ic-key}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --instance-id)
+      INSTANCE_ID="$2"; shift 2 ;;
+    --host)
+      HOST="$2"; shift 2 ;;
+    --region)
+      REGION="$2"; shift 2 ;;
+    --user)
+      USER="$2"; shift 2 ;;
+    --key)
+      KEY="$2"; shift 2 ;;
+    --)
+      shift; break ;;
+    *)
+      break ;;
+  esac
+done
 
 # Generate key if it doesn't exist (reuse within the same session)
 [[ -f "$KEY" ]] || ssh-keygen -t rsa -b 2048 -f "$KEY" -N "" -q
