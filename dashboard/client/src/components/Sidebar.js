@@ -20,6 +20,7 @@ export default function Sidebar({
   const navigate = useNavigate();
   const showLogs      = location.pathname === '/logs';
   const showTelegram  = location.pathname === '/telegram';
+  const showWhatsApp  = location.pathname === '/whatsapp';
   const showSettings  = location.pathname === '/settings';
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
@@ -87,6 +88,14 @@ export default function Sidebar({
         >
           <span className="btn-icon">✈️</span>
           {isOpen && <span>Telegram</span>}
+        </button>
+        <button
+          className={`logs-nav-btn ${showWhatsApp ? 'active' : ''}`}
+          onClick={() => navigate('/whatsapp')}
+          title="WhatsApp Chat"
+        >
+          <span className="btn-icon">💬</span>
+          {isOpen && <span>WhatsApp</span>}
         </button>
         <button
           className={`logs-nav-btn ${showLogs ? 'active' : ''}`}

@@ -696,6 +696,10 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
     setSaving(true);
     setStatus(null);
     try {
+      const whatsappAllowFrom = fields.whatsapp_allowed_numbers
+        .split(',')
+        .map(n => n.trim())
+        .filter(Boolean);
       const updates = {
         agents: {
           defaults: {
@@ -718,10 +722,10 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
       },
         channels: {
           whatsapp: {
-            allowFrom: fields.whatsapp_allowed_numbers
-              .split(',')
-              .map(n => n.trim())
-              .filter(Boolean),
+            // If allow-list is configured in Settings, ensure channel is enabled.
+            enabled: whatsappAllowFrom.length > 0,
+            bridgeUrl: "ws://nanobot-whatsapp-bridge:3002",
+            allowFrom: whatsappAllowFrom,
           },
         },
       };
