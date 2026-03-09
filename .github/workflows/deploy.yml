@@ -158,6 +158,10 @@ jobs:
             # Ensure instance layer directory exists so the agent can write to it immediately
             mkdir -p "$WORKSPACE_DST/skills-auto"
 
+            # Flush rogue one-off scripts from workspace root (agent writes these; they accumulate)
+            find "$WORKSPACE_DST" -maxdepth 1 -name '*.py' -delete
+            echo "  flushed rogue scripts from workspace root"
+
             # ── Inject API keys into config.json ──────────────────────────────────
             echo "--- injecting API keys ---"
             python3 "$REPO_DIR/deploy/inject_keys.py" --secrets /tmp/nanobot_secrets.json

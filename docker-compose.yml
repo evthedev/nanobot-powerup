@@ -35,6 +35,7 @@ services:
     environment:
       - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
       - PLAYWRIGHT_BROWSERS_PATH=/usr/bin
+      - NANOBOT_SSL_VERIFY=false
     deploy:
       resources:
         limits:

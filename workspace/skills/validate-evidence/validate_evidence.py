@@ -47,6 +47,16 @@ import sys
 import argparse
 from pathlib import Path
 
+_SSL_VERIFY = os.environ.get("NANOBOT_SSL_VERIFY", "true").lower() not in ("false", "0", "no")
+if not _SSL_VERIFY:
+    import ssl
+    ssl._create_default_https_context = ssl._create_unverified_context  # noqa
+    os.environ["PYTHONHTTPSVERIFY"] = "0"
+    os.environ["CURL_CA_BUNDLE"] = ""
+    os.environ["REQUESTS_CA_BUNDLE"] = ""
+    try: import urllib3; urllib3.disable_warnings()
+    except ImportError: pass
+
 _EVAL_SYSTEM_PROMPT = """\
 You are an evidence verifier for an AI assistant. You will be given:
 1. A CLAIM the assistant wants to present to a user
@@ -152,13 +162,19 @@ def load_llm_config() -> dict:
         key = p.get("apiKey") or p.get("api_key", "")
         base = p.get("apiBase") or p.get("api_base", "")
         if key:
+            # When routing through openrouter, prefix the model name so litellm
+            # sends to openrouter regardless of the model's native provider prefix.
+            if name == "openrouter" and model and not model.startswith("openrouter/"):
+                model = f"openrouter/{model}"
             return {"model": model, "api_key": key, "api_base": base, "provider": name}
 
     return {}
 
 
-def call_llm(claim: str, evidence_blocks: list[dict]) -> dict:
-    """Call the configured LLM to evaluate the claim against evidence."""
+def call_llm(claim: str, evidence_blocks: list[dict], image_paths: list[dict] = None) -> dict:
+    """Call the configured LLM to evaluate the claim against evidence.
+    image_paths: list of {label, path} for direct vision input (when OCR yields no useful text).
+    """
     try:
         import litellm
     except ImportError:
@@ -178,7 +194,6 @@ def call_llm(claim: str, evidence_blocks: list[dict]) -> dict:
             "issues": ["configure openrouter, grok, nvidia, or groq in ~/.nanobot/config.json"],
         }
 
-    # Set env vars so litellm can authenticate
     provider = cfg.get("provider", "")
     api_key = cfg["api_key"]
     api_base = cfg.get("api_base", "")
@@ -197,30 +212,41 @@ def call_llm(claim: str, evidence_blocks: list[dict]) -> dict:
     litellm.suppress_debug_info = True
     litellm.drop_params = True
 
-    # Build evidence section of the prompt
+    # Build user message — text evidence first, then inline images if any
     evidence_text = ""
     for i, ev in enumerate(evidence_blocks, 1):
-        excerpt = ev["text"][:3000]  # keep tokens reasonable
+        excerpt = ev["text"][:3000]
         evidence_text += f"\n--- Evidence {i}: {ev['label']} ({ev['type']}) ---\n{excerpt}\n"
 
-    user_msg = f"CLAIM:\n{claim}\n\nEVIDENCE:{evidence_text}"
+    if image_paths:
+        # Vision message: multipart content with text + base64 images
+        import base64
+        content = [{"type": "text", "text": f"CLAIM:\n{claim}\n\nEVIDENCE (text):{evidence_text}\nAlso examine the attached image(s) directly."}]
+        for img in image_paths:
+            p = Path(img["path"])
+            if p.exists():
+                b64 = base64.b64encode(p.read_bytes()).decode()
+                suffix = p.suffix.lower().lstrip(".")
+                mime = "image/jpeg" if suffix in ("jpg", "jpeg") else f"image/{suffix}"
+                content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+        user_content = content
+    else:
+        user_content = f"CLAIM:\n{claim}\n\nEVIDENCE:{evidence_text}"
 
     try:
         response = litellm.completion(
             model=cfg["model"],
             messages=[
                 {"role": "system", "content": _EVAL_SYSTEM_PROMPT},
-                {"role": "user",   "content": user_msg},
+                {"role": "user",   "content": user_content},
             ],
             max_tokens=400,
             temperature=0.0,
+            ssl_verify=_SSL_VERIFY,
         )
         raw = response.choices[0].message.content.strip()
-
-        # Strip markdown fences if the model added them
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
-
         return json.loads(raw)
 
     except json.JSONDecodeError:
@@ -248,9 +274,15 @@ def validate(payload: dict) -> dict:
     if not evidence_items:
         return {"error": "missing 'evidence' array"}
 
-    # Resolve all evidence to text, then pass everything to the LLM
     resolved = collect_evidence_text(evidence_items)
-    result = call_llm(claim, resolved)
+
+    # For screenshot evidence where OCR yields little text, pass images directly to vision LLM
+    image_paths = [
+        {"label": ev["label"], "path": item["path"]}
+        for ev, item in zip(resolved, evidence_items)
+        if item.get("type") == "screenshot" and len(ev.get("text", "").strip()) < 100
+    ]
+    result = call_llm(claim, resolved, image_paths=image_paths or None)
 
     return {
         "verdict":          result.get("verdict", "INCONCLUSIVE"),

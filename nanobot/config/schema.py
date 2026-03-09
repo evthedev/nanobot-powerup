@@ -254,6 +254,12 @@ class GatewayConfig(Base):
     port: int = 18790
 
 
+class RuntimeConfig(Base):
+    """Runtime metadata for environment-specific UI/ops context."""
+
+    environment_name: str = ""
+
+
 class WebSearchConfig(Base):
     """Web search tool configuration.
 
@@ -345,6 +351,7 @@ class Config(BaseSettings):
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     # Set NANOBOT_SSL_VERIFY=false to disable TLS certificate verification.
     # Use this when behind a proxy that intercepts HTTPS with a self-signed cert.
