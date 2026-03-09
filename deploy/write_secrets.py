@@ -22,6 +22,7 @@ secrets = {
     "GMAIL_APP_PASSWORD":         os.environ.get("GMAIL_APP_PASSWORD", ""),
     "GITHUB_TOKEN":               os.environ.get("GH_PAT", ""),
     "GITHUB_REPO":                os.environ.get("GH_REPO", ""),
+    "NANOBOT_ENV_NAME":           os.environ.get("NANOBOT_ENV_NAME", ""),
 }
 
 out = "/tmp/nanobot_secrets.json"

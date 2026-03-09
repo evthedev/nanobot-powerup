@@ -23,6 +23,7 @@ function AppInner() {
   const [stats, setStats] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
   const [serverOk, setServerOk] = useState(null);
+  const [environmentName, setEnvironmentName] = useState('nanobot');
   const [mainModel, setMainModel] = useState(null);
 
   useEffect(() => {
@@ -37,6 +38,7 @@ function AppInner() {
       const r = await fetch(`${API}/api/health`);
       const data = await r.json();
       setServerOk(data.status === 'ok');
+      if (data.environmentName) setEnvironmentName(data.environmentName);
     } catch {
       setServerOk(false);
     }
@@ -301,6 +303,7 @@ function AppInner() {
     onRename: renameConversation,
     stats,
     serverOk,
+    environmentName,
     isOpen: sidebarOpen,
     onToggle: () => setSidebarOpen(p => !p),
     onLogs: () => navigate('/logs'),

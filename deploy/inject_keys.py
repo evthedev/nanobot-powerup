@@ -49,6 +49,7 @@ gmail_email           = _get("GMAIL_EMAIL")
 gmail_app_password    = _get("GMAIL_APP_PASSWORD")
 github_token          = _get("GITHUB_TOKEN")
 github_repo           = _get("GITHUB_REPO")
+nanobot_env_name      = _get("NANOBOT_ENV_NAME")
 
 if grok_api_key and not grok_api_key.startswith("REPLACE"):
     set_nested(cfg, "providers.grok.apiKey", grok_api_key)
@@ -116,6 +117,10 @@ if github_token and not github_token.startswith("REPLACE"):
 if github_repo and not github_repo.startswith("REPLACE"):
     set_nested(cfg, "tools.github.repo", github_repo)
     print(f"  github repo set ({github_repo})")
+
+if nanobot_env_name and not nanobot_env_name.startswith("REPLACE"):
+    set_nested(cfg, "runtime.environment_name", nanobot_env_name)
+    print(f"  runtime environment set ({nanobot_env_name})")
 
 set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
 print("  agent model: google/gemini-3-flash-preview")

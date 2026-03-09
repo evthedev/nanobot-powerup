@@ -150,10 +150,18 @@ function updateStats() {
 
 // Health check
 app.get('/api/health', (req, res) => {
+  let environmentName = process.env.NANOBOT_ENV_NAME || '';
+  if (!environmentName) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+      environmentName = cfg?.runtime?.environment_name || cfg?.runtime?.environmentName || '';
+    } catch {}
+  }
   const stats = db.prepare('SELECT * FROM system_stats WHERE id = 1').get();
   res.json({
     status: 'ok',
     model: 'nanobot',
+    environmentName: environmentName || 'nanobot',
     nanobotWs: NANOBOT_WS,
     db: DB_PATH,
     stats

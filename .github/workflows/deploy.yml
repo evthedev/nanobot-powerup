@@ -75,6 +75,7 @@ jobs:
           GMAIL_APP_PASSWORD:       ${{ secrets.GMAIL_APP_PASSWORD }}
           GH_PAT:                   ${{ secrets.GH_PAT }}
           GH_REPO:                  ${{ vars.GH_REPO }}
+          NANOBOT_ENV_NAME:         ${{ matrix.environment }}
         run: |
           printf '%s' "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2.pem
           chmod 600 /tmp/ec2.pem

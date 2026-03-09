@@ -12,6 +12,7 @@ export default function Sidebar({
   onRename,
   stats,
   serverOk,
+  environmentName,
   isOpen,
   onToggle,
   onLogs,
@@ -68,7 +69,7 @@ export default function Sidebar({
       <div className="sidebar-header">
         <div className="sidebar-brand">
           <span className="brand-icon">🐈</span>
-          {isOpen && <span className="brand-name">nanobot</span>}
+          {isOpen && <span className="brand-name">{environmentName || 'nanobot'}</span>}
         </div>
         <button className="icon-btn toggle-btn" onClick={onToggle} title={isOpen ? 'Collapse' : 'Expand'}>
           {isOpen ? '◀' : '▶'}
