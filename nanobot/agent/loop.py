@@ -138,8 +138,12 @@ class AgentLoop:
         self.tools.register(RedditSearchTool())
         self.tools.register(TrustpilotSearchTool())
         self.tools.register(YelpSearchTool(api_key=self.yelp_api_key))
-        if getattr(getattr(self.config.channels, 'reachy_bridge', None), 'enabled', False):
-            self.tools.register(ReachyStatusTool())
+        try:
+            from nanobot.config.loader import load_config as _load_config
+            if _load_config().channels.reachy_bridge.enabled:
+                self.tools.register(ReachyStatusTool())
+        except Exception:
+            pass
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         screenshots_dir = str(self.workspace / "screenshots")
