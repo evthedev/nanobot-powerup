@@ -3,7 +3,8 @@
 Reads from config.json after inject_keys and from secrets JSON when present."""
 import json
 
-cfg = json.loads(Path("/opt/nanobot/config.json").read_text())
+with open("/opt/nanobot/config.json") as f:
+    cfg = json.load(f)
 wa = cfg.get("channels", {}).get("whatsapp", {})
 token = wa.get("bridge_token", "") or wa.get("bridgeToken", "")
 
