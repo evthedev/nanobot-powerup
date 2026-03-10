@@ -194,13 +194,16 @@ class WhatsAppChannel(BaseChannel):
             if not content:
                 return
 
+            # Media paths from bridge (downloaded images/videos so the agent can pass them to the LLM)
+            media = data.get("media") or []
+
             pn = data.get("pn", "")
             user_id = pn if pn else sender
             phone_number = user_id.split("@")[0] if "@" in user_id else user_id
 
             logger.info(
-                "whatsapp: {} from {} — persisting to DB",
-                direction, phone_number
+                "whatsapp: {} from {} — persisting to DB{}",
+                direction, phone_number, f" (media={len(media)})" if media else ""
             )
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
@@ -233,6 +236,7 @@ class WhatsAppChannel(BaseChannel):
                     sender_id=phone_number,
                     chat_id=sender,
                     content=content,
+                    media=media if media else None,
                     metadata={
                         "message_id": data.get("id"),
                         "timestamp": data.get("timestamp"),

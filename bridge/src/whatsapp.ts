@@ -4,11 +4,17 @@
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
+  downloadMediaMessage,
+  getContentType,
+  extensionForMediaMessage,
 } from '@whiskeysockets/baileys';
 
 import { Boom } from '@hapi/boom';
@@ -16,6 +22,12 @@ import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 
 const VERSION = '0.1.0';
+
+/** Directory for downloaded WhatsApp media (images etc.). Same path as Telegram channel. */
+const MEDIA_DIR = process.env.NANOBOT_MEDIA_DIR || join(homedir(), '.nanobot', 'media');
+
+const IMAGE_MESSAGE = 'imageMessage';
+const VIDEO_MESSAGE = 'videoMessage';
 
 export interface InboundMessage {
   id: string;
@@ -25,6 +37,8 @@ export interface InboundMessage {
   content: string;
   timestamp: number;
   isGroup: boolean;
+  /** Local file paths for downloaded media (images/videos) so the agent can pass them to the LLM. */
+  media?: string[];
 }
 
 export interface WhatsAppClientOptions {
@@ -130,6 +144,12 @@ export class WhatsAppClient {
         const isGroup = msg.key.remoteJid?.endsWith('@g.us') || false;
         const direction: 'inbound' | 'outbound' = msg.key.fromMe ? 'outbound' : 'inbound';
 
+        let media: string[] | undefined;
+        if (direction === 'inbound') {
+          const paths = await this.downloadMediaToFile(msg);
+          if (paths?.length) media = paths;
+        }
+
         this.options.onMessage({
           id: msg.key.id || '',
           sender: msg.key.remoteJid || '',
@@ -138,6 +158,7 @@ export class WhatsAppClient {
           content,
           timestamp: msg.messageTimestamp as number,
           isGroup,
+          media,
         });
       }
     });
@@ -157,9 +178,10 @@ export class WhatsAppClient {
       return message.extendedTextMessage.text;
     }
 
-    // Image with caption
-    if (message.imageMessage?.caption) {
-      return `[Image] ${message.imageMessage.caption}`;
+    // Image with or without caption (so agent receives the image and optional caption)
+    if (message.imageMessage) {
+      const cap = message.imageMessage.caption;
+      return cap ? `[Image] ${cap}` : '[Image]';
     }
 
     // Video with caption
@@ -167,9 +189,19 @@ export class WhatsAppClient {
       return `[Video] ${message.videoMessage.caption}`;
     }
 
+    // Video without caption
+    if (message.videoMessage) {
+      return '[Video]';
+    }
+
     // Document with caption
     if (message.documentMessage?.caption) {
       return `[Document] ${message.documentMessage.caption}`;
+    }
+
+    // Document without caption
+    if (message.documentMessage) {
+      return '[Document]';
     }
 
     // Voice/Audio message
@@ -178,6 +210,48 @@ export class WhatsAppClient {
     }
 
     return null;
+  }
+
+  /** Download media from message to MEDIA_DIR and return local file path, or null on failure. */
+  private async downloadMediaToFile(msg: any): Promise<string[] | null> {
+    if (!this.sock || !msg.message) return null;
+    const contentType = getContentType(msg.message);
+    if (!contentType || (contentType !== IMAGE_MESSAGE && contentType !== VIDEO_MESSAGE)) return null;
+
+    try {
+      const buffer = await downloadMediaMessage(
+        msg,
+        'buffer',
+        {},
+        {
+          logger: pino({ level: 'silent' }),
+          reuploadRequest: this.sock.updateMediaMessage,
+        }
+      );
+      if (!buffer || !Buffer.isBuffer(buffer)) return null;
+
+      if (!existsSync(MEDIA_DIR)) {
+        mkdirSync(MEDIA_DIR, { recursive: true });
+      }
+
+      let ext = '.jpg';
+      try {
+        ext = extensionForMediaMessage(msg.message) || ext;
+        if (!ext.startsWith('.')) ext = '.' + ext;
+      } catch {
+        // keep .jpg for image, .mp4 for video fallback
+        if (contentType === VIDEO_MESSAGE) ext = '.mp4';
+      }
+
+      const safeId = (msg.key?.id || 'media').replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `wa_${safeId}_${Date.now()}${ext}`;
+      const filePath = join(MEDIA_DIR, filename);
+      writeFileSync(filePath, buffer);
+      return [filePath];
+    } catch (err) {
+      console.error('WhatsApp bridge: failed to download media:', err);
+      return null;
+    }
   }
 
   async sendMessage(to: string, text: string): Promise<void> {

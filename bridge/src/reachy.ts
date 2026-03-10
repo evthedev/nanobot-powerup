@@ -10,6 +10,9 @@
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { createHmac, timingSafeEqual } from 'crypto';
+import { homedir } from 'os';
+import { join } from 'path';
+import Database from 'better-sqlite3';
 
 export interface ReachyStatus {
   daemon: string;
@@ -30,8 +33,22 @@ export class ReachyBridgeServer {
   private _pendingCommands: { command: string; queued_at: number }[] = [];
   private _lastStatus: ReachyStatus = { daemon: 'unknown', conversation_app: 'unknown', picoclaw: 'unknown', last_seen: 0 };
   private _server: ReturnType<typeof createServer> | null = null;
+  private _db: InstanceType<typeof Database>;
 
-  constructor(private port: number, private secret: string) {}
+  constructor(private port: number, private secret: string) {
+    const dbPath = process.env.DB_PATH || join(homedir(), '.nanobot', 'chat.db');
+    this._db = new Database(dbPath);
+    this._db.pragma('journal_mode = WAL');
+    this._db.exec(`
+      CREATE TABLE IF NOT EXISTS reachy_sync_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        direction TEXT NOT NULL CHECK(direction IN ('inbound','outbound')),
+        event_type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+  }
 
   start(): void {
     this._server = createServer((req, res) => this._route(req, res));
@@ -42,6 +59,7 @@ export class ReachyBridgeServer {
 
   stop(): void {
     this._server?.close();
+    this._db.close();
   }
 
   private async _route(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -109,9 +127,25 @@ export class ReachyBridgeServer {
       };
     }
 
+    // Log inbound sync
+    this._db.prepare(
+      'INSERT INTO reachy_sync_log (direction, event_type, payload) VALUES (?, ?, ?)'
+    ).run('inbound', 'sync', JSON.stringify({
+      reachy_status: payload.reachy_status,
+      vision_status: payload.vision_status,
+      pending_facts: payload.pending_facts,
+    }));
+
     // Drain pending commands
     const commands = [...this._pendingCommands];
     this._pendingCommands = [];
+
+    // Log outbound commands if any
+    if (commands.length > 0) {
+      this._db.prepare(
+        'INSERT INTO reachy_sync_log (direction, event_type, payload) VALUES (?, ?, ?)'
+      ).run('outbound', 'commands', JSON.stringify({ commands }));
+    }
 
     this._json(res, 200, {
       pending_commands: commands,

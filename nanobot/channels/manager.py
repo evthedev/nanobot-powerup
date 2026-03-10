@@ -149,16 +149,6 @@ class ChannelManager:
             except ImportError as e:
                 logger.warning("Web channel not available: {}", e)
 
-        # Picoclaw edge device channel
-        if self.config.channels.picoclaw.enabled:
-            try:
-                from nanobot.channels.picoclaw import PicoClawChannel
-                self.channels["picoclaw"] = PicoClawChannel(
-                    self.config.channels.picoclaw, self.bus
-                )
-                logger.info("Picoclaw channel enabled on port {}", self.config.channels.picoclaw.port)
-            except ImportError as e:
-                logger.warning("Picoclaw channel not available: {}", e)
     
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:
         """Start a channel and log any exceptions."""

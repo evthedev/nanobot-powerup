@@ -1043,19 +1043,19 @@ app.get('/api/whatsapp/stream', (req, res) => {
   });
 });
 
-// ── Picoclaw ─────────────────────────────────────────────────────────────────
+// ── Reachy sync history ──────────────────────────────────────────────────────
 
 app.get('/api/picoclaw/messages', (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit || '300', 10), 1000);
     const tableExists = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='picoclaw_messages'"
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='reachy_sync_log'"
     ).get();
     if (!tableExists) return res.json([]);
-    const msgs = db.prepare(
-      'SELECT * FROM picoclaw_messages ORDER BY id DESC LIMIT ?'
+    const rows = db.prepare(
+      'SELECT * FROM reachy_sync_log ORDER BY id DESC LIMIT ?'
     ).all(limit).reverse();
-    res.json(msgs);
+    res.json(rows);
   } catch { res.json([]); }
 });
 
@@ -1072,19 +1072,19 @@ app.get('/api/picoclaw/stream', (req, res) => {
 
   if (!lastId) {
     try {
-      const row = db.prepare('SELECT MAX(id) as maxId FROM picoclaw_messages').get();
+      const row = db.prepare('SELECT MAX(id) as maxId FROM reachy_sync_log').get();
       lastId = row?.maxId || 0;
     } catch {}
   }
 
   const poll = setInterval(() => {
     try {
-      const msgs = db.prepare(
-        'SELECT * FROM picoclaw_messages WHERE id > ? ORDER BY id ASC LIMIT 100'
+      const rows = db.prepare(
+        'SELECT * FROM reachy_sync_log WHERE id > ? ORDER BY id ASC LIMIT 100'
       ).all(lastId);
-      for (const msg of msgs) {
-        res.write(`id: ${msg.id}\ndata: ${JSON.stringify(msg)}\n\n`);
-        lastId = msg.id;
+      for (const row of rows) {
+        res.write(`id: ${row.id}\ndata: ${JSON.stringify(row)}\n\n`);
+        lastId = row.id;
       }
     } catch {}
   }, 1000);
@@ -1095,11 +1095,24 @@ app.get('/api/picoclaw/stream', (req, res) => {
 app.get('/api/picoclaw/status', (req, res) => {
   try {
     const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    const pc = cfg?.channels?.picoclaw || {};
-    res.json({ enabled: !!pc.enabled, port: pc.port || 18792 });
+    const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
+    res.json({ enabled: !!rb.enabled, url: rb.url || 'http://localhost:18790' });
   } catch { res.json({ enabled: false }); }
 });
 
+app.get('/api/picoclaw/integration-guide', (req, res) => {
+  const candidates = [
+    path.join(__dirname, 'EDGE_DEVICE_INTEGRATION.md'),
+    path.join(__dirname, '..', '..', 'nanobot', 'channels', 'EDGE_DEVICE_INTEGRATION.md'),
+    '/opt/nanobot-app/nanobot/channels/EDGE_DEVICE_INTEGRATION.md',
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return res.type('text/plain').send(fs.readFileSync(p, 'utf8'));
+    } catch {}
+  }
+  res.status(404).send('Not found');
+});
 // ── WhatsApp (pairing QR from bridge) ────────────────────────────────────────
 const WHATSAPP_QR_FILE = path.join(NANOBOT_HOME, 'whatsapp-pending-qr.json');
 const WHATSAPP_STATUS_FILE = path.join(NANOBOT_HOME, 'whatsapp-status.json');
