@@ -18,5 +18,5 @@ lines = [
     f"BRIDGE_SECRET={bridge_secret}",
 ]
 
-Path("/opt/nanobot-app/.env.docker").write_text("\n".join(lines) + "\n")
+open("/opt/nanobot-app/.env.docker", "w").write("\n".join(lines) + "\n")
 print("  .env.docker written (BRIDGE_TOKEN, REACHY_BRIDGE_ENABLED, BRIDGE_SECRET)")
