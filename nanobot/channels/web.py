@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -12,6 +14,22 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import WebConfig
+
+# Matches ![...](/api/screenshots/filename.ext)
+_IMG_MD_RE = re.compile(r'!\[[^\]]*\]\(/api/screenshots/([^)]+)\)')
+
+
+def _extract_media(content: str, screenshots_dir: Path) -> tuple[str, list[str]]:
+    """Pull image markdown out of content, return (clean_text, [local_paths])."""
+    media: list[str] = []
+    def _replace(m: re.Match) -> str:
+        path = screenshots_dir / m.group(1)
+        if path.is_file():
+            media.append(str(path))
+            return ''  # strip from text
+        return m.group(0)  # leave if file missing
+    clean = _IMG_MD_RE.sub(_replace, content).strip()
+    return clean, media
 
 
 class WebChannel(BaseChannel):
@@ -37,11 +55,11 @@ class WebChannel(BaseChannel):
     def __init__(self, config: WebConfig, bus: MessageBus) -> None:
         super().__init__(config, bus)
         self.config: WebConfig = config
-        # Map chat_id (session_id from client) → open WebSocket connection
         self._connections: dict[str, Any] = {}
         self._server: Any = None
-        # Pending asyncio tasks that will send "done" after the idle timeout
         self._done_timers: dict[str, asyncio.Task] = {}
+        # Resolve screenshots dir relative to nanobot home
+        self._screenshots_dir = Path.home() / '.nanobot' / 'workspace' / 'screenshots'
 
     async def start(self) -> None:
         try:
@@ -143,10 +161,15 @@ class WebChannel(BaseChannel):
                 self._connections[session_id] = websocket
                 logger.info("Web channel inbound [{}]: {}", session_id, content[:120])
 
+                clean_content, media = _extract_media(content, self._screenshots_dir)
+                if media:
+                    logger.info("Web channel: extracted {} image(s) from message", len(media))
+
                 await self._handle_message(
                     sender_id="web_user",
                     chat_id=session_id,
-                    content=content,
+                    content=clean_content or content,
+                    media=media or None,
                 )
         except Exception as exc:
             logger.debug("Web channel: connection closed: {}", exc)

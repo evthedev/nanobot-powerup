@@ -154,7 +154,9 @@ export default function ChatWindow({
                       {msg.content || (msg.streaming ? '…' : '')}
                     </ReactMarkdown>
                   ) : (
-                    <span className="message-text">{msg.content}</span>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                      {msg.content || ''}
+                    </ReactMarkdown>
                   )}
                   {msg.streaming && <span className="cursor-blink" />}
                 </div>
