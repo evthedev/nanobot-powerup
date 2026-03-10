@@ -42,6 +42,8 @@ maps_key              = _get("GOOGLE_STATIC_MAPS_API_KEY")
 telegram_token        = _get("TELEGRAM_BOT_TOKEN")
 bridge_token          = _get("BRIDGE_TOKEN")
 whatsapp_allow_from   = _get("WHATSAPP_ALLOW_FROM")
+reachy_bridge_enabled = _get("REACHY_BRIDGE_ENABLED").lower() in ("1", "true", "yes")
+bridge_secret         = _get("BRIDGE_SECRET")
 google_client_id      = _get("GOOGLE_CLIENT_ID")
 google_client_secret  = _get("GOOGLE_CLIENT_SECRET")
 capsolver_api_key     = _get("CAPSOLVER_API_KEY")
@@ -89,6 +91,13 @@ if bridge_token or whatsapp_allow_from:
         allow_list = [n.strip() for n in whatsapp_allow_from.split(",") if n.strip()]
         set_nested(cfg, "channels.whatsapp.allow_from", allow_list)
     print(f"  whatsapp channel enabled")
+
+if reachy_bridge_enabled:
+    set_nested(cfg, "channels.reachyBridge.enabled", True)
+    set_nested(cfg, "channels.reachyBridge.url", "http://nanobot-whatsapp-bridge:18790")
+    if bridge_secret:
+        set_nested(cfg, "channels.reachyBridge.secret", bridge_secret)
+    print("  reachy bridge enabled")
 
 if google_client_id and not google_client_id.startswith("REPLACE"):
     set_nested(cfg, "tools.google_calendar.clientId", google_client_id)

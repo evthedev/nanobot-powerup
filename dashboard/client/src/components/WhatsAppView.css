@@ -71,6 +71,30 @@
   margin-right: auto;
 }
 
+.pico-empty-help {
+  max-width: 900px;
+  text-align: left;
+  color: var(--text-primary);
+}
+
+.pico-empty-help p {
+  margin: 0 0 12px;
+}
+
+.pico-protocol-block {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+}
+
 .wa-message-row {
   display: flex;
   gap: 10px;

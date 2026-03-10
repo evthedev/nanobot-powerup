@@ -3,8 +3,9 @@ x-nanobot-volume: &nanobot-volume
 
 services:
 
-  # ── WhatsApp bridge (Baileys) ───────────────────────────────────────────────
+  # ── WhatsApp bridge (Baileys) + optional Reachy/Picoclaw bridge (:18790) ─────
   # Runs alongside gateway; Python connects via ws://nanobot-whatsapp-bridge:3002
+  # Set REACHY_BRIDGE_ENABLED=true (e.g. in .env.docker / GitHub env) to enable Reachy sync.
   nanobot-whatsapp-bridge:
     container_name: nanobot-whatsapp-bridge
     build:
@@ -14,11 +15,20 @@ services:
     command: ["/app/bridge/dist/index.js"]
     restart: unless-stopped
     volumes: *nanobot-volume
+    expose:
+      - "3002"
+      - "18790"
+    ports:
+      - "18790:18790"
     environment:
       - BRIDGE_PORT=3002
       - BRIDGE_HOST=0.0.0.0
       - BRIDGE_TOKEN=${BRIDGE_TOKEN:-}
       - AUTH_DIR=/root/.nanobot/whatsapp-auth
+      - REACHY_BRIDGE_ENABLED=${REACHY_BRIDGE_ENABLED:-false}
+      - REACHY_BRIDGE_PORT=18790
+      - BRIDGE_SECRET=${BRIDGE_SECRET:-}
+      - DB_PATH=/root/.nanobot/chat.db
 
   # ── nanobot gateway ─────────────────────────────────────────────────────────
   nanobot-gateway:

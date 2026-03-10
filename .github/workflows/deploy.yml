@@ -71,6 +71,9 @@ jobs:
           GOOGLE_STATIC_MAPS_API_KEY: ${{ secrets.GOOGLE_STATIC_MAPS_API_KEY }}
           TELEGRAM_BOT_TOKEN:       ${{ secrets.TELEGRAM_BOT_TOKEN }}
           BRIDGE_TOKEN:             ${{ secrets.BRIDGE_TOKEN }}
+          BRIDGE_SECRET:            ${{ secrets.BRIDGE_SECRET }}
+          # Reachy/Picoclaw: set GitHub env var REACHY_BRIDGE_ENABLED=true and secret BRIDGE_SECRET to enable
+          REACHY_BRIDGE_ENABLED:    ${{ vars.REACHY_BRIDGE_ENABLED || 'false' }}
           WHATSAPP_ALLOW_FROM:      ${{ secrets.WHATSAPP_ALLOW_FROM }}
           CAPSOLVER_API_KEY:        ${{ secrets.CAPSOLVER_API_KEY }}
           GMAIL_EMAIL:              ${{ secrets.GMAIL_EMAIL }}
