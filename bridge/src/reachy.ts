@@ -11,6 +11,8 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { homedir } from 'os';
 import { join } from 'path';
+import { randomUUID } from 'crypto';
+import WebSocket from 'ws';
 import Database from 'better-sqlite3';
 
 export interface ReachyStatus {
@@ -37,7 +39,10 @@ export class ReachyBridgeServer {
   private _server: ReturnType<typeof createServer> | null = null;
   private _db: InstanceType<typeof Database>;
 
+  private _gatewayUrl: string;
+
   constructor(private port: number, private secret: string) {
+    this._gatewayUrl = process.env.NANOBOT_WS || 'ws://nanobot-gateway:18791';
     const dbPath = process.env.DB_PATH || join(homedir(), '.nanobot', 'chat.db');
     this._db = new Database(dbPath);
     this._db.pragma('journal_mode = WAL');
@@ -141,6 +146,14 @@ export class ReachyBridgeServer {
       pending_facts: payload.pending_facts,
     }));
 
+    // Forward pending_feedback to the nanobot gateway
+    const feedback: string[] = Array.isArray(payload.pending_feedback)
+      ? (payload.pending_feedback as unknown[]).filter((x): x is string => typeof x === 'string')
+      : [];
+    for (const msg of feedback) {
+      this._forwardToGateway(msg).catch(e => console.error('Reachy: gateway forward error:', e));
+    }
+
     // Drain pending commands
     const commands = [...this._pendingCommands];
     this._pendingCommands = [];
@@ -175,6 +188,21 @@ export class ReachyBridgeServer {
     this._pendingCommands.push({ command, queued_at: Date.now() / 1000 });
     console.log(`🤖 Reachy command queued: ${command}`);
     this._json(res, 200, { queued: true });
+  }
+
+  private async _forwardToGateway(content: string): Promise<void> {
+    const sessionId = `reachy-${randomUUID()}`;
+    await new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(this._gatewayUrl);
+      ws.once('open', () => {
+        ws.send(JSON.stringify({ session_id: sessionId, content }));
+        console.log(`🤖 Reachy feedback → gateway: ${content.slice(0, 60)}`);
+        ws.close();
+        resolve();
+      });
+      ws.once('error', reject);
+      setTimeout(() => { ws.terminate(); reject(new Error('gateway timeout')); }, 10000);
+    });
   }
 
   private _handleStatus(res: ServerResponse): void {

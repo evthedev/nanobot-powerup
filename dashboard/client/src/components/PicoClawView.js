@@ -282,12 +282,23 @@ export default function PicoClawView({ onToggleSidebar, sidebarOpen }) {
           rows.map(row => <SyncRow key={row.id} row={row} />)
         )}
         {guide && (
-          <details style={{ margin: '1rem', textAlign: 'left' }}>
-            <summary style={{ cursor: 'pointer', opacity: 0.7 }}>📋 Integration guide</summary>
-            <div style={{ padding: '1rem 0' }}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{guide}</ReactMarkdown>
-            </div>
-          </details>
+          <pre style={{
+            margin: '1rem',
+            padding: '1rem 1.25rem',
+            background: '#1e1e2e',
+            border: '1px solid #313244',
+            borderRadius: '8px',
+            textAlign: 'left',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            fontFamily: 'inherit',
+            fontSize: '0.85rem',
+            lineHeight: 1.6,
+            color: '#cdd6f4',
+          }}>
+            <div style={{ marginBottom: '0.5rem', opacity: 0.5, fontSize: '0.75rem', letterSpacing: '0.05em' }}>📋 INTEGRATION GUIDE</div>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{guide}</ReactMarkdown>
+          </pre>
         )}
         <div ref={bottomRef} />
       </div>

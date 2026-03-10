@@ -51,6 +51,99 @@
   border: 1px solid rgba(245, 158, 11, 0.3);
 }
 
+/* ── Two-pane body ── */
+.wa-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ── Chat list (left pane) ── */
+.wa-chat-list {
+  width: 280px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-subtle);
+  overflow-y: auto;
+  background: var(--bg-secondary);
+}
+
+.wa-chat-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background 0.15s;
+}
+
+.wa-chat-item:hover { background: var(--bg-elevated); }
+.wa-chat-item.active { background: var(--bg-tertiary); }
+
+.wa-chat-item-avatar {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.wa-chat-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.wa-chat-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wa-chat-item-preview {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.wa-chat-item-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── Thread (right pane) ── */
+.wa-thread {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wa-thread-header {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wa-thread-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.wa-thread-id {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+}
+
 .whatsapp-messages {
   flex: 1;
   overflow-y: auto;
@@ -137,12 +230,6 @@
   padding: 0 2px;
 }
 
-.wa-chat-id {
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 0 2px;
-}
-
 .wa-bubble {
   padding: 10px 14px;
   border-radius: var(--radius-lg);
@@ -177,15 +264,54 @@
 
 .wa-message-row.outbound .wa-time { text-align: right; }
 
-.whatsapp-footer {
-  padding: 10px 20px;
+
+
+/* ── Compose bar ── */
+.wa-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
   border-top: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
   flex-shrink: 0;
-  text-align: center;
 }
 
-.whatsapp-footer span {
-  font-size: 12px;
-  color: var(--text-muted);
+.wa-compose-input {
+  flex: 1;
+  resize: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 8px 12px;
+  outline: none;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.wa-compose-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.wa-compose-send {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.wa-compose-send:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

@@ -5,11 +5,21 @@ import './WhatsAppView.css';
 
 const API = process.env.REACT_APP_API_URL || '';
 
+function chatLabel(chatId) {
+  if (!chatId) return 'Unknown';
+  if (chatId.endsWith('@g.us')) return `Group · ${chatId.split('@')[0]}`;
+  if (chatId.endsWith('@lid')) return `LID · ${chatId.split('@')[0]}`;
+  return chatId.split('@')[0];
+}
+
 export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
   const [messages, setMessages] = useState([]);
   const [status, setStatus] = useState(null);
   const [statusLoaded, setStatusLoaded] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [selectedChat, setSelectedChat] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
   const lastIdRef = useRef(0);
 
@@ -34,7 +44,7 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, scrollToBottom]);
+  }, [messages, selectedChat, scrollToBottom]);
 
   useEffect(() => {
     const url = `${API}/api/whatsapp/stream?lastId=${lastIdRef.current}`;
@@ -54,6 +64,33 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
     };
   }, []);
 
+  async function sendMessage() {
+    if (!draft.trim() || !selectedChat || sending) return;
+    setSending(true);
+    try {
+      const res = await fetch(`${API}/api/whatsapp/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: selectedChat, text: draft.trim() }),
+      });
+      if (res.ok) {
+        setDraft('');
+        // Optimistically append — SSE will also deliver it but dedup handles that
+        const now = new Date().toISOString();
+        setMessages(prev => [...prev, {
+          id: Date.now(), direction: 'outbound', chat_id: selectedChat,
+          phone_number: '', content: draft.trim(), created_at: now,
+        }]);
+      }
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function onKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  }
+
   function formatTime(dateStr) {
     try {
       return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -61,6 +98,20 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
       return '';
     }
   }
+
+  // Build ordered chat list: most recent message first
+  const chats = Object.values(
+    messages.reduce((acc, msg) => {
+      const key = msg.chat_id;
+      if (!acc[key]) acc[key] = { chat_id: key, lastMsg: msg, unread: 0 };
+      else acc[key].lastMsg = msg;
+      return acc;
+    }, {})
+  ).sort((a, b) => new Date(b.lastMsg.created_at) - new Date(a.lastMsg.created_at));
+
+  const threadMessages = selectedChat
+    ? messages.filter(m => m.chat_id === selectedChat)
+    : [];
 
   return (
     <div className="whatsapp-view">
@@ -80,39 +131,79 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
         )}
       </div>
 
-      <div className="whatsapp-messages">
-        {messages.length === 0 ? (
-          <div className="whatsapp-empty">
-            {!statusLoaded
-              ? 'Loading…'
-              : status?.enabled
-                ? 'No WhatsApp messages yet — send one to your linked account to start tracking.'
-                : 'WhatsApp is not enabled. Configure it in Settings.'}
-          </div>
-        ) : (
-          messages.map(msg => (
-            <div key={msg.id} className={`wa-message-row ${msg.direction === 'inbound' ? 'inbound' : 'outbound'}`}>
-              <div className="wa-avatar">{msg.direction === 'inbound' ? '👤' : '🐈'}</div>
-              <div className="wa-message-body">
-                <div className="wa-sender-name">
-                  {msg.phone_number || msg.chat_id || 'unknown'}
-                </div>
-                <div className="wa-chat-id">{msg.chat_id}</div>
-                <div className="wa-bubble">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {msg.content}
-                  </ReactMarkdown>
-                </div>
-                <div className="wa-time">{formatTime(msg.created_at)}</div>
-              </div>
+      <div className="wa-body">
+        {/* Chat list */}
+        <div className="wa-chat-list">
+          {messages.length === 0 ? (
+            <div className="whatsapp-empty" style={{ padding: '20px 12px' }}>
+              {!statusLoaded ? 'Loading…'
+                : status?.enabled ? 'No messages yet.'
+                : 'WhatsApp not enabled.'}
             </div>
-          ))
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+          ) : chats.map(({ chat_id, lastMsg }) => (
+            <div
+              key={chat_id}
+              className={`wa-chat-item ${selectedChat === chat_id ? 'active' : ''}`}
+              onClick={() => setSelectedChat(chat_id)}
+            >
+              <div className="wa-chat-item-avatar">
+                {chat_id.endsWith('@g.us') ? '👥' : '👤'}
+              </div>
+              <div className="wa-chat-item-info">
+                <div className="wa-chat-item-name">{chatLabel(chat_id)}</div>
+                <div className="wa-chat-item-preview">
+                  {lastMsg.direction === 'outbound' ? '🐈 ' : ''}
+                  {lastMsg.content.slice(0, 60)}{lastMsg.content.length > 60 ? '…' : ''}
+                </div>
+              </div>
+              <div className="wa-chat-item-time">{formatTime(lastMsg.created_at)}</div>
+            </div>
+          ))}
+        </div>
 
-      <div className="whatsapp-footer">
-        <span>📱 Live mirror of `whatsapp_messages` from the bridge channel.</span>
+        {/* Message thread */}
+        <div className="wa-thread">
+          {!selectedChat ? (
+            <div className="whatsapp-empty" style={{ marginTop: '120px' }}>
+              Select a conversation
+            </div>
+          ) : (
+            <>
+              <div className="wa-thread-header">
+                <span className="wa-thread-title">{chatLabel(selectedChat)}</span>
+                <span className="wa-thread-id">{selectedChat}</span>
+              </div>
+              <div className="whatsapp-messages">
+                {threadMessages.map(msg => (
+                  <div key={msg.id} className={`wa-message-row ${msg.direction === 'inbound' ? 'inbound' : 'outbound'}`}>
+                    <div className="wa-avatar">{msg.direction === 'inbound' ? '👤' : '🐈'}</div>
+                    <div className="wa-message-body">
+                      <div className="wa-sender-name">{msg.phone_number || msg.chat_id}</div>
+                      <div className="wa-bubble">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                      </div>
+                      <div className="wa-time">{formatTime(msg.created_at)}</div>
+                    </div>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+              <div className="wa-compose">
+                <textarea
+                  className="wa-compose-input"
+                  placeholder="Reply as agent…"
+                  value={draft}
+                  onChange={e => setDraft(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  rows={1}
+                />
+                <button className="wa-compose-send" onClick={sendMessage} disabled={sending || !draft.trim()}>
+                  {sending ? '⏳' : '↑'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
