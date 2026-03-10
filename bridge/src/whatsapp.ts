@@ -168,44 +168,50 @@ export class WhatsAppClient {
     const message = msg.message;
     if (!message) return null;
 
+    // Unwrap view-once envelope
+    const m = message.viewOnceMessage?.message
+      || message.viewOnceMessageV2?.message
+      || message.viewOnceMessageV2Extension?.message
+      || message;
+
     // Text message
-    if (message.conversation) {
-      return message.conversation;
+    if (m.conversation) {
+      return m.conversation;
     }
 
     // Extended text (reply, link preview)
-    if (message.extendedTextMessage?.text) {
-      return message.extendedTextMessage.text;
+    if (m.extendedTextMessage?.text) {
+      return m.extendedTextMessage.text;
     }
 
     // Image with or without caption (so agent receives the image and optional caption)
-    if (message.imageMessage) {
-      const cap = message.imageMessage.caption;
+    if (m.imageMessage) {
+      const cap = m.imageMessage.caption;
       return cap ? `[Image] ${cap}` : '[Image]';
     }
 
     // Video with caption
-    if (message.videoMessage?.caption) {
-      return `[Video] ${message.videoMessage.caption}`;
+    if (m.videoMessage?.caption) {
+      return `[Video] ${m.videoMessage.caption}`;
     }
 
     // Video without caption
-    if (message.videoMessage) {
+    if (m.videoMessage) {
       return '[Video]';
     }
 
     // Document with caption
-    if (message.documentMessage?.caption) {
-      return `[Document] ${message.documentMessage.caption}`;
+    if (m.documentMessage?.caption) {
+      return `[Document] ${m.documentMessage.caption}`;
     }
 
     // Document without caption
-    if (message.documentMessage) {
+    if (m.documentMessage) {
       return '[Document]';
     }
 
     // Voice/Audio message
-    if (message.audioMessage) {
+    if (m.audioMessage) {
       return `[Voice Message]`;
     }
 
@@ -215,12 +221,19 @@ export class WhatsAppClient {
   /** Download media from message to MEDIA_DIR and return local file path, or null on failure. */
   private async downloadMediaToFile(msg: any): Promise<string[] | null> {
     if (!this.sock || !msg.message) return null;
-    const contentType = getContentType(msg.message);
+    // Unwrap view-once envelope so getContentType sees the inner imageMessage/videoMessage
+    const unwrapped = msg.message.viewOnceMessage?.message
+      || msg.message.viewOnceMessageV2?.message
+      || msg.message.viewOnceMessageV2Extension?.message
+      || msg.message;
+    const contentType = getContentType(unwrapped);
     if (!contentType || (contentType !== IMAGE_MESSAGE && contentType !== VIDEO_MESSAGE)) return null;
+    // Use unwrapped message for download so Baileys finds the media keys
+    const msgForDownload = unwrapped === msg.message ? msg : { ...msg, message: unwrapped };
 
     try {
       const buffer = await downloadMediaMessage(
-        msg,
+        msgForDownload,
         'buffer',
         {},
         {

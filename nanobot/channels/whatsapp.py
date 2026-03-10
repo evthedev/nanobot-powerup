@@ -197,6 +197,10 @@ class WhatsAppChannel(BaseChannel):
             # Media paths from bridge (downloaded images/videos so the agent can pass them to the LLM)
             media = data.get("media") or []
 
+            # Allow media-only messages (no caption) through
+            if not content and not media:
+                return
+
             pn = data.get("pn", "")
             user_id = pn if pn else sender
             phone_number = user_id.split("@")[0] if "@" in user_id else user_id
@@ -208,7 +212,7 @@ class WhatsAppChannel(BaseChannel):
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None, _persist_whatsapp_sync,
-                direction, sender, phone_number, content
+                direction, sender, phone_number, content or f"[media: {len(media)} file(s)]"
             )
 
             # Only route to agent if sender is on allow list; track this chat_id so we can reply to it.
@@ -222,20 +226,18 @@ class WhatsAppChannel(BaseChannel):
                 _cfg = load_config()
                 _rb = _cfg.channels.reachy_bridge
                 if _rb.enabled:
-                    from nanobot.channels.reachy_bridge import handle_reachy_command, enrich_via_bridge
+                    from nanobot.channels.reachy_bridge import handle_reachy_command
                     reachy_resp = await handle_reachy_command(content, _rb)
                     if reachy_resp:
                         logger.info("Reachy command intercepted: {}", content[:40])
                         if self._ws and self._connected:
                             await self._ws.send(json.dumps({"type": "send", "to": sender, "text": reachy_resp}))
                         return
-                    enrichment = await enrich_via_bridge(content, phone_number, _rb)
-                    content = enrichment + content if enrichment else content
 
                 await self._handle_message(
                     sender_id=phone_number,
                     chat_id=sender,
-                    content=content,
+                    content=content or "[Image]",
                     media=media if media else None,
                     metadata={
                         "message_id": data.get("id"),
