@@ -131,8 +131,9 @@ if nanobot_env_name and not nanobot_env_name.startswith("REPLACE"):
     set_nested(cfg, "runtime.environment_name", nanobot_env_name)
     print(f"  runtime environment set ({nanobot_env_name})")
 
-set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
-print("  agent model: google/gemini-3-flash-preview")
+if not cfg.get("agents", {}).get("defaults", {}).get("model"):
+    set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
+    print("  agent model: google/gemini-3-flash-preview (default)")
 
 set_nested(cfg, "ssl_verify", False)
 print("  ssl_verify: False (bypass corporate proxy cert)")
