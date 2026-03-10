@@ -14,7 +14,7 @@ lines = [f"BRIDGE_TOKEN={token}"]
 secrets_path = Path("/tmp/nanobot_secrets.json")
 if secrets_path.exists():
     secrets = json.loads(secrets_path.read_text())
-    reachy_enabled = secrets.get("REACHY_BRIDGE_ENABLED", "false")
+    reachy_enabled = secrets.get("REACHY_BRIDGE_ENABLED", "") or "false"
     bridge_secret = secrets.get("BRIDGE_SECRET", "")
     lines.append(f"REACHY_BRIDGE_ENABLED={reachy_enabled}")
     lines.append(f"BRIDGE_SECRET={bridge_secret}")
