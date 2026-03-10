@@ -203,8 +203,13 @@ export class ReachyBridgeServer {
       ws.on('message', (data) => {
         try {
           const msg = JSON.parse(data.toString());
-          if (msg.type === 'message' && msg.content) parts.push(msg.content);
-          if (msg.type === 'done') { clearTimeout(timer); ws.close(); resolve(parts.join('').trim()); }
+          if (msg.type === 'message' && msg.content) {
+            parts.push(msg.content);
+            // Resolve immediately on first message — don't wait for 'done' (90s delay)
+            clearTimeout(timer);
+            ws.close();
+            resolve(parts.join('').trim());
+          }
         } catch { /* ignore non-JSON */ }
       });
       ws.once('error', (e) => { clearTimeout(timer); reject(e); });
