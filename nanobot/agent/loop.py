@@ -25,6 +25,7 @@ from nanobot.agent.tools.reddit import RedditSearchTool
 from nanobot.agent.tools.screenshot_pages import ScreenshotPagesTool
 from nanobot.agent.tools.plan_task import PlanTaskTool
 from nanobot.agent.tools.trustpilot import TrustpilotSearchTool
+from nanobot.agent.tools.reachy_status import ReachyStatusTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.agent.tools.yelp import YelpSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -137,6 +138,8 @@ class AgentLoop:
         self.tools.register(RedditSearchTool())
         self.tools.register(TrustpilotSearchTool())
         self.tools.register(YelpSearchTool(api_key=self.yelp_api_key))
+        if getattr(getattr(self.config.channels, 'reachy_bridge', None), 'enabled', False):
+            self.tools.register(ReachyStatusTool())
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         screenshots_dir = str(self.workspace / "screenshots")
