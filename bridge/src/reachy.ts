@@ -195,7 +195,7 @@ export class ReachyBridgeServer {
     const reply = await new Promise<string>((resolve, reject) => {
       const ws = new WebSocket(this._gatewayUrl);
       const parts: string[] = [];
-      const timer = setTimeout(() => { ws.terminate(); reject(new Error('gateway timeout')); }, 60000);
+      const timer = setTimeout(() => { ws.close(); resolve(parts.join('').trim()); }, 120000);
       ws.once('open', () => {
         ws.send(JSON.stringify({ session_id: sessionId, content }));
         console.log(`🤖 Reachy feedback → gateway: ${content.slice(0, 60)}`);
@@ -203,15 +203,11 @@ export class ReachyBridgeServer {
       ws.on('message', (data) => {
         try {
           const msg = JSON.parse(data.toString());
-          if (msg.type === 'message' && msg.content) {
-            parts.push(msg.content);
-            // Resolve immediately on first message — don't wait for 'done' (90s delay)
-            clearTimeout(timer);
-            ws.close();
-            resolve(parts.join('').trim());
-          }
+          if (msg.type === 'message' && msg.content) parts.push(msg.content);
+          if (msg.type === 'done') { clearTimeout(timer); ws.close(); resolve(parts.join('').trim()); }
         } catch { /* ignore non-JSON */ }
       });
+      ws.once('close', () => { clearTimeout(timer); resolve(parts.join('').trim()); });
       ws.once('error', (e) => { clearTimeout(timer); reject(e); });
     });
     if (reply) {
