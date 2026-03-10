@@ -120,6 +120,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
 .wa-thread-header {
@@ -314,4 +315,30 @@
 .wa-compose-send:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* ── Twemoji ── */
+.wa-bubble img.emoji {
+  height: 1.2em;
+  width: 1.2em;
+  vertical-align: -0.2em;
+  display: inline;
+}
+
+/* ── Emoji picker ── */
+.wa-emoji-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.wa-emoji-picker {
+  position: absolute;
+  bottom: 60px;
+  left: 16px;
+  z-index: 100;
 }

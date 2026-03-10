@@ -73,6 +73,8 @@ services:
       - NANOBOT_HOME=/root/.nanobot
       - DB_PATH=/root/.nanobot/chat.db
       - DOCKER_API_VERSION=1.43   # Match host daemon so docker CLI can restart containers
+      - BRIDGE_WS_URL=ws://nanobot-whatsapp-bridge:3002
+      - BRIDGE_TOKEN=${BRIDGE_TOKEN:-}
     depends_on:
       - nanobot-gateway
 

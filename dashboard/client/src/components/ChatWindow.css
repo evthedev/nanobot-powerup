@@ -439,3 +439,36 @@
   background: var(--bg-elevated);
   color: var(--text-primary);
 }
+
+/* ── Twemoji ── */
+.message-bubble img.emoji {
+  height: 1.2em;
+  width: 1.2em;
+  vertical-align: -0.2em;
+  display: inline;
+}
+
+/* ── Emoji picker ── */
+.chat-emoji-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 2px;
+  flex-shrink: 0;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.chat-emoji-btn:hover { color: var(--text-primary); }
+
+.chat-input-area {
+  position: relative;
+}
+
+.chat-emoji-picker {
+  position: absolute;
+  bottom: 80px;
+  left: 20px;
+  z-index: 100;
+}

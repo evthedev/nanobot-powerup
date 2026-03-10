@@ -1024,6 +1024,49 @@ app.get('/api/telegram/stream', (req, res) => {
   });
 });
 
+// ── WhatsApp bridge send connection ────────────────────────────────────────
+const BRIDGE_WS_URL = process.env.BRIDGE_WS_URL || 'ws://nanobot-whatsapp-bridge:3002';
+const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || '';
+let bridgeWs = null;
+
+function getBridgeWs() {
+  if (bridgeWs && bridgeWs.readyState === WebSocket.OPEN) return bridgeWs;
+  bridgeWs = new WebSocket(BRIDGE_WS_URL);
+  bridgeWs.on('open', () => {
+    if (BRIDGE_TOKEN) bridgeWs.send(JSON.stringify({ type: 'auth', token: BRIDGE_TOKEN }));
+    serverLog('INFO', 'whatsapp-bridge', 'connected to bridge');
+  });
+  bridgeWs.on('error', (e) => serverLog('ERROR', 'whatsapp-bridge', e.message));
+  bridgeWs.on('close', () => { bridgeWs = null; });
+  return bridgeWs;
+}
+
+// POST /api/whatsapp/send — send a message via the bridge as the agent
+app.post('/api/whatsapp/send', (req, res) => {
+  const { chat_id, text } = req.body || {};
+  if (!chat_id || !text) return res.status(400).json({ error: 'chat_id and text required' });
+  try {
+    const ws = getBridgeWs();
+    // Wait for open if still connecting, then send
+    function doSend() {
+      ws.send(JSON.stringify({ type: 'send', to: chat_id, text }));
+      db.prepare(
+        'INSERT INTO whatsapp_messages (direction, chat_id, phone_number, content) VALUES (?,?,?,?)'
+      ).run('outbound', chat_id, chat_id.split('@')[0], text);
+      res.json({ ok: true });
+    }
+    if (ws.readyState === WebSocket.OPEN) {
+      doSend();
+    } else {
+      ws.once('open', doSend);
+      ws.once('error', (e) => res.status(500).json({ error: e.message }));
+    }
+  } catch (e) {
+    serverLog('ERROR', 'whatsapp-send', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── WhatsApp history/stream ──────────────────────────────────────────────────
 
 // GET /api/whatsapp/messages — recent message history

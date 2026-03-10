@@ -1,7 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import EmojiPicker from 'emoji-picker-react';
+import twemoji from 'twemoji';
 import './WhatsAppView.css';
+
+function Twemoji({ text }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) twemoji.parse(ref.current, { folder: 'svg', ext: '.svg' });
+  });
+  return <span ref={ref}>{text}</span>;
+}
 
 const API = process.env.REACT_APP_API_URL || '';
 
@@ -20,6 +30,9 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
   const [selectedChat, setSelectedChat] = useState(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const pickerRef = useRef(null);
+  const textareaRef = useRef(null);
   const messagesEndRef = useRef(null);
   const lastIdRef = useRef(0);
 
@@ -90,6 +103,52 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
   function onKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   }
+
+  async function handlePaste(e) {
+    const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+    if (!item) return;
+    e.preventDefault();
+    const file = item.getAsFile();
+    setSending(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`${API}/api/upload`, { method: 'POST', body: form });
+      if (!res.ok) throw new Error('Upload failed');
+      const { url } = await res.json();
+      const text = `![image](${url})`;
+      const now = new Date().toISOString();
+      await fetch(`${API}/api/whatsapp/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: selectedChat, text }),
+      });
+      setMessages(prev => [...prev, {
+        id: Date.now(), direction: 'outbound', chat_id: selectedChat,
+        phone_number: '', content: text, created_at: now,
+      }]);
+    } catch (err) {
+      alert(`Paste upload failed: ${err.message}`);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function onEmojiClick({ emoji }) {
+    const ta = textareaRef.current;
+    const start = ta.selectionStart;
+    setDraft(d => d.slice(0, start) + emoji + d.slice(ta.selectionEnd));
+    setShowPicker(false);
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(start + emoji.length, start + emoji.length); }, 0);
+  }
+
+  // Close picker on outside click
+  useEffect(() => {
+    if (!showPicker) return;
+    function handler(e) { if (pickerRef.current && !pickerRef.current.contains(e.target)) setShowPicker(false); }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showPicker]);
 
   function formatTime(dateStr) {
     try {
@@ -180,7 +239,7 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
                     <div className="wa-message-body">
                       <div className="wa-sender-name">{msg.phone_number || msg.chat_id}</div>
                       <div className="wa-bubble">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ p: ({children}) => <p><Twemoji text={children} /></p> }}>{msg.content}</ReactMarkdown>
                       </div>
                       <div className="wa-time">{formatTime(msg.created_at)}</div>
                     </div>
@@ -189,12 +248,20 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
                 <div ref={messagesEndRef} />
               </div>
               <div className="wa-compose">
+                {showPicker && (
+                  <div className="wa-emoji-picker" ref={pickerRef}>
+                    <EmojiPicker onEmojiClick={onEmojiClick} skinTonesDisabled height={380} />
+                  </div>
+                )}
+                <button className="wa-emoji-btn" onClick={() => setShowPicker(p => !p)}>😊</button>
                 <textarea
+                  ref={textareaRef}
                   className="wa-compose-input"
                   placeholder="Reply as agent…"
                   value={draft}
                   onChange={e => setDraft(e.target.value)}
                   onKeyDown={onKeyDown}
+                  onPaste={handlePaste}
                   rows={1}
                 />
                 <button className="wa-compose-send" onClick={sendMessage} disabled={sending || !draft.trim()}>
