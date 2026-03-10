@@ -192,17 +192,27 @@ export class ReachyBridgeServer {
 
   private async _forwardToGateway(content: string): Promise<void> {
     const sessionId = `reachy-${randomUUID()}`;
-    await new Promise<void>((resolve, reject) => {
+    const reply = await new Promise<string>((resolve, reject) => {
       const ws = new WebSocket(this._gatewayUrl);
+      const parts: string[] = [];
+      const timer = setTimeout(() => { ws.terminate(); reject(new Error('gateway timeout')); }, 60000);
       ws.once('open', () => {
         ws.send(JSON.stringify({ session_id: sessionId, content }));
         console.log(`🤖 Reachy feedback → gateway: ${content.slice(0, 60)}`);
-        ws.close();
-        resolve();
       });
-      ws.once('error', reject);
-      setTimeout(() => { ws.terminate(); reject(new Error('gateway timeout')); }, 10000);
+      ws.on('message', (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'message' && msg.content) parts.push(msg.content);
+          if (msg.type === 'done') { clearTimeout(timer); ws.close(); resolve(parts.join('').trim()); }
+        } catch { /* ignore non-JSON */ }
+      });
+      ws.once('error', (e) => { clearTimeout(timer); reject(e); });
     });
+    if (reply) {
+      this._pendingCommands.push({ command: `reply:${reply}`, queued_at: Date.now() / 1000 });
+      console.log(`🤖 Reachy reply queued (${reply.length} chars)`);
+    }
   }
 
   private _handleStatus(res: ServerResponse): void {
