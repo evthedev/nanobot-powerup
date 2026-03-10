@@ -233,12 +233,18 @@ class AgentLoop:
 
             if response.usage:
                 u = response.usage
+                _media_count = sum(
+                    1 for m in messages
+                    if isinstance(m.get("content"), list)
+                    and any(p.get("type") == "image_url" for p in m["content"])
+                )
                 logger.info(
-                    "LLM usage | model={} tokens_in={} tokens_out={} total={}",
+                    "LLM usage | model={} tokens_in={} tokens_out={} total={}{}",
                     self.model,
                     u.get("prompt_tokens", 0),
                     u.get("completion_tokens", 0),
                     u.get("total_tokens", 0),
+                    f" [media={_media_count}]" if _media_count else " [no media]",
                 )
 
             if response.has_tool_calls:
@@ -541,7 +547,8 @@ class AgentLoop:
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
 
-        logger.info(">>> INBOUND [{}:{}]: {}", msg.channel, msg.sender_id, msg.content)
+        logger.info(">>> INBOUND [{}:{}]: {} {}", msg.channel, msg.sender_id, msg.content,
+                    f"[media={len(msg.media)}]" if msg.media else "[no media]")
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)

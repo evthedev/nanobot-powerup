@@ -239,6 +239,89 @@
   border-radius: 10px;
 }
 
+/* Attachment strip above input */
+.chat-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 0 10px;
+}
+
+.chat-attachment-thumb {
+  position: relative;
+  border-radius: var(--radius-sm);
+  overflow: visible;
+  border: 1px solid var(--border-medium);
+  background: var(--bg-elevated);
+}
+
+.chat-attachment-thumb img {
+  display: block;
+  height: 72px;
+  width: auto;
+  max-width: 120px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.attachment-video-label {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  height: 72px;
+}
+
+.attachment-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: var(--error, #f87171);
+  color: #fff;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+}
+
+/* Paperclip attach button */
+.chat-attach-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color var(--transition-fast);
+}
+
+.chat-attach-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.chat-attach-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chat-attach-btn.uploading {
+  cursor: wait;
+}
+
 /* Input area */
 .chat-input-area {
   padding: 16px 20px;

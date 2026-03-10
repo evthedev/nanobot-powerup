@@ -147,7 +147,11 @@ export class WhatsAppClient {
         let media: string[] | undefined;
         if (direction === 'inbound') {
           const paths = await this.downloadMediaToFile(msg);
-          if (paths?.length) media = paths;
+          if (paths?.length) {
+            media = paths;
+          } else if (content.startsWith('[Image]') || content.startsWith('[Video]')) {
+            console.warn(`WhatsApp bridge: media download returned null for ${msg.key.id} (contentType=${getContentType(msg.message)}) — agent will receive text only`);
+          }
         }
 
         this.options.onMessage({
@@ -236,10 +240,6 @@ export class WhatsAppClient {
         msgForDownload,
         'buffer',
         {},
-        {
-          logger: pino({ level: 'silent' }),
-          reuploadRequest: this.sock.updateMediaMessage,
-        }
       );
       if (!buffer || !Buffer.isBuffer(buffer)) return null;
 
@@ -249,10 +249,9 @@ export class WhatsAppClient {
 
       let ext = '.jpg';
       try {
-        ext = extensionForMediaMessage(msg.message) || ext;
+        ext = extensionForMediaMessage(unwrapped) || ext;
         if (!ext.startsWith('.')) ext = '.' + ext;
       } catch {
-        // keep .jpg for image, .mp4 for video fallback
         if (contentType === VIDEO_MESSAGE) ext = '.mp4';
       }
 
@@ -260,6 +259,7 @@ export class WhatsAppClient {
       const filename = `wa_${safeId}_${Date.now()}${ext}`;
       const filePath = join(MEDIA_DIR, filename);
       writeFileSync(filePath, buffer);
+      console.log(`WhatsApp bridge: saved media to ${filePath} (${buffer.length} bytes)`);
       return [filePath];
     } catch (err) {
       console.error('WhatsApp bridge: failed to download media:', err);

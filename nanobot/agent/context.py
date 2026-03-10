@@ -163,6 +163,9 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
             p = Path(path)
             mime, _ = mimetypes.guess_type(path)
             if not p.is_file() or not mime or not mime.startswith("image/"):
+                from loguru import logger
+                logger.warning("media path skipped (not a file or unsupported mime): {} [exists={}, mime={}]",
+                               path, p.exists(), mime)
                 continue
             b64 = base64.b64encode(p.read_bytes()).decode()
             images.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})

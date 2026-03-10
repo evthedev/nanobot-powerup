@@ -27,6 +27,8 @@ function ChatImg({ src, alt, onLightbox }) {
   );
 }
 
+const API_BASE = process.env.REACT_APP_API_URL || '';
+
 export default function ChatWindow({
   conversation,
   messages,
@@ -36,10 +38,13 @@ export default function ChatWindow({
   onToggleSidebar,
   sidebarOpen,
 }) {
-  const [input, setInput]       = useState('');
+  const [input, setInput]             = useState('');
+  const [attachments, setAttachments] = useState([]); // [{ url, filename, type }]
+  const [uploading, setUploading]     = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState(null);
-  const bottomRef               = useRef(null);
-  const textareaRef             = useRef(null);
+  const bottomRef                     = useRef(null);
+  const textareaRef                   = useRef(null);
+  const fileInputRef                  = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -52,14 +57,42 @@ export default function ChatWindow({
     }
   }
 
+  async function handleFileChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`${API_BASE}/api/upload`, { method: 'POST', body: form });
+      if (!res.ok) throw new Error((await res.json()).error || 'Upload failed');
+      const data = await res.json();
+      setAttachments(prev => [...prev, data]);
+    } catch (err) {
+      alert(`Upload failed: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function removeAttachment(filename) {
+    setAttachments(prev => prev.filter(a => a.filename !== filename));
+  }
+
   function handleSend() {
     const text = input.trim();
-    if (!text || streaming) return;
+    if ((!text && attachments.length === 0) || streaming) return;
+    // Append image markdown for each attachment
+    const imageMarkdown = attachments
+      .filter(a => a.type === 'image')
+      .map(a => `\n![image](${a.url})`)
+      .join('');
+    const fullContent = text + imageMarkdown;
     setInput('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
-    onSend(text);
+    setAttachments([]);
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    onSend(fullContent);
   }
 
   function autoResize() {
@@ -140,7 +173,35 @@ export default function ChatWindow({
 
       {/* Input */}
       <div className="chat-input-area">
+        {attachments.length > 0 && (
+          <div className="chat-attachments">
+            {attachments.map(a => (
+              <div key={a.filename} className="chat-attachment-thumb">
+                {a.type === 'image' && (
+                  <img src={`${window.location.origin}${a.url}`} alt="attachment" />
+                )}
+                {a.type === 'video' && <span className="attachment-video-label">🎬 {a.filename}</span>}
+                <button className="attachment-remove" onClick={() => removeAttachment(a.filename)}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="chat-input-wrap">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={handleFileChange}
+          />
+          <button
+            className={`chat-attach-btn ${uploading ? 'uploading' : ''}`}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={streaming || uploading}
+            title="Attach image"
+          >
+            {uploading ? <span className="send-spinner" /> : '📎'}
+          </button>
           <textarea
             ref={textareaRef}
             className="chat-textarea"
@@ -152,9 +213,9 @@ export default function ChatWindow({
             disabled={streaming}
           />
           <button
-            className={`chat-send-btn ${input.trim() && !streaming ? 'active' : ''}`}
+            className={`chat-send-btn ${(input.trim() || attachments.length > 0) && !streaming ? 'active' : ''}`}
             onClick={handleSend}
-            disabled={!input.trim() || streaming}
+            disabled={(!input.trim() && attachments.length === 0) || streaming}
             title="Send (Enter)"
           >
             {streaming ? <span className="send-spinner" /> : '↑'}

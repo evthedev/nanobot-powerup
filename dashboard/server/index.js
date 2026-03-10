@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const WebSocket = require('ws');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -104,6 +105,43 @@ if (fs.existsSync(CLIENT_BUILD)) {
 // Serve agent-captured screenshots
 const SCREENSHOTS_DIR = path.join(NANOBOT_HOME, 'workspace', 'screenshots');
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+
+// ─── File Upload (images; video reserved) ───────────────────────────────────
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+const ALLOWED_VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']); // reserved
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: SCREENSHOTS_DIR,
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname) || '.bin';
+      cb(null, `upload-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_IMAGE_TYPES.has(file.mimetype) || ALLOWED_VIDEO_TYPES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported file type: ${file.mimetype}`));
+    }
+  },
+});
+
+// POST /api/upload — returns { url, filename, type: 'image'|'video' }
+app.post('/api/upload', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file received' });
+  const type = ALLOWED_VIDEO_TYPES.has(req.file.mimetype) ? 'video' : 'image';
+  res.json({
+    url: `/api/screenshots/${req.file.filename}`,
+    filename: req.file.filename,
+    type,
+  });
+});
+
+app.use('/api/upload', (err, req, res, next) => {
+  res.status(400).json({ error: err.message });
+});
 // Fallback: agent embeds .png but screenshot_pages saves .jpg (and lowercases labels)
 app.use('/api/screenshots', (req, res, next) => {
   let requested = req.path.replace(/^\//, '');
