@@ -1,74 +1,38 @@
-# Edge Device Integration Guide
+# PicoClaw → Bridge Integration
 
-How to connect a picoclaw-powered edge device (e.g. Reachy Mini) to nanobot via the Reachy bridge.
+Connect your PicoClaw-powered edge device (e.g. Reachy Mini) to the nanobot Reachy bridge. The bridge queues commands from Shantelle; your device polls to pick them up.
+
+---
+
+## Prerequisites
+
+Get these from whoever runs the bridge (your deploy operator):
+
+| Variable | Description |
+|----------|-------------|
+| `BRIDGE_URL` | Full base URL including scheme and path (e.g. `https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com/picoclaw`) |
+| `BRIDGE_SECRET` | Shared secret for HMAC signing. Must match the bridge's `BRIDGE_SECRET`. |
+
+---
 
 ## Architecture
 
 ```
-Boss (WhatsApp)
-    │ "wake up reachy"
-    ▼
-Shantelle (nanobot on EC2)
-    │ POST localhost:18790/api/dashboard/command
-    ▼
-nanobot-bridge (HTTP :18790 on EC2)
-    │ queues {command: "wake"} in memory
-    ▼
-PicoClaw on Reachy (polls every ~30s)
-    │ POST https://<ec2-host>:18790/api/sync  ← HMAC-signed
-    ▼
-Reachy hardware
+Boss (WhatsApp) → Shantelle → Bridge (queues commands)
+                                    ▲
+PicoClaw (polls every ~30s) ────────┘  POST <BRIDGE_URL>/api/sync
 ```
 
-Communication is **polling, not push**. Shantelle never talks directly to Reachy. She queues commands into the bridge's in-memory list. PicoClaw polls `/api/sync` to pick them up.
+Communication is **polling, not push**. Your device POSTs to `/api/sync` every ~30 seconds to report status and receive pending commands.
 
 ---
 
-## Server-side Setup (EC2 / nanobot host)
-
-### 1. Enable the Reachy bridge in nanobot config
-
-```json
-{
-  "channels": {
-    "reachyBridge": {
-      "enabled": true,
-      "url": "http://localhost:18790",
-      "secret": "<BRIDGE_SECRET>"
-    }
-  }
-}
-```
-
-### 2. Start the bridge with Reachy enabled
-
-```bash
-REACHY_BRIDGE_ENABLED=true \
-BRIDGE_SECRET=<BRIDGE_SECRET> \
-REACHY_BRIDGE_PORT=18790 \
-npm start
-```
-
-Port 18790 must be externally accessible (open in EC2 security group) for PicoClaw to reach it. The WhatsApp WS bridge runs on a separate port (default 3001) and is unaffected.
-
-### 3. Restart nanobot
-
-```bash
-sudo systemctl restart nanobot
-```
-
-Shantelle will now intercept WhatsApp messages matching Reachy commands (`wake up reachy`, `sleep reachy`, `restart reachy`, `reachy status`) and route them to the bridge instead of the LLM.
-
----
-
-## PicoClaw Integration (edge device)
-
-### Sync cycle
+## Sync cycle
 
 Every ~30 seconds, POST to the bridge:
 
 ```
-POST https://<ec2-host>:18790/api/sync
+POST <BRIDGE_URL>/api/sync
 Content-Type: application/json
 X-Bridge-Signature: <hmac-sha256-hex>
 ```
@@ -88,7 +52,7 @@ X-Bridge-Signature: <hmac-sha256-hex>
 }
 ```
 
-All fields are optional. Only `reachy_status` is used by the bridge currently — the rest are reserved for future KG/memory sync.
+All fields are optional. Only `reachy_status` is used by the bridge currently.
 
 **Response:**
 ```json
@@ -101,11 +65,13 @@ All fields are optional. Only `reachy_status` is used by the bridge currently �
 }
 ```
 
-`pending_commands` is drained on each sync — commands are delivered exactly once. Execute each command in order, then wait for the next sync cycle.
+`pending_commands` is drained on each sync — commands are delivered exactly once. Execute each in order, then wait for the next cycle.
 
-### HMAC signing
+---
 
-Every request to `/api/sync` and `/api/enrich` must include `X-Bridge-Signature`:
+## HMAC signing
+
+Every request must include `X-Bridge-Signature`:
 
 ```python
 import hashlib, hmac, json
@@ -118,9 +84,11 @@ headers = {
 }
 ```
 
-Requests with a missing or invalid signature receive `401 Unauthorized`.
+Missing or invalid signature → `401 Unauthorized`.
 
-### Commands
+---
+
+## Commands
 
 | `command` | Meaning |
 |-----------|---------|
@@ -128,17 +96,19 @@ Requests with a missing or invalid signature receive `401 Unauthorized`.
 | `sleep` | Power off / enter sleep mode |
 | `restart_app` | Restart the conversation app only |
 
-Unknown commands should be logged and ignored — new commands may be added without a version bump.
+Log and ignore unknown commands.
 
-### Minimal PicoClaw sync loop (Python)
+---
+
+## Minimal sync loop (Python)
 
 ```python
-import hashlib, hmac, json, time
+import hashlib, hmac, json, time, os
 import requests
 
-BRIDGE_URL = "https://<ec2-host>:18790"
-BRIDGE_SECRET = "<BRIDGE_SECRET>"
-SYNC_INTERVAL = 30  # seconds
+BRIDGE_URL = os.environ.get("BRIDGE_URL", "")   # e.g. https://ec2-xxx.compute.amazonaws.com/picoclaw
+BRIDGE_SECRET = os.environ.get("BRIDGE_SECRET", "")  # from operator
+SYNC_INTERVAL = 30
 
 
 def signed_post(path: str, payload: dict) -> dict:
@@ -155,7 +125,6 @@ def signed_post(path: str, payload: dict) -> dict:
 
 
 def get_reachy_status() -> dict:
-    # Replace with real hardware queries
     return {"daemon": "running", "conversation_app": "running", "picoclaw": "1.0.0"}
 
 
@@ -172,9 +141,7 @@ def execute_command(command: str) -> None:
 
 while True:
     try:
-        result = signed_post("/api/sync", {
-            "reachy_status": get_reachy_status(),
-        })
+        result = signed_post("/api/sync", {"reachy_status": get_reachy_status()})
         for cmd in result.get("pending_commands", []):
             execute_command(cmd["command"])
     except Exception as e:
@@ -184,24 +151,11 @@ while True:
 
 ---
 
-## Checking Reachy status from WhatsApp
-
-Send any of these to Shantelle:
-
-- `reachy status`
-- `check reachy`
-- `is reachy running`
-
-She queries `GET localhost:18790/api/dashboard/status` and returns the cached state from the last sync. If the last sync was more than 10 minutes ago, she reports Reachy as likely offline.
-
----
-
 ## Troubleshooting
 
 | Symptom | Check |
 |---------|-------|
-| `401 Unauthorized` on `/api/sync` | `BRIDGE_SECRET` mismatch between bridge and PicoClaw |
-| Commands never arrive | Bridge not started with `REACHY_BRIDGE_ENABLED=true` |
-| Shantelle doesn't intercept "wake up reachy" | `channels.reachyBridge.enabled` not set in nanobot config, or nanobot not restarted |
-| Status shows "unknown" | PicoClaw hasn't completed a sync yet, or `reachy_status` not included in sync payload |
-| Port 18790 unreachable | EC2 security group missing inbound rule for TCP 18790 |
+| `401 Unauthorized` | `BRIDGE_SECRET` mismatch — confirm with operator |
+| Connection refused / timeout | `BRIDGE_URL` wrong or unreachable — ask operator |
+| Status shows "unknown" | Include `reachy_status` in your sync payload |
+| Commands never arrive | Bridge may not be enabled — ask operator to verify |

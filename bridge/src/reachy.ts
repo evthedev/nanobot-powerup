@@ -5,7 +5,6 @@
  *   POST /api/sync              — Reachy polls this (HMAC-signed, external)
  *   POST /api/dashboard/command — Shantelle queues commands (localhost only)
  *   GET  /api/dashboard/status  — Shantelle reads cached Reachy state
- *   POST /api/enrich            — Bridge KG/RAG enrichment (HMAC-signed)
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
@@ -27,11 +26,14 @@ interface SyncPayload {
   pending_facts?: unknown[];
   pending_feedback?: unknown[];
   local_memory?: unknown;
+  memory?: unknown;
+  knowledge_since?: number;
 }
 
 export class ReachyBridgeServer {
   private _pendingCommands: { command: string; queued_at: number }[] = [];
   private _lastStatus: ReachyStatus = { daemon: 'unknown', conversation_app: 'unknown', picoclaw: 'unknown', last_seen: 0 };
+  private _localMemory: Record<string, unknown> = {};
   private _server: ReturnType<typeof createServer> | null = null;
   private _db: InstanceType<typeof Database>;
 
@@ -73,8 +75,6 @@ export class ReachyBridgeServer {
         await this._handleCommand(req, res);
       } else if (method === 'GET' && url === '/api/dashboard/status') {
         this._handleStatus(res);
-      } else if (method === 'POST' && url === '/api/enrich') {
-        await this._handleEnrich(req, res);
       } else {
         res.writeHead(404).end();
       }
@@ -118,6 +118,11 @@ export class ReachyBridgeServer {
 
     const payload: SyncPayload = JSON.parse(body.toString());
 
+    // Merge memory from PicoClaw (original bridge design)
+    if (payload.memory && typeof payload.memory === 'object') {
+      this._localMemory = { ...this._localMemory, ...payload.memory as Record<string, unknown> };
+    }
+
     // Cache Reachy status
     if (payload.reachy_status) {
       this._lastStatus = {
@@ -147,17 +152,26 @@ export class ReachyBridgeServer {
       ).run('outbound', 'commands', JSON.stringify({ commands }));
     }
 
+    // Response shape matches original nanobot-bridge for PicoClaw compatibility
     this._json(res, 200, {
+      status: 'synced',
+      local_memory: this._localMemory,
       pending_commands: commands,
       knowledge_update: [],
       trust_config: {},
     });
   }
 
+  private static readonly ALLOWED_COMMANDS = new Set(['wake', 'sleep', 'restart_app', 'restart_picoclaw', 'set_volume']);
+
   private async _handleCommand(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const body = await this._readBody(req);
     const { command } = JSON.parse(body.toString());
     if (!command) { res.writeHead(400).end('missing command'); return; }
+    if (!ReachyBridgeServer.ALLOWED_COMMANDS.has(String(command))) {
+      this._json(res, 400, { error: `Unknown command: ${command}` });
+      return;
+    }
     this._pendingCommands.push({ command, queued_at: Date.now() / 1000 });
     console.log(`🤖 Reachy command queued: ${command}`);
     this._json(res, 200, { queued: true });
@@ -165,16 +179,5 @@ export class ReachyBridgeServer {
 
   private _handleStatus(res: ServerResponse): void {
     this._json(res, 200, { reachy: this._lastStatus });
-  }
-
-  private async _handleEnrich(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const body = await this._readBody(req);
-    const sig = (req.headers['x-bridge-signature'] as string) ?? '';
-    if (!this._verifyHmac(body, sig)) {
-      res.writeHead(401).end('Unauthorized');
-      return;
-    }
-    // Stub — extend with real KG/RAG lookup as needed
-    this._json(res, 200, { knowledge_context: '', truth_context: '', contact_facts: [] });
   }
 }

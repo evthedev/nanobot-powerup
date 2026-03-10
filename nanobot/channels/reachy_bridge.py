@@ -1,4 +1,4 @@
-"""Reachy bridge helpers — Reachy command interception and bridge enrichment.
+"""Reachy bridge helpers — Reachy command interception.
 
 Only active when channels.reachy_bridge.enabled = true. Imported optionally
 by whatsapp.py; no other channel needs to know about this.
@@ -6,8 +6,6 @@ by whatsapp.py; no other channel needs to know about this.
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import time
 
@@ -106,27 +104,3 @@ async def handle_reachy_command(message: str, cfg: ReachyBridgeConfig) -> str | 
     return None
 
 
-async def enrich_via_bridge(message: str, sender_id: str, cfg: ReachyBridgeConfig) -> str:
-    """Pre-enrich message via bridge KG/RAG. Returns context string to prepend, or ''."""
-    try:
-        payload = json.dumps({"message": message, "sender_id": sender_id}).encode()
-        sig = hmac.new(cfg.secret.encode(), payload, hashlib.sha256).hexdigest()
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{cfg.url}/api/enrich",
-                data=payload,
-                headers={"Content-Type": "application/json", "X-Bridge-Signature": sig},
-                timeout=aiohttp.ClientTimeout(total=3),
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    parts = []
-                    if kc := data.get("knowledge_context", ""):
-                        parts.append(kc)
-                    if tc := data.get("truth_context", ""):
-                        parts.append(f"[Truth-Seeking]\n{tc}\n[End Truth-Seeking]")
-                    return "\n".join(parts) + "\n" if parts else ""
-                logger.warning("Bridge enrich returned HTTP {}", resp.status)
-    except Exception as e:
-        logger.warning("Bridge enrichment failed (continuing without): {}", e)
-    return ""
