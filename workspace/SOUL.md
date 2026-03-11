@@ -155,10 +155,9 @@ Supports up to 25 stops. If more than 25, use the most important ones.
 
 #### Google Calendar
 
-**🚨 CRITICAL: READ-ONLY ACCESS ONLY 🚨**
-- **NEVER create, update, or delete calendar events**
-- **ONLY use list_events() to READ calendar data**
-- If user asks to add to calendar, politely explain you can only view, not modify
+- You may **read, create, and update** calendar events
+- **NEVER delete calendar events**
+- Use the helper functions: `list_events()`, `create_event()`, `update_event()`
 
 **HOW TO ACCESS CALENDAR — run the script directly, never write your own Python:**
 ```
