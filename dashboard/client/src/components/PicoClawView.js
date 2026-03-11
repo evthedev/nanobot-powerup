@@ -5,25 +5,20 @@ import './WhatsAppView.css';
 
 const API = process.env.REACT_APP_API_URL || '';
 
-const GUIDE_MD = `# PicoClaw → Bridge Integration Guide
+const GUIDE_MD = `# Edge Device Integration Guide
 
-Connect your PicoClaw-powered edge device to the nanobot AI agent via the Reachy bridge.
+Connect your edge device to the nanobot AI agent via the bridge.
 
 ---
 
 ## How it works
 
 \`\`\`
-Your device  ──POST /api/sync──►  Bridge  ──WebSocket──►  Agent (Shantelle)
-             ◄──pending_commands──          ◄──reply──
+HTTP:  device ──POST /api/devices/{id}/sync──► Bridge ──WS──► Agent
+                ◄──directives──
+
+WS:    device ══/api/devices/{id}/stream══► Bridge ──WS──► Agent (real-time)
 \`\`\`
-
-1. Your device POSTs to \`/api/sync\` every ~30 seconds
-2. Messages in \`pending_feedback\` are forwarded to the AI agent
-3. The agent's reply is returned as a \`reply:\` command on the **next** sync
-4. Your device reads the reply from \`pending_commands\` and speaks/displays it
-
-**\`pending_feedback\` is the primary way your device talks to the agent.**
 
 ---
 
@@ -32,60 +27,52 @@ Your device  ──POST /api/sync──►  Bridge  ──WebSocket──►  Ag
 | Variable | Example |
 |----------|---------|
 | \`BRIDGE_URL\` | \`https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com/picoclaw\` |
-| \`BRIDGE_SECRET\` | shared HMAC secret (get from operator) |
+| \`DEVICE_ID\` | \`reachy\` |
+| \`DEVICE_SECRET\` | per-device secret (get from operator) |
 
 ---
 
-## Sync request
+## HTTP Sync
 
 \`\`\`
-POST <BRIDGE_URL>/api/sync
+POST <BRIDGE_URL>/api/devices/<DEVICE_ID>/sync
 Content-Type: application/json
 X-Bridge-Signature: <hmac-sha256-hex>
 \`\`\`
 
 \`\`\`json
 {
-  "reachy_status": {
-    "daemon": "running",
-    "conversation_app": "running",
-    "picoclaw": "1.2.3"
-  },
-  "pending_feedback": [
-    "Good morning! What's on the agenda today?"
+  "status": {"daemon": "running", "firmware": "1.2.3"},
+  "telemetry": [
+    {"kind": "message", "content": "Good morning!"},
+    {"kind": "event",   "type": "motion_detected"}
   ]
 }
 \`\`\`
 
-| Field | Purpose |
-|-------|---------|
-| \`reachy_status\` | Device health shown in dashboard |
-| \`pending_feedback\` | **Messages to send to the agent.** Each string = one message. Use \`[]\` if nothing to say. |
-
----
-
-## Sync response
+Response:
 
 \`\`\`json
 {
-  "pending_commands": [
-    {"command": "reply:Good morning! You have physio at 10am.", "queued_at": 1718000000.0}
-  ]
+  "directives": [{"command": "reply:Good morning! Physio at 10am.", "queued_at": 0}],
+  "context": [{"source": "telegram", "summary": "Dinner at 7pm", "at": "..."}],
+  "poll_interval_seconds": 30
 }
 \`\`\`
 
-\`pending_commands\` is drained every sync — each command delivered exactly once.
+\`directives\` drained every sync. \`context\` = recent activity from other channels.
 
-| Command | What to do |
-|---------|------------|
-| \`reply:<text>\` | **Strip prefix, speak/display the text** |
-| \`wake\` | Wake hardware |
-| \`sleep\` | Sleep hardware |
+| Directive | Action |
+|-----------|--------|
+| \`reply:<text>\` | Speak/display the text |
+| \`wake\` / \`sleep\` | Power on/off |
 | \`restart_app\` | Restart conversation process |
+| \`capture_frame\` | Capture camera frame |
 
 \`\`\`python
-if command.startswith("reply:"):
-    speak(command[len("reply:"):])
+for d in result["directives"]:
+    if d["command"].startswith("reply:"):
+        speak(d["command"][len("reply:"):])
 \`\`\`
 
 ---
@@ -94,56 +81,33 @@ if command.startswith("reply:"):
 
 \`\`\`python
 import hashlib, hmac, json
-
 body = json.dumps(payload).encode()
-sig = hmac.new(BRIDGE_SECRET.encode(), body, hashlib.sha256).hexdigest()
+sig = hmac.new(DEVICE_SECRET.encode(), body, hashlib.sha256).hexdigest()
 headers = {"Content-Type": "application/json", "X-Bridge-Signature": sig}
 \`\`\`
 
 ---
 
-## Full example (Python)
+## WebSocket Stream (real-time)
 
-\`\`\`python
-import hashlib, hmac, json, time, os
-import requests
-
-BRIDGE_URL = os.environ["BRIDGE_URL"]
-BRIDGE_SECRET = os.environ["BRIDGE_SECRET"]
-_pending_feedback = []
-
-def signed_post(path, payload):
-    body = json.dumps(payload).encode()
-    sig = hmac.new(BRIDGE_SECRET.encode(), body, hashlib.sha256).hexdigest()
-    return requests.post(f"{BRIDGE_URL}{path}", data=body,
-        headers={"Content-Type": "application/json", "X-Bridge-Signature": sig},
-        timeout=15).json()
-
-while True:
-    try:
-        feedback, _pending_feedback[:] = _pending_feedback[:], []
-        result = signed_post("/api/sync", {
-            "reachy_status": {"daemon": "running", "conversation_app": "running", "picoclaw": "1.0.0"},
-            "pending_feedback": feedback,
-        })
-        for cmd in result.get("pending_commands", []):
-            if cmd["command"].startswith("reply:"):
-                speak(cmd["command"][len("reply:"):])
-            elif cmd["command"] == "wake":
-                wake_hardware()
-    except Exception as e:
-        print(f"Sync error: {e}")
-    time.sleep(30)
+\`\`\`
+WS <BRIDGE_URL>/api/devices/<DEVICE_ID>/stream
+Authorization: Bearer <DEVICE_SECRET>
 \`\`\`
 
-To send a message to the agent: \`_pending_feedback.append("user said: hello")\`
+Server sends \`hello\` on connect. Then:
 
----
+\`\`\`json
+{"type": "message.send", "id": "...", "ts": ..., "content": "hello"}
+\`\`\`
 
-## Timing
+Receive streaming deltas until \`done: true\`:
 
-- Sync every ~30s → end-to-end latency is **30–60s** (one cycle to send, next to receive)
-- Reduce \`SYNC_INTERVAL\` for faster responses (min ~10s)
+\`\`\`json
+{"type": "message.create", "content": "Hi there!", "done": true}
+\`\`\`
+
+Send \`{"type": "ping"}\` every 30s for keepalive.
 
 ---
 
@@ -151,11 +115,10 @@ To send a message to the agent: \`_pending_feedback.append("user said: hello")\`
 
 | Symptom | Fix |
 |---------|-----|
-| \`401 Unauthorized\` | \`BRIDGE_SECRET\` mismatch |
-| Connection refused | Wrong \`BRIDGE_URL\` |
-| Agent never replies | \`pending_feedback\` always empty — populate it |
-| Reply never arrives | Missing \`reply:\` handler — add it |
-| Duplicate syncs in dashboard | Two sync processes running — kill one |
+| \`401\` | \`DEVICE_SECRET\` mismatch |
+| \`directives\` empty | Include \`kind=message\` in telemetry |
+| WS closes instantly | Use \`Authorization: Bearer <secret>\` |
+| Context always empty | Populates from 2nd sync onward |
 `;
 
 function SyncRow({ row, onDelete }) {
@@ -215,41 +178,41 @@ export default function PicoClawView({ onToggleSidebar, sidebarOpen }) {
   }, []);
 
   const refreshStatus = useCallback(() => {
-    fetch(`${API}/api/picoclaw/status`)
+    fetch(`${API}/api/edge-sync/status`)
       .then(r => r.json())
       .then(s => { setStatus(s); setStatusLoaded(true); setQueue(s.pending_commands || []); })
       .catch(() => { setStatus({ enabled: false }); setStatusLoaded(true); });
   }, []);
 
   const clearLog = useCallback(async () => {
-    await fetch(`${API}/api/picoclaw/messages`, { method: 'DELETE' });
+    await fetch(`${API}/api/edge-sync/messages`, { method: 'DELETE' });
     setRows([]);
   }, []);
 
   const deleteRow = useCallback(async (id) => {
-    await fetch(`${API}/api/picoclaw/messages/${id}`, { method: 'DELETE' });
+    await fetch(`${API}/api/edge-sync/messages/${id}`, { method: 'DELETE' });
     setRows(prev => prev.filter(r => r.id !== id));
   }, []);
 
   const deleteQueueItem = useCallback(async (index) => {
-    await fetch(`${API}/api/picoclaw/queue/${index}`, { method: 'DELETE' });
+    await fetch(`${API}/api/edge-sync/queue/${index}`, { method: 'DELETE' });
     refreshStatus();
   }, [refreshStatus]);
 
   const clearQueue = useCallback(async () => {
-    await fetch(`${API}/api/picoclaw/queue`, { method: 'DELETE' });
+    await fetch(`${API}/api/edge-sync/queue`, { method: 'DELETE' });
     refreshStatus();
   }, [refreshStatus]);
 
   useEffect(() => {
-    fetch(`${API}/api/picoclaw/integration-guide`)
+    fetch(`${API}/api/edge-sync/integration-guide`)
       .then(r => r.ok ? r.text() : Promise.reject())
       .then(setGuide).catch(() => setGuide(GUIDE_MD));
 
     refreshStatus();
     const statusPoll = setInterval(refreshStatus, 5000);
 
-    fetch(`${API}/api/picoclaw/messages`)
+    fetch(`${API}/api/edge-sync/messages`)
       .then(r => r.json())
       .then(data => {
         setRows(data);
@@ -263,7 +226,7 @@ export default function PicoClawView({ onToggleSidebar, sidebarOpen }) {
   useEffect(() => { scrollToBottom(); }, [rows, scrollToBottom]);
 
   useEffect(() => {
-    const es = new EventSource(`${API}/api/picoclaw/stream?lastId=${lastIdRef.current}`);
+    const es = new EventSource(`${API}/api/edge-sync/stream?lastId=${lastIdRef.current}`);
     es.onopen = () => setLive(true);
     es.onerror = () => setLive(false);
     es.onmessage = (e) => {

@@ -183,15 +183,32 @@ class WebConfig(Base):
 
 
 class ReachyBridgeConfig(Base):
-    """Reachy robot bridge configuration.
+    """Reachy robot bridge configuration (legacy — use edge_devices instead)."""
 
-    Enables Reachy command interception in WhatsApp and bridge enrichment.
-    The bridge HTTP server runs separately (bridge/src/reachy.ts).
+    enabled: bool = False
+    url: str = "http://localhost:18790"
+    secret: str = ""
+
+
+class EdgeDeviceConfig(Base):
+    """Per-device configuration for the edge device bridge."""
+
+    enabled: bool = True
+    secret: str = ""  # HMAC-SHA256 secret for this device
+    poll_interval_seconds: int = 30  # Advisory poll interval returned in sync response
+    stream_mode: str | None = None  # None | "snapshot" | "trigger" | "interval" | "on_demand"
+
+
+class EdgeDevicesConfig(Base):
+    """Multi-device edge bridge configuration.
+
+    Each key is a device_id (e.g. "reachy", "front-door-cam").
+    The bridge HTTP server runs in bridge/src/edge_bridge.ts.
     """
 
     enabled: bool = False
-    url: str = "http://localhost:18790"  # Bridge HTTP server URL
-    secret: str = ""  # HMAC-SHA256 secret for signed requests
+    url: str = "http://nanobot-whatsapp-bridge:18790"  # Internal bridge URL
+    devices: dict[str, EdgeDeviceConfig] = Field(default_factory=dict)
 
 
 class ChannelsConfig(Base):
@@ -207,7 +224,8 @@ class ChannelsConfig(Base):
     slack: SlackConfig = Field(default_factory=SlackConfig)
     qq: QQConfig = Field(default_factory=QQConfig)
     web: WebConfig = Field(default_factory=WebConfig)
-    reachy_bridge: ReachyBridgeConfig = Field(default_factory=ReachyBridgeConfig)
+    reachy_bridge: ReachyBridgeConfig = Field(default_factory=ReachyBridgeConfig)  # legacy
+    edge_devices: EdgeDevicesConfig = Field(default_factory=EdgeDevicesConfig)
 
 
 class AgentDefaults(Base):

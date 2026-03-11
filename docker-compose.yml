@@ -3,9 +3,9 @@ x-nanobot-volume: &nanobot-volume
 
 services:
 
-  # ── WhatsApp bridge (Baileys) + optional Reachy/Picoclaw bridge (:18790) ─────
-  # Runs alongside gateway; Python connects via ws://nanobot-whatsapp-bridge:3002
-  # Set REACHY_BRIDGE_ENABLED=true (e.g. in .env.docker / GitHub env) to enable Reachy sync.
+  # ── Edge device bridge (:18790) + WhatsApp bridge (:3002) ─────────────────
+  # Edge bridge: multi-device registry, per-device queues, HTTP sync + WS stream.
+  # Device secrets are read from config.json — not env vars.
   nanobot-whatsapp-bridge:
     container_name: nanobot-whatsapp-bridge
     build:
@@ -25,9 +25,9 @@ services:
       - BRIDGE_HOST=0.0.0.0
       - BRIDGE_TOKEN=${BRIDGE_TOKEN:-}
       - AUTH_DIR=/root/.nanobot/whatsapp-auth
-      - REACHY_BRIDGE_ENABLED=${REACHY_BRIDGE_ENABLED:-false}
+      - EDGE_DEVICES_ENABLED=${EDGE_DEVICES_ENABLED:-false}
+      - REACHY_BRIDGE_ENABLED=${REACHY_BRIDGE_ENABLED:-false}  # legacy compat
       - REACHY_BRIDGE_PORT=18790
-      - BRIDGE_SECRET=${BRIDGE_SECRET:-}
       - DB_PATH=/root/.nanobot/chat.db
 
   # ── nanobot gateway ─────────────────────────────────────────────────────────

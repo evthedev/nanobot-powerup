@@ -44,6 +44,7 @@ bridge_token          = _get("BRIDGE_TOKEN")
 whatsapp_allow_from   = _get("WHATSAPP_ALLOW_FROM")
 reachy_bridge_enabled = _get("REACHY_BRIDGE_ENABLED").lower() in ("1", "true", "yes")
 bridge_secret         = _get("BRIDGE_SECRET")
+edge_devices_json     = _get("EDGE_DEVICES_JSON")  # optional JSON map of device configs
 google_client_id      = _get("GOOGLE_CLIENT_ID")
 google_client_secret  = _get("GOOGLE_CLIENT_SECRET")
 capsolver_api_key     = _get("CAPSOLVER_API_KEY")
@@ -97,7 +98,28 @@ if reachy_bridge_enabled:
     set_nested(cfg, "channels.reachyBridge.url", "http://nanobot-whatsapp-bridge:18790")
     if bridge_secret:
         set_nested(cfg, "channels.reachyBridge.secret", bridge_secret)
-    print("  reachy bridge enabled")
+    print("  reachy bridge enabled (legacy)")
+    # Also populate edge_devices.reachy for forward compat if not already set
+    if not cfg.get("channels", {}).get("edgeDevices", {}).get("devices", {}).get("reachy"):
+        set_nested(cfg, "channels.edgeDevices.enabled", True)
+        set_nested(cfg, "channels.edgeDevices.url", "http://nanobot-whatsapp-bridge:18790")
+        set_nested(cfg, "channels.edgeDevices.devices.reachy.enabled", True)
+        set_nested(cfg, "channels.edgeDevices.devices.reachy.secret", bridge_secret or "")
+        set_nested(cfg, "channels.edgeDevices.devices.reachy.pollIntervalSeconds", 30)
+        print("  edge_devices.reachy auto-populated from legacy reachy bridge config")
+
+if edge_devices_json and not edge_devices_json.startswith("REPLACE"):
+    import json as _json
+    try:
+        devices = _json.loads(edge_devices_json)
+        set_nested(cfg, "channels.edgeDevices.enabled", True)
+        set_nested(cfg, "channels.edgeDevices.url", "http://nanobot-whatsapp-bridge:18790")
+        for device_id, device_cfg in devices.items():
+            for k, v in device_cfg.items():
+                set_nested(cfg, f"channels.edgeDevices.devices.{device_id}.{k}", v)
+        print(f"  edge_devices configured: {list(devices.keys())}")
+    except Exception as e:
+        print(f"  WARNING: EDGE_DEVICES_JSON parse failed: {e}")
 
 if google_client_id and not google_client_id.startswith("REPLACE"):
     set_nested(cfg, "tools.google_calendar.clientId", google_client_id)

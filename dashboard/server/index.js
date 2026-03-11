@@ -88,6 +88,16 @@ db.exec(`
     content TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS activity_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    sender TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log (created_at);
 `);
 
 // ─── Middleware ─────────────────────────────────────────────────────────────
@@ -283,6 +293,10 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
     INSERT INTO messages (id, conversation_id, role, content, created_at)
     VALUES (?, ?, 'user', ?, ?)
   `).run(userMsgId, conversationId, content, now);
+  try {
+    db.prepare(`INSERT INTO activity_log (source, sender, content) VALUES ('web', 'web_user', ?)`) 
+      .run(content.slice(0, 500));
+  } catch (_) {}
 
   // Auto-title conversation if it's the first user message
   const msgCount = db.prepare(
@@ -368,6 +382,10 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
 
             // Commit to DB and send done immediately — no waiting for WS close
             saveAndFinish(msg.content, thisTempId);
+            try {
+              db.prepare(`INSERT INTO activity_log (source, sender, content) VALUES ('web', 'assistant', ?)`) 
+                .run(msg.content.slice(0, 500));
+            } catch (_) {}
           }
 
           if (msg.type === 'done') {
@@ -1124,23 +1142,23 @@ app.get('/api/whatsapp/stream', (req, res) => {
   });
 });
 
-// ── Reachy sync history ──────────────────────────────────────────────────────
+// ── Edge sync history ──────────────────────────────────────────────────────
 
-app.delete('/api/picoclaw/messages', (req, res) => {
+app.delete('/api/edge-sync/messages', (req, res) => {
   try {
     db.prepare('DELETE FROM reachy_sync_log').run();
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/picoclaw/messages/:id', (req, res) => {
+app.delete('/api/edge-sync/messages/:id', (req, res) => {
   try {
     db.prepare('DELETE FROM reachy_sync_log WHERE id = ?').run(req.params.id);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/picoclaw/messages', (req, res) => {
+app.get('/api/edge-sync/messages', (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit || '300', 10), 1000);
     const tableExists = db.prepare(
@@ -1154,7 +1172,7 @@ app.get('/api/picoclaw/messages', (req, res) => {
   } catch { res.json([]); }
 });
 
-app.get('/api/picoclaw/stream', (req, res) => {
+app.get('/api/edge-sync/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -1187,7 +1205,7 @@ app.get('/api/picoclaw/stream', (req, res) => {
   req.on('close', () => { clearInterval(heartbeat); clearInterval(poll); });
 });
 
-app.get('/api/picoclaw/status', (req, res) => {
+app.get('/api/edge-sync/status', (req, res) => {
   try {
     const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
@@ -1200,8 +1218,8 @@ app.get('/api/picoclaw/status', (req, res) => {
   } catch { res.json({ enabled: false }); }
 });
 
-// DELETE /api/picoclaw/queue/:index — remove one pending command by index
-app.delete('/api/picoclaw/queue/:index', async (req, res) => {
+// DELETE /api/edge-sync/queue/:index — remove one pending directive by index
+app.delete('/api/edge-sync/queue/:index', async (req, res) => {
   try {
     const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
@@ -1211,8 +1229,8 @@ app.delete('/api/picoclaw/queue/:index', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// DELETE /api/picoclaw/queue — clear all pending commands
-app.delete('/api/picoclaw/queue', async (req, res) => {
+// DELETE /api/edge-sync/queue — clear all pending directives
+app.delete('/api/edge-sync/queue', async (req, res) => {
   try {
     const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
@@ -1222,7 +1240,100 @@ app.delete('/api/picoclaw/queue', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/picoclaw/integration-guide', (req, res) => {
+// ── Edge devices proxy (new multi-device API) ───────────────────────────────
+
+function _bridgeUrl() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const ed = cfg?.channels?.edgeDevices || cfg?.channels?.edge_devices || {};
+    const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
+    return ed.url || rb.url || 'http://nanobot-whatsapp-bridge:18790';
+  } catch { return 'http://nanobot-whatsapp-bridge:18790'; }
+}
+
+app.get('/api/devices', async (req, res) => {
+  try {
+    const r = await fetch(`${_bridgeUrl()}/api/devices`);
+    res.status(r.status).json(await r.json());
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.post('/api/devices/:id/command', async (req, res) => {
+  try {
+    const r = await fetch(`${_bridgeUrl()}/api/devices/${req.params.id}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+    res.status(r.status).json(await r.json());
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.delete('/api/devices/:id/command/:idx', async (req, res) => {
+  try {
+    const r = await fetch(`${_bridgeUrl()}/api/devices/${req.params.id}/command/${req.params.idx}`, { method: 'DELETE' });
+    res.status(r.status).json(await r.json());
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.delete('/api/devices/:id/command', async (req, res) => {
+  try {
+    const r = await fetch(`${_bridgeUrl()}/api/devices/${req.params.id}/command`, { method: 'DELETE' });
+    res.status(r.status).json(await r.json());
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// GET /api/devices/:id/messages — conversation history for a device
+app.get('/api/devices/:id/messages', (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '100', 10), 500);
+    // Pull from activity_log: device's own messages + assistant replies directed at it
+    const rows = db.prepare(`
+      SELECT source, sender, content, created_at
+      FROM activity_log
+      WHERE source = ? OR (source = 'assistant' AND sender = ?)
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).all(req.params.id, req.params.id, limit);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/devices/:id/messages/stream — SSE stream of new messages for a device
+app.get('/api/devices/:id/messages/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (res.socket) res.socket.setNoDelay(true);
+
+  const deviceId = req.params.id;
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
+  let lastId = parseInt(req.query.lastId || '0', 10);
+
+  if (!lastId) {
+    try {
+      const row = db.prepare('SELECT MAX(id) as maxId FROM activity_log WHERE source = ?').get(deviceId);
+      lastId = row?.maxId || 0;
+    } catch {}
+  }
+
+  const poll = setInterval(() => {
+    try {
+      const rows = db.prepare(
+        'SELECT * FROM activity_log WHERE id > ? AND (source = ? OR (source = \'assistant\' AND sender = ?)) ORDER BY id ASC LIMIT 50'
+      ).all(lastId, deviceId, deviceId);
+      for (const row of rows) {
+        res.write(`id: ${row.id}\ndata: ${JSON.stringify(row)}\n\n`);
+        lastId = row.id;
+      }
+    } catch {}
+  }, 1000);
+
+  req.on('close', () => { clearInterval(heartbeat); clearInterval(poll); });
+});
+
+app.get('/api/edge-sync/integration-guide', (req, res) => {
   const candidates = [
     path.join(__dirname, 'EDGE_DEVICE_INTEGRATION.md'),
     path.join(__dirname, '..', '..', 'nanobot', 'channels', 'EDGE_DEVICE_INTEGRATION.md'),

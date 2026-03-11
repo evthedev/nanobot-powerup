@@ -1,22 +1,27 @@
-# PicoClaw → Bridge Integration Guide
+# Edge Device Integration Guide
 
-Connect your PicoClaw-powered edge device (e.g. Reachy Mini) to the nanobot AI agent via the Reachy bridge.
+Connect any edge device (camera, sensor node, robot, etc.) to the nanobot AI agent via the edge bridge.
 
 ---
 
 ## How it works
 
 ```
-Your device  ──POST /api/sync──►  Bridge (EC2)  ──WebSocket──►  Agent (Shantelle)
-             ◄──pending_commands──               ◄──reply──
+Your device  ──POST /api/devices/{id}/sync──►  Bridge  ──WebSocket──►  Agent
+             ◄──directives──                            ◄──reply──
+
+             ── OR ──
+
+Your device  ══WS /api/devices/{id}/stream══►  Bridge  ──WebSocket──►  Agent
+             ◄──streaming deltas──
 ```
 
-1. Your device POSTs to `/api/sync` every ~30 seconds
-2. If you include messages in `pending_feedback`, the bridge forwards them to the AI agent
-3. The agent's reply is queued and returned to your device as a `reply:` command on the **next** sync
-4. Your device reads the reply from `pending_commands` and acts on it (speak it, display it, etc.)
+Two integration modes:
 
-**This is the primary way your device talks to the agent.** Status fields are secondary.
+| Mode | Latency | Best for |
+|------|---------|----------|
+| **HTTP sync** (poll) | 30–60s round-trip | Battery-constrained devices, simple command/reply |
+| **WebSocket stream** | Real-time | Devices that need instant responses |
 
 ---
 
@@ -25,176 +30,246 @@ Your device  ──POST /api/sync──►  Bridge (EC2)  ──WebSocket──�
 Get these from your deploy operator:
 
 | Variable | Example |
-|----------|---------|
-| `BRIDGE_URL` | `https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com/picoclaw` |
-| `BRIDGE_SECRET` | shared HMAC secret |
+|----------|---------| 
+| `BRIDGE_URL` | `https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com/bridge` |
+| `DEVICE_ID` | `my-device` (your device's registered ID) |
+| `DEVICE_SECRET` | per-device HMAC secret |
 
 ---
 
-## Sync request
+## Mode 1 — HTTP Sync (Poll)
+
+### Request
 
 ```
-POST <BRIDGE_URL>/api/sync
+POST <BRIDGE_URL>/api/devices/<DEVICE_ID>/sync
 Content-Type: application/json
 X-Bridge-Signature: <hmac-sha256-hex>
 ```
 
 ```json
 {
-  "reachy_status": {
+  "status": {
     "daemon": "running",
     "conversation_app": "running",
-    "picoclaw": "1.2.3"
+    "firmware": "1.2.3"
   },
-  "pending_feedback": [
-    "Good morning! What's on the agenda today?"
+  "telemetry": [
+    {"kind": "message", "content": "Good morning! What's on the agenda today?"},
+    {"kind": "event",   "type": "motion_detected", "zone": "front"},
+    {"kind": "metric",  "name": "cpu_temp", "value": 42.1}
   ]
 }
 ```
 
-### Fields
+### Telemetry kinds
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `reachy_status` | object | Device health — shown in the dashboard |
-| `pending_feedback` | array of strings | **Messages to send to the agent.** Each string is delivered as a separate message. |
+| `kind` | Purpose | Required fields |
+|--------|---------|-----------------|
+| `message` | Send a message to the agent | `content` |
+| `event` | Report a discrete event | `type` |
+| `metric` | Report a numeric measurement | `name`, `value` |
+| `snapshot` | Report a state snapshot | any fields |
 
-`pending_feedback` is the key field. Leave it as `[]` if you have nothing to say this cycle.
+Only `message` items are forwarded to the agent. Other kinds are logged for the activity digest.
 
----
-
-## Sync response
+### Response
 
 ```json
 {
   "status": "synced",
-  "pending_commands": [
-    {"command": "reply:Good morning! You have a physio appointment at 10am.", "queued_at": 1718000000.0},
+  "directives": [
+    {"command": "reply:Good morning! You have physio at 10am.", "queued_at": 1718000000.0},
     {"command": "wake", "queued_at": 1718000001.0}
-  ]
+  ],
+  "context": [
+    {"source": "telegram", "sender": "Shantelle", "summary": "Remind me about dinner at 7pm", "at": "2026-03-11 05:49:40"}
+  ],
+  "poll_interval_seconds": 30
 }
 ```
 
-`pending_commands` is **drained on every sync** — each command is delivered exactly once.
+`directives` is **drained on every sync** — each directive delivered exactly once.
 
-### Command types
+`context` contains recent activity from other channels (web, Telegram) since your last sync. Use it to keep the device aware of what's happening elsewhere.
 
-| Prefix / value | Meaning | What to do |
-|----------------|---------|------------|
-| `reply:<text>` | Agent's response to your `pending_feedback` | Speak it, display it, or pass it to the conversation app |
-| `wake` | Power on / wake from sleep | Wake hardware |
-| `sleep` | Power off / enter sleep mode | Sleep hardware |
-| `restart_app` | Restart the conversation app | Restart process |
+`poll_interval_seconds` — use this as your sleep interval between syncs.
 
-**Always handle `reply:` commands.** Strip the `reply:` prefix to get the text:
+### Directives
+
+| Command | What to do |
+|---------|------------|
+| `reply:<text>` | Strip prefix, speak/display the text |
+| `wake` | Wake hardware |
+| `sleep` | Enter sleep mode |
+| `restart_app` | Restart conversation process |
+| `restart_device` | Full device restart |
+| `set_volume` | Adjust volume |
+| `capture_frame` | Capture and return a camera frame |
+
 ```python
-if command.startswith("reply:"):
-    text = command[len("reply:"):]
-    speak(text)  # or display, or pass to conversation app
+for d in result["directives"]:
+    cmd = d["command"]
+    if cmd.startswith("reply:"):
+        speak(cmd[len("reply:"):])
+    elif cmd == "wake":
+        wake_hardware()
+    elif cmd == "capture_frame":
+        send_frame_on_next_sync()
+    else:
+        print(f"Unknown directive (ignored): {cmd}")
 ```
 
-Log and ignore any command you don't recognise.
-
----
-
-## HMAC signing
-
-Every request must include `X-Bridge-Signature` — HMAC-SHA256 of the raw request body:
+### HMAC signing
 
 ```python
 import hashlib, hmac, json
 
 body = json.dumps(payload).encode()
-sig = hmac.new(BRIDGE_SECRET.encode(), body, hashlib.sha256).hexdigest()
-headers = {
-    "Content-Type": "application/json",
-    "X-Bridge-Signature": sig,
-}
+sig = hmac.new(DEVICE_SECRET.encode(), body, hashlib.sha256).hexdigest()
+headers = {"Content-Type": "application/json", "X-Bridge-Signature": sig}
 ```
 
 Missing or invalid signature → `401 Unauthorized`.
 
----
-
-## Full working example (Python)
+### Full example (Python)
 
 ```python
 import hashlib, hmac, json, time, os
 import requests
 
-BRIDGE_URL = os.environ["BRIDGE_URL"]      # e.g. https://ec2-xxx.compute.amazonaws.com/picoclaw
-BRIDGE_SECRET = os.environ["BRIDGE_SECRET"]
-SYNC_INTERVAL = 30
+BRIDGE_URL    = os.environ["BRIDGE_URL"]
+DEVICE_ID     = os.environ["DEVICE_ID"]
+DEVICE_SECRET = os.environ["DEVICE_SECRET"]
 
-_pending_feedback = []  # populated by your conversation app
+_pending_telemetry = []
 
-
-def signed_post(path: str, payload: dict) -> dict:
+def signed_post(path, payload):
     body = json.dumps(payload).encode()
-    sig = hmac.new(BRIDGE_SECRET.encode(), body, hashlib.sha256).hexdigest()
-    resp = requests.post(
-        f"{BRIDGE_URL}{path}",
-        data=body,
+    sig = hmac.new(DEVICE_SECRET.encode(), body, hashlib.sha256).hexdigest()
+    return requests.post(
+        f"{BRIDGE_URL}{path}", data=body,
         headers={"Content-Type": "application/json", "X-Bridge-Signature": sig},
         timeout=15,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    ).json()
 
-
-def get_status() -> dict:
-    return {"daemon": "running", "conversation_app": "running", "picoclaw": "1.0.0"}
-
-
-def handle_command(command: str) -> None:
-    if command.startswith("reply:"):
-        text = command[len("reply:"):]
-        print(f"Agent says: {text}")
-        speak(text)  # implement this — TTS, display, etc.
-    elif command == "wake":
+def handle_directive(cmd):
+    if cmd.startswith("reply:"):
+        speak(cmd[len("reply:"):])
+    elif cmd == "wake":
         wake_hardware()
-    elif command == "sleep":
+    elif cmd == "sleep":
         sleep_hardware()
-    elif command == "restart_app":
-        restart_conversation_app()
+    elif cmd == "capture_frame":
+        _pending_telemetry.append({"kind": "snapshot", "frame": capture_camera()})
     else:
-        print(f"Unknown command (ignored): {command}")
+        print(f"Unknown directive (ignored): {cmd}")
 
-
+poll_interval = 30
 while True:
     try:
-        # Drain the local feedback queue each cycle
-        feedback = _pending_feedback[:]
-        _pending_feedback.clear()
-
-        result = signed_post("/api/sync", {
-            "reachy_status": get_status(),
-            "pending_feedback": feedback,
+        telemetry, _pending_telemetry[:] = _pending_telemetry[:], []
+        result = signed_post(f"/api/devices/{DEVICE_ID}/sync", {
+            "status": {"daemon": "running", "firmware": "1.0.0"},
+            "telemetry": telemetry,
         })
-
-        for cmd in result.get("pending_commands", []):
-            handle_command(cmd["command"])
-
+        for d in result.get("directives", []):
+            handle_directive(d["command"])
+        poll_interval = result.get("poll_interval_seconds", 30)
     except Exception as e:
         print(f"Sync error: {e}")
-
-    time.sleep(SYNC_INTERVAL)
+    time.sleep(poll_interval)
 ```
 
-To send a message to the agent from anywhere in your app:
+To send a message to the agent:
 ```python
-_pending_feedback.append("The user just said: hello!")
-# It will be delivered on the next sync cycle (within 30s)
+_pending_telemetry.append({"kind": "message", "content": "The user just said: hello!"})
 ```
 
 ---
 
-## Timing
+## Mode 2 — WebSocket Stream
 
-- Your device syncs every ~30s
-- The agent typically responds within 5–30 seconds depending on complexity
-- So end-to-end latency is **30–60 seconds** (one sync to send, next sync to receive reply)
-- If you need faster responses, reduce `SYNC_INTERVAL` (minimum ~10s recommended)
+For real-time bidirectional communication. See `PICO_PROTOCOL.md` for the full wire format.
+
+### Connect
+
+```
+WS <BRIDGE_URL>/api/devices/<DEVICE_ID>/stream
+Authorization: Bearer <DEVICE_SECRET>
+```
+
+On connect the server sends a `hello` frame. On bad/missing secret: connection closed with 1008.
+
+### Send a message
+
+```json
+{"type": "message.send", "id": "<uuid>", "ts": <unix_ms>, "content": "turn on the lights"}
+```
+
+### Receive response (streaming)
+
+```json
+{"type": "message.create", "id": "...", "ts": ..., "content": "Done,", "done": false}
+{"type": "message.create", "id": "...", "ts": ..., "content": " lights are on.", "done": false}
+{"type": "message.create", "id": "...", "ts": ..., "content": "", "done": true}
+```
+
+Concatenate `content` deltas. `done: true` signals turn complete.
+
+### Keepalive
+
+```json
+{"type": "ping", "id": "<uuid>", "ts": <unix_ms>}
+```
+
+Server replies with `{"type": "pong", "id": "<your-id>", ...}`. Send every 30s.
+
+### Quick example (Python)
+
+```python
+import asyncio, json, uuid, time
+import websockets
+
+BRIDGE_URL    = "wss://ec2-xxx.compute.amazonaws.com/bridge"
+DEVICE_ID     = "my-device"
+DEVICE_SECRET = "your-secret"
+
+async def stream():
+    uri = f"{BRIDGE_URL}/api/devices/{DEVICE_ID}/stream"
+    async with websockets.connect(uri, extra_headers={"Authorization": f"Bearer {DEVICE_SECRET}"}) as ws:
+        hello = json.loads(await ws.recv())
+        assert hello["type"] == "hello"
+
+        # Send a message
+        await ws.send(json.dumps({"type": "message.send", "id": str(uuid.uuid4()), "ts": int(time.time()*1000), "content": "What time is it?"}))
+
+        # Collect response
+        reply = []
+        async for raw in ws:
+            msg = json.loads(raw)
+            if msg["type"] == "message.create":
+                reply.append(msg["content"])
+                if msg.get("done"):
+                    break
+        print("Agent:", "".join(reply))
+
+asyncio.run(stream())
+```
+
+---
+
+## Legacy endpoints (backward compat)
+
+The old `pending_feedback` / `pending_commands` field names still work:
+
+```json
+{"status": {...}, "telemetry": [{"kind": "message", "content": "hello"}]}
+```
+
+Response still includes `pending_commands` and `knowledge_update` alongside the new names. Migrate when convenient.
+
+Legacy sync endpoint also still works: `POST /api/sync` → routes to the default device.
 
 ---
 
@@ -202,9 +277,9 @@ _pending_feedback.append("The user just said: hello!")
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `401 Unauthorized` | `BRIDGE_SECRET` mismatch | Confirm secret with operator |
-| Connection refused / timeout | Wrong `BRIDGE_URL` | Confirm URL with operator |
-| Status shows "unknown" in dashboard | Missing `reachy_status` in payload | Always include it |
-| Agent never replies | `pending_feedback` always empty | Make sure your app populates it |
-| Reply never arrives | Device not handling `reply:` commands | Add `reply:` handler — see above |
-| Duplicate syncs in dashboard | Two sync processes running on device | Kill duplicate process |
+| `401 Unauthorized` | `DEVICE_SECRET` mismatch | Confirm secret with operator |
+| Connection refused | Wrong `BRIDGE_URL` | Confirm URL with operator |
+| `directives` always empty | Agent not replying | Check `telemetry` contains `kind=message` items |
+| Reply never acted on | Missing `reply:` handler | Add it — see directive table above |
+| WS closes immediately | Bad `Authorization` header | Use `Bearer <secret>` format |
+| Context always empty | First sync ever | Context populates from second sync onward |

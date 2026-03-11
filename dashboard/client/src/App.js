@@ -8,6 +8,7 @@ import LogsPanel from './components/LogsPanel';
 import TelegramView from './components/TelegramView';
 import WhatsAppView from './components/WhatsAppView';
 import PicoClawView from './components/PicoClawView';
+import EdgeDevicesView from './components/EdgeDevicesView';
 import './App.css';
 
 const API = process.env.REACT_APP_API_URL || '';
@@ -348,6 +349,15 @@ function AppInner() {
             path="/whatsapp"
             element={
               <WhatsAppView
+                onToggleSidebar={() => setSidebarOpen(p => !p)}
+                sidebarOpen={sidebarOpen}
+              />
+            }
+          />
+          <Route
+            path="/devices"
+            element={
+              <EdgeDevicesView
                 onToggleSidebar={() => setSidebarOpen(p => !p)}
                 sidebarOpen={sidebarOpen}
               />

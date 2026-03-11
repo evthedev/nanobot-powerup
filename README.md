@@ -44,32 +44,43 @@ The agent model is `google/gemini-3-flash-preview` via OpenRouter.
 ## Architecture
 
 ```
- User (browser / Telegram)
-        │
-        ▼
-  ┌─────────────┐   HTTPS/WSS   ┌─────────────────────────────┐
-  │    nginx    │◄──────────────│   EC2 t3.micro (Ubuntu 24)  │
-  │ (port 80/443│               │                             │
-  │  basic auth)│               │  ┌────────────────────────┐ │
-  └──────┬──────┘               │  │  nanobot-gateway        │ │
-         │ proxy_pass           │  │  (Python, port 18791 WS)│ │
-         ▼                      │  │  • AgentLoop            │ │
-  ┌─────────────┐               │  │  • ToolRegistry         │ │
-  │  dashboard  │──WebSocket───►│  │  • MemoryStore          │ │
-  │  (Node 20,  │               │  │  • CronScheduler        │ │
-  │   port 3001)│               │  │  • HeartbeatService     │ │
-  │  Express API│               │  └────────────────────────┘ │
-  │  React SPA  │               │                             │
-  └─────────────┘               │  /opt/nanobot (EBS volume)  │
-                                │  ├── config.json            │
-                                │  ├── workspace/             │
-                                │  │   ├── AGENTS.md          │
-                                │  │   ├── HEARTBEAT.md       │
-                                │  │   ├── memory/            │
-                                │  │   ├── screenshots/       │
-                                │  │   └── skills/            │
-                                │  └── chat.db (SQLite)       │
-                                └─────────────────────────────┘
+ User (browser / Telegram)          Edge device (camera, sensor, robot, etc.)
+        │                                      │
+        ▼                                      │ POST /api/devices/{id}/sync
+  ┌─────────────┐   HTTPS/WSS   ┌─────────────────────────────────────┐
+  │    nginx    │◄──────────────│     EC2 t3.micro (Ubuntu 24)        │
+  │ (port 80/443│               │                                     │
+  │  basic auth)│               │  ┌────────────────────────┐         │
+  └──────┬──────┘               │  │  nanobot-gateway        │         │
+         │ proxy_pass           │  │  (Python, port 18791 WS)│         │
+         ▼                      │  │  • AgentLoop            │         │
+  ┌─────────────┐               │  │  • ToolRegistry         │         │
+  │  dashboard  │──WebSocket───►│  │  • MemoryStore          │         │
+  │  (Node 20,  │               │  │  • CronScheduler        │         │
+  │   port 3001)│               │  │  • HeartbeatService     │         │
+  │  Express API│               │  └────────────────────────┘         │
+  │  React SPA  │               │                                     │
+  └─────────────┘               │  ┌────────────────────────┐         │
+                                │  │  edge-bridge            │◄────────┘
+                                │  │  (Node, port 18790)     │
+                                │  │  • per-device queues    │
+                                │  │  • HTTP sync + WS stream│
+                                │  │  • activity_log digest  │
+                                │  └────────────────────────┘
+                                │                                     │
+                                │  /opt/nanobot (EBS volume)          │
+                                │  ├── config.json                    │
+                                │  │   └── channels.edgeDevices       │
+                                │  ├── workspace/                     │
+                                │  │   ├── AGENTS.md                  │
+                                │  │   ├── HEARTBEAT.md               │
+                                │  │   ├── memory/                    │
+                                │  │   ├── screenshots/               │
+                                │  │   └── skills/                    │
+                                │  └── chat.db (SQLite)               │
+                                │      ├── edge_sync_log              │
+                                │      └── activity_log               │
+                                └─────────────────────────────────────┘
 ```
 
 **Data flow for a chat message:**
@@ -80,6 +91,15 @@ The agent model is `google/gemini-3-flash-preview` via OpenRouter.
 4. Tool results feed back into next LLM call
 5. Final response streams back via SSE (`delta` events) to browser
 6. Dashboard commits message to SQLite; browser renders streaming cursor
+
+**Data flow for an edge device sync:**
+
+1. Device POSTs `telemetry` (messages, events, metrics) to `edge-bridge /api/devices/{id}/sync`
+2. Bridge verifies HMAC signature, writes to `edge_sync_log` + `activity_log`
+3. Message-kind telemetry forwarded to `nanobot-gateway` via WebSocket
+4. Agent reply queued as `reply:` directive, drained on next sync
+5. `context` field in sync response carries recent activity from other channels (web, Telegram) since last sync
+6. Alternatively: device connects via `WS /api/devices/{id}/stream` for real-time streaming responses
 
 ---
 
@@ -564,6 +584,7 @@ On every push to `main`:
 | `nanobot-gateway` | `./Dockerfile` | Python agent, Playwright, WebSocket server (port 18791 internal) |
 | `nanobot-dashboard` | `./dashboard/Dockerfile` | Express API + React static (port 3001 internal) |
 | `nanobot-nginx` | `nginx:alpine` | HTTPS + basic auth + reverse proxy (ports 80, 443) |
+| `nanobot-whatsapp-bridge` | `./Dockerfile` | Edge bridge HTTP+WS (port 18790) — multi-device registry, per-device queues, WS stream |
 
 Volume mount: all containers share `/opt/nanobot:/root/.nanobot`
 
@@ -596,6 +617,7 @@ Screenshots are served **without auth** at `https://ec2-13-54-226-177.ap-southea
 | `GOOGLE_STATIC_MAPS_API_KEY` | trip-mapper + static map images |
 | `GOOGLE_CLIENT_ID` | Google OAuth (Calendar) |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth (Calendar) |
+| `EDGE_DEVICES_JSON` | Edge device map (JSON object of `{id: {secret, pollIntervalSeconds}}`) — optional, for multi-device setups |
 
 ### GitHub Variables
 

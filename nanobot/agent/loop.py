@@ -25,7 +25,7 @@ from nanobot.agent.tools.reddit import RedditSearchTool
 from nanobot.agent.tools.screenshot_pages import ScreenshotPagesTool
 from nanobot.agent.tools.plan_task import PlanTaskTool
 from nanobot.agent.tools.trustpilot import TrustpilotSearchTool
-from nanobot.agent.tools.reachy_status import ReachyStatusTool
+from nanobot.agent.tools.edge_device_status import EdgeDeviceStatusTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.agent.tools.yelp import YelpSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -140,8 +140,9 @@ class AgentLoop:
         self.tools.register(YelpSearchTool(api_key=self.yelp_api_key))
         try:
             from nanobot.config.loader import load_config as _load_config
-            if _load_config().channels.reachy_bridge.enabled:
-                self.tools.register(ReachyStatusTool())
+            _cfg = _load_config()
+            if _cfg.channels.edge_devices.enabled or _cfg.channels.reachy_bridge.enabled:
+                self.tools.register(EdgeDeviceStatusTool())
         except Exception:
             pass
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
