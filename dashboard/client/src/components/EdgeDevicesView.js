@@ -79,8 +79,8 @@ Send \`{"type": "ping"}\` every 30s for keepalive.
 | Variable | Example |
 |----------|---------|
 | \`BRIDGE_URL\` | \`https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com\` |
-| \`DEVICE_ID\` | registered device ID (shown in cards above) |
-| \`DEVICE_SECRET\` | per-device secret (from operator) |
+| \`DEVICE_ID\` | any unique string — unknown devices auto-register on first sync |
+| \`DEVICE_SECRET\` | shared secret — use the same secret as other devices on this bridge |
 
 ---
 
@@ -88,8 +88,9 @@ Send \`{"type": "ping"}\` every 30s for keepalive.
 
 | Symptom | Fix |
 |---------|-----|
-| \`401\` | \`DEVICE_SECRET\` mismatch |
+| \`401\` | Wrong \`BRIDGE_URL\` (no \`/bridge\` suffix) or \`DEVICE_SECRET\` mismatch |
 | directives always empty | Include \`kind=message\` items in telemetry |
+| reply takes 90s | Normal — poll again after ~30s, reply arrives on next sync |
 | WS closes instantly | Use \`Authorization: Bearer <secret>\` |
 | context always empty | Populates from 2nd sync onward |
 `;
