@@ -7,80 +7,101 @@ const API = process.env.REACT_APP_API_URL || '';
 
 const DIRECTIVES = ['wake', 'sleep', 'restart_app', 'restart_picoclaw', 'set_volume', 'capture_frame'];
 
-const GUIDE = `## HTTP Sync
+const GUIDE = `## Quick Start
+
+Copy this script, fill in the 3 variables at the top, and run it. That's it.
+
+\`\`\`python
+#!/usr/bin/env python3
+import hashlib, hmac, json, ssl, sys, urllib.request
+
+BRIDGE_URL    = "https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com"  # no trailing slash, no /bridge
+DEVICE_ID     = "my-device"   # any unique string — auto-registers on first sync
+DEVICE_SECRET = "Nb9kQmX3pL7!"  # shared secret for this bridge
+
+def sync(messages=[], status={"daemon": "running"}):
+    payload = {"status": status, "telemetry": [{"kind": "message", "content": m} for m in messages]}
+    body = json.dumps(payload).encode()
+    sig = hmac.new(DEVICE_SECRET.encode(), body, hashlib.sha256).hexdigest()
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    req = urllib.request.Request(
+        f"{BRIDGE_URL}/api/devices/{DEVICE_ID}/sync",
+        data=body,
+        headers={"Content-Type": "application/json", "X-Bridge-Signature": sig},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+        return json.loads(resp.read().decode())
+
+# Run once and print result — DO NOT run in a loop, use cron instead
+result = sync(messages=["Hello from my device!"])
+for d in result.get("directives", []):
+    if d["command"].startswith("reply:"):
+        print("Agent says:", d["command"][len("reply:"):])
+    else:
+        print("Directive:", d["command"])
+print("Next poll in:", result.get("poll_interval_seconds", 30), "seconds")
+\`\`\`
+
+**Important:**
+- This script must **exit after one sync**. Do NOT use \`while True\`. Schedule it with \`cron\` to run every 30s.
+- The agent reply arrives on the **next poll** (~30s later), not immediately.
+- \`BRIDGE_URL\` has **no** \`/bridge\` suffix and **no** trailing slash.
+
+---
+
+## Scheduling with cron
+
+\`\`\`python
+# In your nanobot agent, call cron() twice to get ~30s interval:
+cron("*/1 * * * * python3 ~/.nanobot/workspace/skills-auto/edge-sync/sync.py")
+cron("*/1 * * * * sleep 30 && python3 ~/.nanobot/workspace/skills-auto/edge-sync/sync.py")
+\`\`\`
+
+---
+
+## Full sync protocol
 
 \`\`\`
 POST <BRIDGE_URL>/api/devices/<DEVICE_ID>/sync
 Content-Type: application/json
-X-Bridge-Signature: <hmac-sha256-hex>
+X-Bridge-Signature: <hmac-sha256-hex of body>
 \`\`\`
 
+**Request body:**
 \`\`\`json
 {
   "status": {"daemon": "running", "firmware": "1.2.3"},
   "telemetry": [
-    {"kind": "message", "content": "Good morning!"},
-    {"kind": "event",   "type": "motion_detected"}
+    {"kind": "message", "content": "User said: hello"},
+    {"kind": "event",   "type": "motion_detected"},
+    {"kind": "metric",  "name": "cpu_temp", "value": 42.1}
   ]
 }
 \`\`\`
 
-Response includes **directives** (drained each sync), **context** (activity from other channels since last sync), and **poll_interval_seconds**.
+Only \`kind=message\` items are forwarded to the agent. Other kinds are logged only.
 
-| Directive | Action |
-|-----------|--------|
-| \`reply:<text>\` | Speak/display the text |
+**Response:**
+\`\`\`json
+{
+  "status": "synced",
+  "directives": [{"command": "reply:Hello!", "queued_at": 1234567890.0}],
+  "context": [{"source": "telegram", "summary": "...", "at": "..."}],
+  "poll_interval_seconds": 30
+}
+\`\`\`
+
+\`directives\` is drained on every sync — each directive delivered exactly once.
+
+| Directive | What to do |
+|-----------|------------|
+| \`reply:<text>\` | Strip prefix, speak/display the text |
 | \`wake\` / \`sleep\` | Power on/off |
 | \`restart_app\` | Restart conversation process |
 | \`capture_frame\` | Capture camera frame |
-
-\`\`\`python
-for d in result["directives"]:
-    if d["command"].startswith("reply:"):
-        speak(d["command"][len("reply:"):])
-\`\`\`
-
-### HMAC signing
-
-\`\`\`python
-import hashlib, hmac, json
-body = json.dumps(payload).encode()
-sig = hmac.new(DEVICE_SECRET.encode(), body, hashlib.sha256).hexdigest()
-headers = {"Content-Type": "application/json", "X-Bridge-Signature": sig}
-\`\`\`
-
----
-
-## WebSocket Stream (real-time)
-
-\`\`\`
-WS <BRIDGE_URL>/api/devices/<DEVICE_ID>/stream
-Authorization: Bearer <DEVICE_SECRET>
-\`\`\`
-
-Server sends \`hello\` on connect. Send messages:
-
-\`\`\`json
-{"type": "message.send", "id": "<uuid>", "ts": <unix_ms>, "content": "hello"}
-\`\`\`
-
-Receive streaming deltas until \`done: true\`:
-
-\`\`\`json
-{"type": "message.create", "content": "Hi!", "done": true}
-\`\`\`
-
-Send \`{"type": "ping"}\` every 30s for keepalive.
-
----
-
-## Prerequisites
-
-| Variable | Example |
-|----------|---------|
-| \`BRIDGE_URL\` | \`https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com\` |
-| \`DEVICE_ID\` | any unique string — unknown devices auto-register on first sync |
-| \`DEVICE_SECRET\` | shared secret — use the same secret as other devices on this bridge |
 
 ---
 
@@ -88,11 +109,11 @@ Send \`{"type": "ping"}\` every 30s for keepalive.
 
 | Symptom | Fix |
 |---------|-----|
-| \`401\` | Wrong \`BRIDGE_URL\` (no \`/bridge\` suffix) or \`DEVICE_SECRET\` mismatch |
-| directives always empty | Include \`kind=message\` items in telemetry |
-| reply takes 90s | Normal — poll again after ~30s, reply arrives on next sync |
-| WS closes instantly | Use \`Authorization: Bearer <secret>\` |
-| context always empty | Populates from 2nd sync onward |
+| \`401 Unauthorized\` | Wrong \`DEVICE_SECRET\`, or \`BRIDGE_URL\` has \`/bridge\` suffix — remove it |
+| directives always empty | Your telemetry must include \`{"kind": "message", ...}\` items |
+| reply never arrives | It comes on the **next** poll (~30s). Run the script again. |
+| script hangs forever | You used \`while True\` — use cron instead, script must exit |
+| \`SSL error\` | Add \`ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE\` (self-signed cert) |
 `;
 
 function StatusDot({ online }) {
