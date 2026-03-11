@@ -7,6 +7,93 @@ const API = process.env.REACT_APP_API_URL || '';
 
 const DIRECTIVES = ['wake', 'sleep', 'restart_app', 'restart_picoclaw', 'set_volume', 'capture_frame'];
 
+const GUIDE = `## HTTP Sync
+
+\`\`\`
+POST <BRIDGE_URL>/api/devices/<DEVICE_ID>/sync
+Content-Type: application/json
+X-Bridge-Signature: <hmac-sha256-hex>
+\`\`\`
+
+\`\`\`json
+{
+  "status": {"daemon": "running", "firmware": "1.2.3"},
+  "telemetry": [
+    {"kind": "message", "content": "Good morning!"},
+    {"kind": "event",   "type": "motion_detected"}
+  ]
+}
+\`\`\`
+
+Response includes **directives** (drained each sync), **context** (activity from other channels since last sync), and **poll_interval_seconds**.
+
+| Directive | Action |
+|-----------|--------|
+| \`reply:<text>\` | Speak/display the text |
+| \`wake\` / \`sleep\` | Power on/off |
+| \`restart_app\` | Restart conversation process |
+| \`capture_frame\` | Capture camera frame |
+
+\`\`\`python
+for d in result["directives"]:
+    if d["command"].startswith("reply:"):
+        speak(d["command"][len("reply:"):])
+\`\`\`
+
+### HMAC signing
+
+\`\`\`python
+import hashlib, hmac, json
+body = json.dumps(payload).encode()
+sig = hmac.new(DEVICE_SECRET.encode(), body, hashlib.sha256).hexdigest()
+headers = {"Content-Type": "application/json", "X-Bridge-Signature": sig}
+\`\`\`
+
+---
+
+## WebSocket Stream (real-time)
+
+\`\`\`
+WS <BRIDGE_URL>/api/devices/<DEVICE_ID>/stream
+Authorization: Bearer <DEVICE_SECRET>
+\`\`\`
+
+Server sends \`hello\` on connect. Send messages:
+
+\`\`\`json
+{"type": "message.send", "id": "<uuid>", "ts": <unix_ms>, "content": "hello"}
+\`\`\`
+
+Receive streaming deltas until \`done: true\`:
+
+\`\`\`json
+{"type": "message.create", "content": "Hi!", "done": true}
+\`\`\`
+
+Send \`{"type": "ping"}\` every 30s for keepalive.
+
+---
+
+## Prerequisites
+
+| Variable | Example |
+|----------|---------|
+| \`BRIDGE_URL\` | \`https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com/bridge\` |
+| \`DEVICE_ID\` | registered device ID (shown in cards above) |
+| \`DEVICE_SECRET\` | per-device secret (from operator) |
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| \`401\` | \`DEVICE_SECRET\` mismatch |
+| directives always empty | Include \`kind=message\` items in telemetry |
+| WS closes instantly | Use \`Authorization: Bearer <secret>\` |
+| context always empty | Populates from 2nd sync onward |
+`;
+
 function StatusDot({ online }) {
   return <span className={`ed-dot ${online ? 'online' : 'offline'}`} title={online ? 'Online' : 'Offline'} />;
 }
@@ -258,6 +345,10 @@ export default function EdgeDevicesView({ onToggleSidebar, sidebarOpen }) {
             ))}
           </div>
         )}
+        <div className="ed-guide">
+            <div className="ed-guide-label">📋 INTEGRATION GUIDE</div>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{GUIDE}</ReactMarkdown>
+          </div>
       </div>
     </div>
   );
