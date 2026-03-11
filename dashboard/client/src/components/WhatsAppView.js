@@ -30,10 +30,13 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
   const [selectedChat, setSelectedChat] = useState(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [pendingImage, setPendingImage] = useState(null); // { url, filename }
   const [showPicker, setShowPicker] = useState(false);
   const [chatListOpen, setChatListOpen] = useState(true);
   const pickerRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const lastIdRef = useRef(0);
 
@@ -79,25 +82,54 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
   }, []);
 
   async function sendMessage() {
-    if (!draft.trim() || !selectedChat || sending) return;
+    if ((!draft.trim() && !pendingImage) || !selectedChat || sending) return;
     setSending(true);
     try {
-      const res = await fetch(`${API}/api/whatsapp/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: selectedChat, text: draft.trim() }),
-      });
-      if (res.ok) {
-        setDraft('');
-        // Optimistically append — SSE will also deliver it but dedup handles that
-        const now = new Date().toISOString();
+      if (pendingImage) {
+        await fetch(`${API}/api/whatsapp/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: selectedChat, image_url: pendingImage.url, caption: draft.trim() }),
+        });
         setMessages(prev => [...prev, {
           id: Date.now(), direction: 'outbound', chat_id: selectedChat,
-          phone_number: '', content: draft.trim(), created_at: now,
+          phone_number: '', content: `![image](${pendingImage.url})`, created_at: new Date().toISOString(),
         }]);
+        setPendingImage(null);
+        setDraft('');
+      } else {
+        const res = await fetch(`${API}/api/whatsapp/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: selectedChat, text: draft.trim() }),
+        });
+        if (res.ok) {
+          setMessages(prev => [...prev, {
+            id: Date.now(), direction: 'outbound', chat_id: selectedChat,
+            phone_number: '', content: draft.trim(), created_at: new Date().toISOString(),
+          }]);
+          setDraft('');
+        }
       }
     } finally {
       setSending(false);
+    }
+  }
+
+  async function uploadImage(file) {
+    if (!selectedChat) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`${API}/api/upload`, { method: 'POST', body: form });
+      if (!res.ok) throw new Error('Upload failed');
+      const { url, filename } = await res.json();
+      setPendingImage({ url, filename });
+    } catch (err) {
+      alert(`Upload failed: ${err.message}`);
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -109,30 +141,14 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
     const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
     if (!item) return;
     e.preventDefault();
-    const file = item.getAsFile();
-    setSending(true);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const res = await fetch(`${API}/api/upload`, { method: 'POST', body: form });
-      if (!res.ok) throw new Error('Upload failed');
-      const { url } = await res.json();
-      const text = `![image](${url})`;
-      const now = new Date().toISOString();
-      await fetch(`${API}/api/whatsapp/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: selectedChat, text }),
-      });
-      setMessages(prev => [...prev, {
-        id: Date.now(), direction: 'outbound', chat_id: selectedChat,
-        phone_number: '', content: text, created_at: now,
-      }]);
-    } catch (err) {
-      alert(`Paste upload failed: ${err.message}`);
-    } finally {
-      setSending(false);
-    }
+    await uploadImage(item.getAsFile());
+  }
+
+  async function handleFileChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    await uploadImage(file);
   }
 
   function onEmojiClick({ emoji }) {
@@ -259,20 +275,34 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
                     <EmojiPicker onEmojiClick={onEmojiClick} skinTonesDisabled height={380} />
                   </div>
                 )}
-                <button className="wa-emoji-btn" onClick={() => setShowPicker(p => !p)}>😊</button>
-                <textarea
-                  ref={textareaRef}
-                  className="wa-compose-input"
-                  placeholder="Reply as agent…"
-                  value={draft}
-                  onChange={e => setDraft(e.target.value)}
-                  onKeyDown={onKeyDown}
-                  onPaste={handlePaste}
-                  rows={1}
-                />
-                <button className="wa-compose-send" onClick={sendMessage} disabled={sending || !draft.trim()}>
-                  {sending ? '⏳' : '↑'}
-                </button>
+                {pendingImage && (
+                  <div className="wa-attachment-strip">
+                    <div className="wa-attachment-thumb">
+                      <img src={`${window.location.origin}${pendingImage.url}`} alt="attachment" />
+                      <button className="wa-attachment-remove" onClick={() => setPendingImage(null)}>✕</button>
+                    </div>
+                  </div>
+                )}
+                <div className="wa-compose-row">
+                  <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
+                  <button className="wa-attach-btn" onClick={() => fileInputRef.current?.click()} disabled={sending || uploading} title="Attach image">
+                    {uploading ? '⏳' : '📎'}
+                  </button>
+                  <button className="wa-emoji-btn" onClick={() => setShowPicker(p => !p)}>😊</button>
+                  <textarea
+                    ref={textareaRef}
+                    className="wa-compose-input"
+                    placeholder={pendingImage ? 'Add a caption…' : 'Reply as agent…'}
+                    value={draft}
+                    onChange={e => setDraft(e.target.value)}
+                    onKeyDown={onKeyDown}
+                    onPaste={handlePaste}
+                    rows={1}
+                  />
+                  <button className="wa-compose-send" onClick={sendMessage} disabled={sending || uploading || (!draft.trim() && !pendingImage)}>
+                    {sending ? '⏳' : '↑'}
+                  </button>
+                </div>
               </div>
             </>
           )}

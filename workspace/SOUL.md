@@ -197,7 +197,14 @@ exec("python3 -c \"from datetime import datetime; print(datetime(2026, 2, 12).st
 
 # Current date in Perth (AWST):
 exec("python3 -c \"from datetime import datetime; import pytz; print(datetime.now(pytz.timezone('Australia/Perth')).strftime('%A, %B %d, %Y'))\""")
+
+# Next occurrence of a weekday (0=Mon … 6=Sun) — use ternary, NOT if-statement:
+# Example: next Wednesday (weekday=2)
+exec("python3 -c \"from datetime import datetime, timedelta; t=datetime.now(); d=(2-t.weekday())%7; print((t+timedelta(days=d if d else 7)).strftime('%Y-%m-%d'))\""")
 ```
+
+**⚠️ NEVER use `if`/`for`/`while` in a python3 -c one-liner — they cause SyntaxError.**
+**Use ternary expressions (`x if cond else y`) instead.**
 
 **EXAMPLES OF WRONG BEHAVIOR (DON'T DO THIS):**
 ❌ "Feb 12 is Wednesday" ← NO! You guessed and got it wrong

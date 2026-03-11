@@ -17,6 +17,13 @@ interface SendCommand {
   text: string;
 }
 
+interface SendImageCommand {
+  type: 'send_image';
+  to: string;
+  url: string;
+  caption?: string;
+}
+
 interface BridgeMessage {
   type: 'message' | 'status' | 'qr' | 'error';
   [key: string]: unknown;
@@ -104,9 +111,11 @@ export class BridgeServer {
     });
   }
 
-  private async handleCommand(cmd: SendCommand): Promise<void> {
+  private async handleCommand(cmd: SendCommand | SendImageCommand): Promise<void> {
     if (cmd.type === 'send' && this.wa) {
       await this.wa.sendMessage(cmd.to, cmd.text);
+    } else if (cmd.type === 'send_image' && this.wa) {
+      await this.wa.sendImageMessage(cmd.to, cmd.url, cmd.caption);
     }
   }
 

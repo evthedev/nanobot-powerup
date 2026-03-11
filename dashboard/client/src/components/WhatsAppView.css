@@ -297,8 +297,8 @@
 /* ── Compose bar ── */
 .wa-compose {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  gap: 0;
   padding: 10px 16px;
   border-top: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
@@ -368,4 +368,66 @@
   bottom: 60px;
   left: 16px;
   z-index: 100;
+}
+
+/* ── Compose row (buttons + textarea in one line) ── */
+.wa-compose-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  width: 100%;
+}
+
+.wa-attach-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 2px;
+  flex-shrink: 0;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.wa-attach-btn:hover:not(:disabled) { color: var(--text-primary); }
+.wa-attach-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Pending image attachment strip ── */
+.wa-attachment-strip {
+  padding: 0 0 8px;
+}
+
+.wa-attachment-thumb {
+  position: relative;
+  display: inline-block;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium);
+  overflow: visible;
+}
+
+.wa-attachment-thumb img {
+  display: block;
+  height: 72px;
+  width: auto;
+  max-width: 120px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.wa-attachment-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: var(--error, #f87171);
+  color: #fff;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }

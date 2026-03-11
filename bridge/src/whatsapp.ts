@@ -268,11 +268,13 @@ export class WhatsAppClient {
   }
 
   async sendMessage(to: string, text: string): Promise<void> {
-    if (!this.sock) {
-      throw new Error('Not connected');
-    }
-
+    if (!this.sock) throw new Error('Not connected');
     await this.sock.sendMessage(to, { text });
+  }
+
+  async sendImageMessage(to: string, url: string, caption?: string): Promise<void> {
+    if (!this.sock) throw new Error('Not connected');
+    await this.sock.sendMessage(to, { image: { url }, caption: caption || '' });
   }
 
   async disconnect(): Promise<void> {
