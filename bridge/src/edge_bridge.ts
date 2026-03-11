@@ -71,7 +71,11 @@ interface DeviceState {
 
 // ── Config loader ─────────────────────────────────────────────────────────────
 
-function loadDeviceConfigs(): Record<string, DeviceConfig> {
+interface LoadedConfig {
+  devices: Record<string, DeviceConfig>;
+}
+
+function loadDeviceConfigs(): LoadedConfig {
   try {
     const cfgPath = process.env.NANOBOT_CONFIG || join(homedir(), '.nanobot', 'config.json');
     const raw = JSON.parse(readFileSync(cfgPath, 'utf8'));
@@ -93,9 +97,9 @@ function loadDeviceConfigs(): Record<string, DeviceConfig> {
         devices['reachy'] = { enabled: true, secret: rb.secret, poll_interval_seconds: 30, stream_mode: null };
       }
     }
-    return devices;
+    return { devices };
   } catch {
-    return {};
+    return { devices: {} };
   }
 }
 
@@ -135,7 +139,7 @@ export class EdgeBridgeServer {
   }
 
   private _initDevices(): void {
-    const configs = loadDeviceConfigs();
+    const { devices: configs } = loadDeviceConfigs();
     for (const [id, cfg] of Object.entries(configs)) {
       if (cfg.enabled) {
         this._devices.set(id, {
@@ -154,7 +158,7 @@ export class EdgeBridgeServer {
 
   private _getOrCreateDevice(id: string): DeviceState {
     if (!this._devices.has(id)) {
-      const configs = loadDeviceConfigs();
+      const { devices: configs } = loadDeviceConfigs();
       const cfg = configs[id] ?? { enabled: true, secret: '', poll_interval_seconds: 30, stream_mode: null };
       this._devices.set(id, { directives: [], status: { last_seen: 0 }, config: cfg });
     }
@@ -514,7 +518,11 @@ export class EdgeBridgeServer {
         try {
           const msg = JSON.parse(data.toString());
           if (msg.type === 'message' && msg.content) parts.push(msg.content);
-          if (msg.type === 'done') { clearTimeout(timer); ws.close(); resolve(parts.join('').trim()); }
+          // Resolve on first message — edge sessions have no subagents so we don't
+          // need to wait for the deferred 'done' (which fires after 90s).
+          if ((msg.type === 'message' && msg.content) || msg.type === 'done') {
+            clearTimeout(timer); ws.close(); resolve(parts.join('').trim());
+          }
         } catch { /* ignore non-JSON */ }
       });
       ws.once('close', () => { clearTimeout(timer); resolve(parts.join('').trim()); });

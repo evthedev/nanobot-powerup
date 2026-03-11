@@ -200,14 +200,8 @@ class EdgeDeviceConfig(Base):
 
 
 class EdgeDevicesConfig(Base):
-    """Multi-device edge bridge configuration.
-
-    Each key is a device_id (e.g. "reachy", "front-door-cam").
-    The bridge HTTP server runs in bridge/src/edge_bridge.ts.
-    """
-
     enabled: bool = False
-    url: str = "http://nanobot-whatsapp-bridge:18790"  # Internal bridge URL
+    url: str = "http://nanobot-whatsapp-bridge:18790"
     devices: dict[str, EdgeDeviceConfig] = Field(default_factory=dict)
 
 

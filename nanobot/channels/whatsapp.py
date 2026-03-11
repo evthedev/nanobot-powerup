@@ -226,7 +226,7 @@ class WhatsAppChannel(BaseChannel):
                 _cfg = load_config()
                 _rb = _cfg.channels.reachy_bridge
                 if _rb.enabled:
-                    from nanobot.channels.reachy_bridge import handle_reachy_command
+                    from nanobot.channels.edge_bridge import handle_reachy_command
                     reachy_resp = await handle_reachy_command(content, _rb)
                     if reachy_resp:
                         logger.info("Reachy command intercepted: {}", content[:40])

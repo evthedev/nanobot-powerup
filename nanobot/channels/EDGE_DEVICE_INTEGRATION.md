@@ -31,9 +31,9 @@ Get these from your deploy operator:
 
 | Variable | Example |
 |----------|---------| 
-| `BRIDGE_URL` | `https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com/bridge` |
-| `DEVICE_ID` | `my-device` (your device's registered ID) |
-| `DEVICE_SECRET` | per-device HMAC secret |
+| `BRIDGE_URL` | `https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com` |
+| `DEVICE_ID` | `my-device` (any unique string — unknown devices auto-register on first sync) |
+| `DEVICE_SECRET` | shared HMAC secret (get from deploy operator) |
 
 ---
 
@@ -231,7 +231,7 @@ Server replies with `{"type": "pong", "id": "<your-id>", ...}`. Send every 30s.
 import asyncio, json, uuid, time
 import websockets
 
-BRIDGE_URL    = "wss://ec2-xxx.compute.amazonaws.com/bridge"
+BRIDGE_URL    = "wss://ec2-xxx.compute.amazonaws.com"
 DEVICE_ID     = "my-device"
 DEVICE_SECRET = "your-secret"
 
@@ -278,7 +278,8 @@ Legacy sync endpoint also still works: `POST /api/sync` → routes to the defaul
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `401 Unauthorized` | `DEVICE_SECRET` mismatch | Confirm secret with operator |
-| Connection refused | Wrong `BRIDGE_URL` | Confirm URL with operator |
+| `401 Unauthorized` on new device | nginx missing `auth_basic off` for `/api/devices/` | Ensure nginx config has the `/api/devices/` block (deploy from latest `main`) |
+| Connection refused | Wrong `BRIDGE_URL` | Use the bare EC2 hostname — no `/bridge` suffix |
 | `directives` always empty | Agent not replying | Check `telemetry` contains `kind=message` items |
 | Reply never acted on | Missing `reply:` handler | Add it — see directive table above |
 | WS closes immediately | Bad `Authorization` header | Use `Bearer <secret>` format |

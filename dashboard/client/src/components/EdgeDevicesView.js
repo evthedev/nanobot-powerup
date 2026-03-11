@@ -78,7 +78,7 @@ Send \`{"type": "ping"}\` every 30s for keepalive.
 
 | Variable | Example |
 |----------|---------|
-| \`BRIDGE_URL\` | \`https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com/bridge\` |
+| \`BRIDGE_URL\` | \`https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com\` |
 | \`DEVICE_ID\` | registered device ID (shown in cards above) |
 | \`DEVICE_SECRET\` | per-device secret (from operator) |
 

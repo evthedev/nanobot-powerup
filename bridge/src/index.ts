@@ -26,6 +26,7 @@ const AUTH_DIR = process.env.AUTH_DIR || join(homedir(), '.nanobot', 'whatsapp-a
 const TOKEN = process.env.BRIDGE_TOKEN || undefined;
 const EDGE_PORT = parseInt(process.env.REACHY_BRIDGE_PORT || '18790', 10);
 const EDGE_ENABLED = process.env.EDGE_DEVICES_ENABLED === 'true' || process.env.REACHY_BRIDGE_ENABLED === 'true';
+const WHATSAPP_ENABLED = process.env.WHATSAPP_ENABLED !== 'false';
 
 console.log('🐈 nanobot Bridge');
 console.log('========================\n');
@@ -51,8 +52,11 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-// Start the server
-server.start().catch((error) => {
-  console.error('Failed to start bridge:', error);
-  process.exit(1);
-});
+if (WHATSAPP_ENABLED) {
+  server.start().catch((error) => {
+    console.error('Failed to start bridge:', error);
+    process.exit(1);
+  });
+} else {
+  console.log('⏭️  WhatsApp bridge disabled (WHATSAPP_ENABLED=false)');
+}
