@@ -65,6 +65,33 @@
   border-right: 1px solid var(--border-subtle);
   overflow-y: auto;
   background: var(--bg-secondary);
+  transition: width var(--transition-med);
+}
+
+.wa-chat-list.closed {
+  width: 40px;
+  overflow: hidden;
+}
+
+.wa-chat-list-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  z-index: 1;
+}
+
+.wa-chat-list.closed .wa-chat-list-header {
+  justify-content: center;
+}
+
+.wa-chat-list.closed .wa-chat-item,
+.wa-chat-list.closed .whatsapp-empty {
+  display: none;
 }
 
 .wa-chat-item {

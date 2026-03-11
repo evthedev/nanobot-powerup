@@ -31,6 +31,7 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [chatListOpen, setChatListOpen] = useState(true);
   const pickerRef = useRef(null);
   const textareaRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -192,7 +193,12 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
 
       <div className="wa-body">
         {/* Chat list */}
-        <div className="wa-chat-list">
+        <div className={`wa-chat-list ${chatListOpen ? 'open' : 'closed'}`}>
+          <div className="wa-chat-list-header">
+            <button className="icon-btn" onClick={() => setChatListOpen(o => !o)} title={chatListOpen ? 'Collapse chats' : 'Expand chats'}>
+              {chatListOpen ? '◀' : '▶'}
+            </button>
+          </div>
           {messages.length === 0 ? (
             <div className="whatsapp-empty" style={{ padding: '20px 12px' }}>
               {!statusLoaded ? 'Loading…'
