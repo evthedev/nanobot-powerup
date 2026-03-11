@@ -25,7 +25,7 @@ const HOST = process.env.BRIDGE_HOST || '127.0.0.1';  // 0.0.0.0 for Docker
 const AUTH_DIR = process.env.AUTH_DIR || join(homedir(), '.nanobot', 'whatsapp-auth');
 const TOKEN = process.env.BRIDGE_TOKEN || undefined;
 const EDGE_PORT = parseInt(process.env.REACHY_BRIDGE_PORT || '18790', 10);
-const EDGE_ENABLED = process.env.EDGE_DEVICES_ENABLED === 'true' || process.env.REACHY_BRIDGE_ENABLED === 'true';
+const EDGE_ENABLED = process.env.EDGE_DEVICES_ENABLED === 'true';
 const WHATSAPP_ENABLED = process.env.WHATSAPP_ENABLED !== 'false';
 
 console.log('🐈 nanobot Bridge');

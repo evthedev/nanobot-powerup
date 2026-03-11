@@ -26,7 +26,6 @@ services:
       - BRIDGE_TOKEN=${BRIDGE_TOKEN:-}
       - AUTH_DIR=/root/.nanobot/whatsapp-auth
       - EDGE_DEVICES_ENABLED=${EDGE_DEVICES_ENABLED:-false}
-      - REACHY_BRIDGE_ENABLED=${REACHY_BRIDGE_ENABLED:-false}  # legacy compat
       - REACHY_BRIDGE_PORT=18790
       - DB_PATH=/root/.nanobot/chat.db
 

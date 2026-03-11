@@ -23,7 +23,7 @@ secrets = {
     "GITHUB_TOKEN":               os.environ.get("GH_PAT", ""),
     "GITHUB_REPO":                os.environ.get("GH_REPO", ""),
     "NANOBOT_ENV_NAME":           os.environ.get("NANOBOT_ENV_NAME", ""),
-    "REACHY_BRIDGE_ENABLED":      os.environ.get("REACHY_BRIDGE_ENABLED", "false"),
+    "EDGE_DEVICES_ENABLED":        os.environ.get("EDGE_DEVICES_ENABLED", "false"),
     "BRIDGE_SECRET":              os.environ.get("BRIDGE_SECRET", ""),
 }
 

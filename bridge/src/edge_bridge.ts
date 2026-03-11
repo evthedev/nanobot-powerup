@@ -134,6 +134,24 @@ export class EdgeBridgeServer {
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
       CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log (created_at);
+      CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT 'New Conversation',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        message_count INTEGER DEFAULT 0,
+        model TEXT DEFAULT 'nanobot'
+      );
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('user','assistant','system')),
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        tokens_used INTEGER DEFAULT 0,
+        model TEXT,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      );
     `);
     this._initDevices();
   }
@@ -188,7 +206,8 @@ export class EdgeBridgeServer {
   }
 
   private async _route(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = req.url ?? '';
+    const rawUrl = req.url ?? '';
+    const url = rawUrl.split('?')[0]; // strip query string for route matching
     const method = req.method ?? '';
 
     try {
@@ -197,6 +216,9 @@ export class EdgeBridgeServer {
       const cmdMatch = url.match(/^\/api\/devices\/([^/]+)\/command$/);
       const cmdIdxMatch = url.match(/^\/api\/devices\/([^/]+)\/command\/(\d+)$/);
       const statusMatch = url.match(/^\/api\/devices\/([^/]+)\/status$/);
+      const messagesStreamMatch = url.match(/^\/api\/devices\/([^/]+)\/messages\/stream$/);
+      const messagesMatch = url.match(/^\/api\/devices\/([^/]+)\/messages$/);
+      const conversationMatch = url.match(/^\/api\/conversations\/([^/]+)$/);
 
       if (method === 'POST' && syncMatch) {
         await this._handleSync(req, res, syncMatch[1]);
@@ -210,6 +232,12 @@ export class EdgeBridgeServer {
         this._handleListDevices(res);
       } else if (method === 'GET' && statusMatch) {
         this._handleStatus(res, statusMatch[1]);
+      } else if (method === 'GET' && messagesStreamMatch) {
+        this._handleMessagesStream(req, res, messagesStreamMatch[1]);
+      } else if (method === 'GET' && messagesMatch) {
+        this._handleMessages(req, res, messagesMatch[1]);
+      } else if (method === 'GET' && conversationMatch) {
+        this._handleGetConversation(res, decodeURIComponent(conversationMatch[1]));
 
       // ── Legacy endpoints (backward compat) ──────────────────────────────
       } else if (method === 'POST' && url === '/api/sync') {
@@ -379,12 +407,29 @@ export class EdgeBridgeServer {
       'INSERT INTO edge_sync_log (device_id, direction, event_type, payload) VALUES (?, ?, ?, ?)'
     ).run(deviceId, 'inbound', 'sync', JSON.stringify({ status: statusBlob, telemetry }));
 
-    // Write message-kind telemetry to activity_log
+    // Write message-kind telemetry to activity_log + conversations/messages tables
     for (const item of telemetry) {
       if (item.kind === 'message' && item.content) {
+        const text = (item.content as string).slice(0, 500);
         this._db.prepare(
           'INSERT INTO activity_log (source, sender, content) VALUES (?, ?, ?)'
-        ).run(deviceId, deviceId, (item.content as string).slice(0, 500));
+        ).run(deviceId, deviceId, text);
+
+        // Upsert conversation so the chat window shows this device's thread
+        const convId = `edge-${deviceId}`;
+        this._db.prepare(
+          `INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at, model)
+           VALUES (?, ?, datetime('now'), datetime('now'), 'nanobot')`
+        ).run(convId, `Edge: ${deviceId}`);
+        this._db.prepare(
+          `INSERT INTO messages (id, conversation_id, role, content, created_at)
+           VALUES (?, ?, 'user', ?, datetime('now'))`
+        ).run(randomUUID(), convId, text);
+        this._db.prepare(
+          `UPDATE conversations SET updated_at = datetime('now'),
+           message_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = ?)
+           WHERE id = ?`
+        ).run(convId, convId);
       }
     }
 
@@ -504,8 +549,76 @@ export class EdgeBridgeServer {
     });
   }
 
+  private _handleMessages(req: IncomingMessage, res: ServerResponse, deviceId: string): void {
+    try {
+      const rawLimit = new URL(req.url ?? '/', 'http://localhost').searchParams.get('limit') || '100';
+      const limit = Math.min(parseInt(rawLimit, 10) || 100, 500);
+      const rows = this._db.prepare(
+        `SELECT id, source, sender, content, created_at FROM activity_log
+         WHERE source = ? OR (source = 'assistant' AND sender = ?)
+         ORDER BY created_at ASC LIMIT ?`
+      ).all(deviceId, deviceId, limit) as { id: number; source: string; sender: string; content: string; created_at: string }[];
+      this._json(res, 200, rows);
+    } catch (e) {
+      console.error('Edge bridge messages error:', e);
+      res.writeHead(500).end(JSON.stringify({ error: String(e) }));
+    }
+  }
+
+  private _handleGetConversation(res: ServerResponse, convId: string): void {
+    try {
+      const conv = (this._db.prepare('SELECT * FROM conversations WHERE id = ?').get(convId) as Record<string, unknown> | undefined);
+      if (conv) {
+        this._json(res, 200, conv);
+      } else {
+        this._json(res, 404, { error: 'Conversation not found' });
+      }
+    } catch (e) {
+      res.writeHead(500).end(JSON.stringify({ error: String(e) }));
+    }
+  }
+
+  private _handleMessagesStream(req: IncomingMessage, res: ServerResponse, deviceId: string): void {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    if (res.socket) res.socket.setNoDelay(true);
+
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
+    const url = req.url ?? '';
+    let lastId = parseInt(new URL(url, 'http://localhost').searchParams.get('lastId') || '0', 10);
+
+    if (!lastId) {
+      try {
+        const row = this._db.prepare('SELECT MAX(id) as maxId FROM activity_log WHERE source = ?').get(deviceId) as { maxId: number | null };
+        lastId = row?.maxId ?? 0;
+      } catch { /* ignore */ }
+    }
+
+    const poll = setInterval(() => {
+      try {
+        const rows = this._db.prepare(
+          `SELECT * FROM activity_log WHERE id > ? AND (source = ? OR (source = 'assistant' AND sender = ?)) ORDER BY id ASC LIMIT 50`
+        ).all(lastId, deviceId, deviceId) as { id: number; source: string; sender: string; content: string; created_at: string }[];
+        for (const row of rows) {
+          res.write(`id: ${row.id}\ndata: ${JSON.stringify(row)}\n\n`);
+          lastId = row.id;
+        }
+      } catch { /* ignore */ }
+    }, 1000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      clearInterval(poll);
+    });
+  }
+
   private async _forwardToGateway(deviceId: string, content: string): Promise<void> {
-    const sessionId = `edge-${deviceId}-${randomUUID()}`;
+    // Stable session per device so the agent retains conversation context across syncs.
+    const sessionId = `edge-${deviceId}`;
     const reply = await new Promise<string>((resolve, reject) => {
       const ws = new WebSocket(this._gatewayUrl);
       const parts: string[] = [];
@@ -532,10 +645,22 @@ export class EdgeBridgeServer {
       const device = this._getOrCreateDevice(deviceId);
       device.directives.push({ command: `reply:${reply}`, queued_at: Date.now() / 1000 });
       console.log(`🔌 [${deviceId}] reply queued (${reply.length} chars)`);
-      // Write assistant reply to activity_log so dashboard can show the conversation
       try {
+        const text = reply.slice(0, 500);
+        // Write to activity_log (for /devices page)
         this._db.prepare('INSERT INTO activity_log (source, sender, content) VALUES (?, ?, ?)')
-          .run('assistant', deviceId, reply.slice(0, 500));
+          .run('assistant', deviceId, text);
+        // Write to messages table so the reply appears in the /chat/ window
+        const convId = `edge-${deviceId}`;
+        this._db.prepare(
+          `INSERT INTO messages (id, conversation_id, role, content, created_at, model)
+           VALUES (?, ?, 'assistant', ?, datetime('now'), 'nanobot')`
+        ).run(randomUUID(), convId, text);
+        this._db.prepare(
+          `UPDATE conversations SET updated_at = datetime('now'),
+           message_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = ?)
+           WHERE id = ?`
+        ).run(convId, convId);
       } catch { /* non-fatal */ }
     }
   }

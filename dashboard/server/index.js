@@ -1061,16 +1061,25 @@ function getBridgeWs() {
 
 // POST /api/whatsapp/send — send a message via the bridge as the agent
 app.post('/api/whatsapp/send', (req, res) => {
-  const { chat_id, text } = req.body || {};
-  if (!chat_id || !text) return res.status(400).json({ error: 'chat_id and text required' });
+  const { chat_id, text, image_url, caption } = req.body || {};
+  if (!chat_id || (!text && !image_url)) return res.status(400).json({ error: 'chat_id and text or image_url required' });
   try {
     const ws = getBridgeWs();
-    // Wait for open if still connecting, then send
     function doSend() {
-      ws.send(JSON.stringify({ type: 'send', to: chat_id, text }));
-      db.prepare(
-        'INSERT INTO whatsapp_messages (direction, chat_id, phone_number, content) VALUES (?,?,?,?)'
-      ).run('outbound', chat_id, chat_id.split('@')[0], text);
+      if (image_url) {
+        // Resolve relative URL to absolute so the bridge can fetch it
+        const absUrl = image_url.startsWith('http') ? image_url : `http://nanobot-dashboard:3001${image_url}`;
+        ws.send(JSON.stringify({ type: 'send_image', to: chat_id, url: absUrl, caption: caption || '' }));
+        const content = caption || '[Image]';
+        db.prepare(
+          'INSERT INTO whatsapp_messages (direction, chat_id, phone_number, content) VALUES (?,?,?,?)'
+        ).run('outbound', chat_id, chat_id.split('@')[0], content);
+      } else {
+        ws.send(JSON.stringify({ type: 'send', to: chat_id, text }));
+        db.prepare(
+          'INSERT INTO whatsapp_messages (direction, chat_id, phone_number, content) VALUES (?,?,?,?)'
+        ).run('outbound', chat_id, chat_id.split('@')[0], text);
+      }
       res.json({ ok: true });
     }
     if (ws.readyState === WebSocket.OPEN) {
@@ -1243,6 +1252,7 @@ app.delete('/api/edge-sync/queue', async (req, res) => {
 // ── Edge devices proxy (new multi-device API) ───────────────────────────────
 
 function _bridgeUrl() {
+  if (process.env.EDGE_BRIDGE_URL) return process.env.EDGE_BRIDGE_URL.replace(/\/$/, '');
   try {
     const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     const ed = cfg?.channels?.edgeDevices || cfg?.channels?.edge_devices || {};
@@ -1254,6 +1264,13 @@ function _bridgeUrl() {
 app.get('/api/devices', async (req, res) => {
   try {
     const r = await fetch(`${_bridgeUrl()}/api/devices`);
+    res.status(r.status).json(await r.json());
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.get('/api/devices/:id/status', async (req, res) => {
+  try {
+    const r = await fetch(`${_bridgeUrl()}/api/devices/${req.params.id}/status`);
     res.status(r.status).json(await r.json());
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
@@ -1283,54 +1300,54 @@ app.delete('/api/devices/:id/command', async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-// GET /api/devices/:id/messages — conversation history for a device
-app.get('/api/devices/:id/messages', (req, res) => {
+// GET /api/devices/:id/conversation — return the conversation_id for this device's chat thread
+// Allows the dashboard to link directly to /chat/edge-{deviceId}
+app.get('/api/devices/:id/conversation', async (req, res) => {
+  const convId = `edge-${req.params.id}`;
+  const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(convId);
+  if (conv) return res.json(conv);
+  // Not in local DB — ask the bridge (bridge may have created it)
   try {
-    const limit = Math.min(parseInt(req.query.limit || '100', 10), 500);
-    // Pull from activity_log: device's own messages + assistant replies directed at it
-    const rows = db.prepare(`
-      SELECT source, sender, content, created_at
-      FROM activity_log
-      WHERE source = ? OR (source = 'assistant' AND sender = ?)
-      ORDER BY created_at ASC
-      LIMIT ?
-    `).all(req.params.id, req.params.id, limit);
-    res.json(rows);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    const r = await fetch(`${_bridgeUrl()}/api/conversations/${encodeURIComponent(convId)}`);
+    if (r.ok) return res.json(await r.json());
+  } catch { /* ignore */ }
+  res.status(404).json({ error: 'No conversation yet for this device' });
 });
 
-// GET /api/devices/:id/messages/stream — SSE stream of new messages for a device
+// GET /api/devices/:id/messages — conversation history for a device (proxied to bridge so replies show when bridge runs remotely)
+app.get('/api/devices/:id/messages', async (req, res) => {
+  try {
+    const limit = req.query.limit || '100';
+    const r = await fetch(`${_bridgeUrl()}/api/devices/${req.params.id}/messages?limit=${encodeURIComponent(limit)}`);
+    res.status(r.status);
+    if (r.ok) {
+      const data = await r.json();
+      res.json(data);
+    } else {
+      res.send(await r.text());
+    }
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// GET /api/devices/:id/messages/stream — SSE stream of new messages for a device (proxied to bridge)
 app.get('/api/devices/:id/messages/stream', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  if (res.socket) res.socket.setNoDelay(true);
-
   const deviceId = req.params.id;
-  const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
-  let lastId = parseInt(req.query.lastId || '0', 10);
-
-  if (!lastId) {
-    try {
-      const row = db.prepare('SELECT MAX(id) as maxId FROM activity_log WHERE source = ?').get(deviceId);
-      lastId = row?.maxId || 0;
-    } catch {}
-  }
-
-  const poll = setInterval(() => {
-    try {
-      const rows = db.prepare(
-        'SELECT * FROM activity_log WHERE id > ? AND (source = ? OR (source = \'assistant\' AND sender = ?)) ORDER BY id ASC LIMIT 50'
-      ).all(lastId, deviceId, deviceId);
-      for (const row of rows) {
-        res.write(`id: ${row.id}\ndata: ${JSON.stringify(row)}\n\n`);
-        lastId = row.id;
+  const lastId = req.query.lastId || '0';
+  const streamUrl = `${_bridgeUrl()}/api/devices/${encodeURIComponent(deviceId)}/messages/stream?lastId=${encodeURIComponent(lastId)}`;
+  fetch(streamUrl, { headers: { Accept: 'text/event-stream' } })
+    .then((r) => {
+      if (!r.ok) {
+        return r.text().then((t) => { res.status(r.status).send(t); });
       }
-    } catch {}
-  }, 1000);
-
-  req.on('close', () => { clearInterval(heartbeat); clearInterval(poll); });
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      if (res.socket) res.socket.setNoDelay(true);
+      r.body.pipe(res);
+      req.on('close', () => { if (r.body && typeof r.body.destroy === 'function') r.body.destroy(); });
+    })
+    .catch((e) => { res.status(502).json({ error: e.message }); });
 });
 
 app.get('/api/edge-sync/integration-guide', (req, res) => {

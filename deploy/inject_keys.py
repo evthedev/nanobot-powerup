@@ -42,7 +42,7 @@ maps_key              = _get("GOOGLE_STATIC_MAPS_API_KEY")
 telegram_token        = _get("TELEGRAM_BOT_TOKEN")
 bridge_token          = _get("BRIDGE_TOKEN")
 whatsapp_allow_from   = _get("WHATSAPP_ALLOW_FROM")
-reachy_bridge_enabled = _get("REACHY_BRIDGE_ENABLED").lower() in ("1", "true", "yes")
+edge_devices_enabled = _get("EDGE_DEVICES_ENABLED").lower() in ("1", "true", "yes")
 bridge_secret         = _get("BRIDGE_SECRET")
 edge_devices_json     = _get("EDGE_DEVICES_JSON")  # optional JSON map of device configs
 google_client_id      = _get("GOOGLE_CLIENT_ID")
@@ -93,12 +93,12 @@ if bridge_token or whatsapp_allow_from:
         set_nested(cfg, "channels.whatsapp.allow_from", allow_list)
     print(f"  whatsapp channel enabled")
 
-if reachy_bridge_enabled:
+if edge_devices_enabled:
     set_nested(cfg, "channels.reachyBridge.enabled", True)
     set_nested(cfg, "channels.reachyBridge.url", "http://nanobot-whatsapp-bridge:18790")
     if bridge_secret:
         set_nested(cfg, "channels.reachyBridge.secret", bridge_secret)
-    print("  reachy bridge enabled (legacy)")
+    print("  edge devices enabled")
     # Also populate edge_devices.reachy for forward compat if not already set
     if not cfg.get("channels", {}).get("edgeDevices", {}).get("devices", {}).get("reachy"):
         set_nested(cfg, "channels.edgeDevices.enabled", True)

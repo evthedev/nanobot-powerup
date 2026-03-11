@@ -111,6 +111,23 @@
   flex-shrink: 0;
 }
 
+.ed-btn-chat {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ed-btn-chat:hover {
+  background: var(--accent-purple, #7c3aed);
+  color: #fff;
+  border-color: transparent;
+}
+
 .ed-card-meta {
   display: flex;
   flex-wrap: wrap;

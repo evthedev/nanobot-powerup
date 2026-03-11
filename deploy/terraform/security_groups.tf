@@ -30,7 +30,7 @@ resource "aws_security_group" "nanobot" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Reachy/Picoclaw bridge — HTTP sync (PicoClaw devices POST /api/sync). Only used when REACHY_BRIDGE_ENABLED=true.
+  # Edge devices bridge — HTTP sync (PicoClaw/edge devices POST /api/sync). Only used when EDGE_DEVICES_ENABLED=true.
   ingress {
     description = "Reachy bridge HTTP"
     from_port   = 18790

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import './EdgeDevicesView.css';
@@ -87,10 +88,12 @@ function timeAgo(ts) {
 }
 
 function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirectives }) {
+  const navigate = useNavigate();
   const [selected, setSelected] = useState(DIRECTIVES[0]);
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState([]);
   const [tick, setTick] = useState(0);
+  const [convId, setConvId] = useState(null);
   const bottomRef = useRef(null);
   const lastIdRef = useRef(0);
 
@@ -105,9 +108,19 @@ function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirecti
     fetch(`${API}/api/devices/${device.device_id}/messages`)
       .then(r => r.json())
       .then(data => {
-        setMessages(data);
-        if (data.length) lastIdRef.current = data[data.length - 1].id;
+        if (Array.isArray(data)) {
+          setMessages(data);
+          if (data.length) lastIdRef.current = data[data.length - 1].id;
+        }
       })
+      .catch(() => {});
+  }, [device.device_id]);
+
+  // Fetch the device's linked chat conversation ID
+  useEffect(() => {
+    fetch(`${API}/api/devices/${device.device_id}/conversation`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.id) setConvId(data.id); })
       .catch(() => {});
   }, [device.device_id]);
 
@@ -145,6 +158,13 @@ function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirecti
         <StatusDot online={device.online} />
         <span className="ed-device-id">{device.device_id}</span>
         <span className="ed-last-seen">{timeAgo(device.last_seen)}</span>
+        {convId && (
+          <button
+            className="ed-btn-chat"
+            onClick={() => navigate(`/chat/${convId}`)}
+            title="Open in chat"
+          >💬 Chat</button>
+        )}
       </div>
 
       <div className="ed-card-meta">
