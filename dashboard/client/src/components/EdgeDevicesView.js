@@ -7,20 +7,22 @@ const API = process.env.REACT_APP_API_URL || '';
 
 const DIRECTIVES = ['wake', 'sleep', 'restart_app', 'restart_picoclaw', 'set_volume', 'capture_frame'];
 
-const GUIDE = `## Quick Start
+const GUIDE = `## Setup
 
-Copy this script, fill in the 3 variables at the top, and run it. That's it.
+Save this as \`~/.nanobot/workspace/skills-auto/edge-sync/sync.py\` and fill in the 3 variables.
 
 \`\`\`python
 #!/usr/bin/env python3
-import hashlib, hmac, json, ssl, sys, urllib.request
+# Run once: sync, wait 30s, sync again, exit. Schedule with cron every minute.
+import hashlib, hmac, json, ssl, sys, time, urllib.request
 
-BRIDGE_URL    = "https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com"  # no trailing slash, no /bridge
-DEVICE_ID     = "my-device"   # any unique string — auto-registers on first sync
-DEVICE_SECRET = "Nb9kQmX3pL7!"  # shared secret for this bridge
+BRIDGE_URL    = "https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com"  # no /bridge suffix
+DEVICE_ID     = "my-device"   # unique name for this instance
+DEVICE_SECRET = "Nb9kQmX3pL7!"
 
-def sync(messages=[], status={"daemon": "running"}):
-    payload = {"status": status, "telemetry": [{"kind": "message", "content": m} for m in messages]}
+def sync(message=None):
+    telemetry = [{"kind": "message", "content": message}] if message else []
+    payload = {"status": {"daemon": "running"}, "telemetry": telemetry}
     body = json.dumps(payload).encode()
     sig = hmac.new(DEVICE_SECRET.encode(), body, hashlib.sha256).hexdigest()
     ctx = ssl.create_default_context()
@@ -35,73 +37,29 @@ def sync(messages=[], status={"daemon": "running"}):
     with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
         return json.loads(resp.read().decode())
 
-# Run once and print result — DO NOT run in a loop, use cron instead
-result = sync(messages=["Hello from my device!"])
-for d in result.get("directives", []):
-    if d["command"].startswith("reply:"):
-        print("Agent says:", d["command"][len("reply:"):])
-    else:
-        print("Directive:", d["command"])
-print("Next poll in:", result.get("poll_interval_seconds", 30), "seconds")
+def handle(result):
+    for d in result.get("directives", []):
+        if d["command"].startswith("reply:"):
+            print("Agent:", d["command"][len("reply:"):])
+        else:
+            print("Directive:", d["command"])
+
+message = " ".join(sys.argv[1:]) or None
+handle(sync(message))  # first sync — sends message if provided
+time.sleep(30)
+handle(sync())         # second sync — picks up agent reply
+# script exits — cron runs it again next minute
 \`\`\`
 
-**Important:**
-- This script must **exit after one sync**. Do NOT use \`while True\`. Schedule it with \`cron\` to run every 30s.
-- The agent reply arrives on the **next poll** (~30s later), not immediately.
-- \`BRIDGE_URL\` has **no** \`/bridge\` suffix and **no** trailing slash.
-
----
-
-## Scheduling with cron
-
-\`\`\`python
-# In your nanobot agent, call cron() twice to get ~30s interval:
-cron("*/1 * * * * python3 ~/.nanobot/workspace/skills-auto/edge-sync/sync.py")
-cron("*/1 * * * * sleep 30 && python3 ~/.nanobot/workspace/skills-auto/edge-sync/sync.py")
+**Schedule it (one cron job, covers both syncs per minute):**
+\`\`\`
+cron("*/1 * * * * python3 /root/.nanobot/workspace/skills-auto/edge-sync/sync.py >> /tmp/edge-sync.log 2>&1")
 \`\`\`
 
----
-
-## Full sync protocol
-
+**To send a message manually:**
 \`\`\`
-POST <BRIDGE_URL>/api/devices/<DEVICE_ID>/sync
-Content-Type: application/json
-X-Bridge-Signature: <hmac-sha256-hex of body>
+python3 /root/.nanobot/workspace/skills-auto/edge-sync/sync.py "your message here"
 \`\`\`
-
-**Request body:**
-\`\`\`json
-{
-  "status": {"daemon": "running", "firmware": "1.2.3"},
-  "telemetry": [
-    {"kind": "message", "content": "User said: hello"},
-    {"kind": "event",   "type": "motion_detected"},
-    {"kind": "metric",  "name": "cpu_temp", "value": 42.1}
-  ]
-}
-\`\`\`
-
-Only \`kind=message\` items are forwarded to the agent. Other kinds are logged only.
-
-**Response:**
-\`\`\`json
-{
-  "status": "synced",
-  "directives": [{"command": "reply:Hello!", "queued_at": 1234567890.0}],
-  "context": [{"source": "telegram", "summary": "...", "at": "..."}],
-  "poll_interval_seconds": 30
-}
-\`\`\`
-
-\`directives\` is drained on every sync — each directive delivered exactly once.
-
-| Directive | What to do |
-|-----------|------------|
-| \`reply:<text>\` | Strip prefix, speak/display the text |
-| \`wake\` / \`sleep\` | Power on/off |
-| \`restart_app\` | Restart conversation process |
-| \`capture_frame\` | Capture camera frame |
 
 ---
 
@@ -109,11 +67,10 @@ Only \`kind=message\` items are forwarded to the agent. Other kinds are logged o
 
 | Symptom | Fix |
 |---------|-----|
-| \`401 Unauthorized\` | Wrong \`DEVICE_SECRET\`, or \`BRIDGE_URL\` has \`/bridge\` suffix — remove it |
-| directives always empty | Your telemetry must include \`{"kind": "message", ...}\` items |
-| reply never arrives | It comes on the **next** poll (~30s). Run the script again. |
-| script hangs forever | You used \`while True\` — use cron instead, script must exit |
-| \`SSL error\` | Add \`ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE\` (self-signed cert) |
+| \`401 Unauthorized\` | \`BRIDGE_URL\` has \`/bridge\` suffix — remove it. Or wrong \`DEVICE_SECRET\`. |
+| directives always empty | Pass a message as argument — empty polls don't trigger agent replies |
+| device shows stale | Cron not running — check with \`crontab -l\` |
+| script hangs | You used \`while True\` or \`nohup\` — the script must exit on its own |
 `;
 
 function StatusDot({ online }) {
