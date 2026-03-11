@@ -78,6 +78,17 @@ export class ReachyBridgeServer {
         await this._handleSync(req, res);
       } else if (method === 'POST' && url === '/api/dashboard/command') {
         await this._handleCommand(req, res);
+      } else if (method === 'DELETE' && url.startsWith('/api/dashboard/command/')) {
+        const idx = parseInt(url.split('/').pop() ?? '', 10);
+        if (isNaN(idx) || idx < 0 || idx >= this._pendingCommands.length) {
+          res.writeHead(404).end();
+        } else {
+          this._pendingCommands.splice(idx, 1);
+          this._json(res, 200, { deleted: true, remaining: this._pendingCommands.length });
+        }
+      } else if (method === 'DELETE' && url === '/api/dashboard/command') {
+        this._pendingCommands = [];
+        this._json(res, 200, { cleared: true });
       } else if (method === 'GET' && url === '/api/dashboard/status') {
         this._handleStatus(res);
       } else {
@@ -217,6 +228,6 @@ export class ReachyBridgeServer {
   }
 
   private _handleStatus(res: ServerResponse): void {
-    this._json(res, 200, { reachy: this._lastStatus });
+    this._json(res, 200, { reachy: this._lastStatus, pending_commands: this._pendingCommands });
   }
 }

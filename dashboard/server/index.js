@@ -1177,8 +1177,35 @@ app.get('/api/picoclaw/status', (req, res) => {
   try {
     const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
-    res.json({ enabled: !!rb.enabled, url: rb.url || 'http://localhost:18790' });
+    const bridgeUrl = rb.url || 'http://nanobot-whatsapp-bridge:18790';
+    // Proxy to bridge for live queue
+    fetch(`${bridgeUrl}/api/dashboard/status`)
+      .then(r => r.json())
+      .then(data => res.json({ enabled: !!rb.enabled, url: bridgeUrl, ...data }))
+      .catch(() => res.json({ enabled: !!rb.enabled, url: bridgeUrl }));
   } catch { res.json({ enabled: false }); }
+});
+
+// DELETE /api/picoclaw/queue/:index — remove one pending command by index
+app.delete('/api/picoclaw/queue/:index', async (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
+    const bridgeUrl = rb.url || 'http://nanobot-whatsapp-bridge:18790';
+    const r = await fetch(`${bridgeUrl}/api/dashboard/command/${req.params.index}`, { method: 'DELETE' });
+    res.status(r.status).json(await r.json());
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/picoclaw/queue — clear all pending commands
+app.delete('/api/picoclaw/queue', async (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
+    const bridgeUrl = rb.url || 'http://nanobot-whatsapp-bridge:18790';
+    const r = await fetch(`${bridgeUrl}/api/dashboard/command`, { method: 'DELETE' });
+    res.status(r.status).json(await r.json());
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/picoclaw/integration-guide', (req, res) => {

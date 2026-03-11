@@ -207,6 +207,7 @@ export default function PicoClawView({ onToggleSidebar, sidebarOpen }) {
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState(null);
   const [statusLoaded, setStatusLoaded] = useState(false);
+  const [queue, setQueue] = useState([]);
   const [live, setLive] = useState(false);
   const [guide, setGuide] = useState('');
   const bottomRef = useRef(null);
@@ -216,15 +217,30 @@ export default function PicoClawView({ onToggleSidebar, sidebarOpen }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
+  const refreshStatus = useCallback(() => {
+    fetch(`${API}/api/picoclaw/status`)
+      .then(r => r.json())
+      .then(s => { setStatus(s); setStatusLoaded(true); setQueue(s.pending_commands || []); })
+      .catch(() => { setStatus({ enabled: false }); setStatusLoaded(true); });
+  }, []);
+
+  const deleteQueueItem = useCallback(async (index) => {
+    await fetch(`${API}/api/picoclaw/queue/${index}`, { method: 'DELETE' });
+    refreshStatus();
+  }, [refreshStatus]);
+
+  const clearQueue = useCallback(async () => {
+    await fetch(`${API}/api/picoclaw/queue`, { method: 'DELETE' });
+    refreshStatus();
+  }, [refreshStatus]);
+
   useEffect(() => {
     fetch(`${API}/api/picoclaw/integration-guide`)
       .then(r => r.ok ? r.text() : Promise.reject())
       .then(setGuide).catch(() => setGuide(GUIDE_MD));
 
-    fetch(`${API}/api/picoclaw/status`)
-      .then(r => r.json())
-      .then(s => { setStatus(s); setStatusLoaded(true); })
-      .catch(() => { setStatus({ enabled: false }); setStatusLoaded(true); });
+    refreshStatus();
+    const statusPoll = setInterval(refreshStatus, 5000);
 
     fetch(`${API}/api/picoclaw/messages`)
       .then(r => r.json())
@@ -233,7 +249,9 @@ export default function PicoClawView({ onToggleSidebar, sidebarOpen }) {
         if (data.length > 0) lastIdRef.current = data[data.length - 1].id;
       })
       .catch(() => {});
-  }, []);
+
+    return () => clearInterval(statusPoll);
+  }, [refreshStatus]);
 
   useEffect(() => { scrollToBottom(); }, [rows, scrollToBottom]);
 
@@ -304,7 +322,22 @@ export default function PicoClawView({ onToggleSidebar, sidebarOpen }) {
       </div>
 
       <div className="whatsapp-footer">
-        <span>🦐 Bidirectional sync log — Reachy polls every ~30s.</span>
+        {queue.length > 0 ? (
+          <div style={{ width: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+              <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>📬 Pending commands ({queue.length})</span>
+              <button onClick={clearQueue} style={{ fontSize: '0.7rem', padding: '2px 8px', cursor: 'pointer', background: '#f38ba8', border: 'none', borderRadius: '4px', color: '#1e1e2e' }}>Clear all</button>
+            </div>
+            {queue.map((cmd, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.3rem', fontSize: '0.75rem' }}>
+                <span style={{ flex: 1, wordBreak: 'break-word', opacity: 0.85 }}>{cmd.command}</span>
+                <button onClick={() => deleteQueueItem(i)} style={{ flexShrink: 0, padding: '1px 6px', cursor: 'pointer', background: '#45475a', border: 'none', borderRadius: '3px', color: '#cdd6f4' }}>✕</button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <span>🦐 Bidirectional sync log — Reachy polls every ~30s.</span>
+        )}
       </div>
     </div>
   );
