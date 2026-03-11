@@ -168,7 +168,7 @@ while True:
 | Commands never arrive | Bridge may not be enabled — ask operator to verify |
 `;
 
-function SyncRow({ row }) {
+function SyncRow({ row, onDelete }) {
   const isInbound = row.direction === 'inbound';
   let payload;
   try { payload = JSON.parse(row.payload); } catch { payload = {}; }
@@ -190,7 +190,7 @@ function SyncRow({ row }) {
   }
 
   return (
-    <div className={`wa-message-row ${isInbound ? 'inbound' : 'outbound'}`}>
+    <div className={`wa-message-row ${isInbound ? 'inbound' : 'outbound'}`} style={{ position: 'relative' }}>
       <div className="wa-avatar">{isInbound ? '🦐' : '🤖'}</div>
       <div className="wa-message-body">
         <div className="wa-sender-name">{isInbound ? 'Reachy → Bridge' : 'Bridge → Reachy'}</div>
@@ -199,6 +199,13 @@ function SyncRow({ row }) {
         </div>
         <div className="wa-time">{time}</div>
       </div>
+      <button
+        onClick={() => onDelete(row.id)}
+        title="Delete"
+        style={{ position: 'absolute', top: 0, right: 0, background: 'none', border: 'none', cursor: 'pointer', opacity: 0.3, fontSize: '0.75rem', padding: '2px 6px', color: 'var(--text-muted)' }}
+        onMouseEnter={e => e.currentTarget.style.opacity = 1}
+        onMouseLeave={e => e.currentTarget.style.opacity = 0.3}
+      >✕</button>
     </div>
   );
 }
@@ -222,6 +229,11 @@ export default function PicoClawView({ onToggleSidebar, sidebarOpen }) {
       .then(r => r.json())
       .then(s => { setStatus(s); setStatusLoaded(true); setQueue(s.pending_commands || []); })
       .catch(() => { setStatus({ enabled: false }); setStatusLoaded(true); });
+  }, []);
+
+  const deleteRow = useCallback(async (id) => {
+    await fetch(`${API}/api/picoclaw/messages/${id}`, { method: 'DELETE' });
+    setRows(prev => prev.filter(r => r.id !== id));
   }, []);
 
   const deleteQueueItem = useCallback(async (index) => {
@@ -297,7 +309,7 @@ export default function PicoClawView({ onToggleSidebar, sidebarOpen }) {
                 : 'Reachy bridge not enabled. Set channels.reachyBridge.enabled and restart.'}
           </div>
         ) : (
-          rows.map(row => <SyncRow key={row.id} row={row} />)
+          rows.map(row => <SyncRow key={row.id} row={row} onDelete={deleteRow} />)
         )}
         {guide && (
           <pre style={{

@@ -1126,6 +1126,13 @@ app.get('/api/whatsapp/stream', (req, res) => {
 
 // ── Reachy sync history ──────────────────────────────────────────────────────
 
+app.delete('/api/picoclaw/messages/:id', (req, res) => {
+  try {
+    db.prepare('DELETE FROM reachy_sync_log WHERE id = ?').run(req.params.id);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/picoclaw/messages', (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit || '300', 10), 1000);
