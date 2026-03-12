@@ -15,10 +15,15 @@ edge = cfg.get("channels", {}).get("edgeDevices", {})
 reachy = cfg.get("channels", {}).get("reachyBridge", {})
 edge_enabled = "true" if (edge.get("enabled") or reachy.get("enabled")) else "false"
 
+github_token = cfg.get("tools", {}).get("github", {}).get("token", "")
+github_repo = cfg.get("tools", {}).get("github", {}).get("repo", "")
+
 lines = [
     f"BRIDGE_TOKEN={token}",
     f"EDGE_DEVICES_ENABLED={edge_enabled}",
+    f"GITHUB_TOKEN={github_token}",
+    f"GH_REPO={github_repo}",
 ]
 
 open("/opt/nanobot-app/.env.docker", "w").write("\n".join(lines) + "\n")
-print(f"  .env.docker written (BRIDGE_TOKEN, EDGE_DEVICES_ENABLED={edge_enabled})")
+print(f"  .env.docker written (BRIDGE_TOKEN, EDGE_DEVICES_ENABLED={edge_enabled}, GITHUB_TOKEN={'set' if github_token else 'unset'}, GH_REPO={github_repo})")

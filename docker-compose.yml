@@ -46,6 +46,8 @@ services:
       - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
       - PLAYWRIGHT_BROWSERS_PATH=/usr/bin
       - NANOBOT_SSL_VERIFY=false
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GH_REPO=${GH_REPO:-}
     deploy:
       resources:
         limits:
