@@ -25,6 +25,7 @@ import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import WebSocket, { WebSocketServer } from 'ws';
 import Database from 'better-sqlite3';
+import { bridgeLog } from './logger.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,7 @@ interface DeviceState {
   directives: { command: string; queued_at: number }[];
   status: DeviceStatus;
   config: DeviceConfig;
+  lastForwardedMsgHash: string | null;
 }
 
 // ── Config loader ─────────────────────────────────────────────────────────────
@@ -164,13 +166,14 @@ export class EdgeBridgeServer {
           directives: [],
           status: { last_seen: 0 },
           config: cfg,
+          lastForwardedMsgHash: null,
         });
       }
     }
     if (this._devices.size > 0) {
-      console.log(`🔌 Edge bridge: registered devices: ${[...this._devices.keys()].join(', ')}`);
+      bridgeLog.info('edge', `Registered devices: ${[...this._devices.keys()].join(', ')}`);
     } else {
-      console.log('🔌 Edge bridge: no devices configured (will accept any device_id)');
+      bridgeLog.info('edge', 'No devices configured (will accept any device_id)');
     }
   }
 
@@ -178,7 +181,7 @@ export class EdgeBridgeServer {
     if (!this._devices.has(id)) {
       const { devices: configs } = loadDeviceConfigs();
       const cfg = configs[id] ?? { enabled: true, secret: '', poll_interval_seconds: 30, stream_mode: null };
-      this._devices.set(id, { directives: [], status: { last_seen: 0 }, config: cfg });
+      this._devices.set(id, { directives: [], status: { last_seen: 0 }, config: cfg, lastForwardedMsgHash: null });
     }
     return this._devices.get(id)!;
   }
@@ -195,7 +198,7 @@ export class EdgeBridgeServer {
       });
     });
     this._server.listen(this.port, '0.0.0.0', () => {
-      console.log(`🔌 Edge bridge HTTP+WS server on :${this.port}`);
+      bridgeLog.info('edge', `HTTP+WS server on :${this.port}`);
     });
   }
 
@@ -256,7 +259,7 @@ export class EdgeBridgeServer {
         res.writeHead(404).end();
       }
     } catch (e) {
-      console.error('Edge bridge error:', e);
+      bridgeLog.error('edge', `Route error: ${e}`);
       res.writeHead(500).end(JSON.stringify({ error: String(e) }));
     }
   }
@@ -275,7 +278,7 @@ export class EdgeBridgeServer {
       return;
     }
 
-    console.log(`🔌 [${deviceId}] stream connected`);
+    bridgeLog.info('edge', `[${deviceId}] stream connected`);
     const _frame = (type: string, extra: Record<string, unknown> = {}) =>
       JSON.stringify({ type, id: randomUUID(), ts: Date.now(), ...extra });
 
@@ -343,8 +346,8 @@ export class EdgeBridgeServer {
       }
     });
 
-    ws.on('close', () => console.log(`🔌 [${deviceId}] stream disconnected`));
-    ws.on('error', (e) => console.error(`🔌 [${deviceId}] stream error:`, e));
+    ws.on('close', () => bridgeLog.info('edge', `[${deviceId}] stream disconnected`));
+    ws.on('error', (e) => bridgeLog.error('edge', `[${deviceId}] stream error: ${e}`));
   }
 
   private _readBody(req: IncomingMessage): Promise<Buffer> {
@@ -433,13 +436,19 @@ export class EdgeBridgeServer {
       }
     }
 
-    // Forward message-kind telemetry to gateway
+    // Forward message-kind telemetry to gateway — deduplicate so status pings
+    // carrying the same content don't trigger repeated LLM calls.
     for (const item of telemetry) {
-      if (item.kind === 'message' && item.content) {
-        this._forwardToGateway(deviceId, item.content).catch(e =>
-          console.error(`Edge bridge [${deviceId}]: gateway forward error:`, e)
-        );
+      if (item.kind !== 'message' || !item.content) continue;
+      const msgHash = `${deviceId}:${(item.content as string).trim()}`;
+      if (msgHash === device.lastForwardedMsgHash) {
+        bridgeLog.info('edge', `[${deviceId}] skipping duplicate message forward`);
+        continue;
       }
+      device.lastForwardedMsgHash = msgHash;
+      this._forwardToGateway(deviceId, item.content as string).catch(e =>
+        bridgeLog.error('edge', `[${deviceId}] gateway forward error: ${e}`)
+      );
     }
 
     // Drain directives
@@ -497,7 +506,7 @@ export class EdgeBridgeServer {
     }
     const device = this._getOrCreateDevice(deviceId);
     device.directives.push({ command, queued_at: Date.now() / 1000 });
-    console.log(`🔌 [${deviceId}] directive queued: ${command}`);
+    bridgeLog.info('edge', `[${deviceId}] directive queued: ${command}`);
     this._json(res, 200, { queued: true });
   }
 
@@ -560,7 +569,7 @@ export class EdgeBridgeServer {
       ).all(deviceId, deviceId, limit) as { id: number; source: string; sender: string; content: string; created_at: string }[];
       this._json(res, 200, rows);
     } catch (e) {
-      console.error('Edge bridge messages error:', e);
+      bridgeLog.error('edge', `Messages error: ${e}`);
       res.writeHead(500).end(JSON.stringify({ error: String(e) }));
     }
   }
@@ -625,7 +634,7 @@ export class EdgeBridgeServer {
       const timer = setTimeout(() => { ws.close(); resolve(parts.join('').trim()); }, 120000);
       ws.once('open', () => {
         ws.send(JSON.stringify({ session_id: sessionId, content }));
-        console.log(`🔌 [${deviceId}] → gateway: ${content.slice(0, 60)}`);
+        bridgeLog.info('edge', `[${deviceId}] → gateway: ${content.slice(0, 60)}`);
       });
       ws.on('message', (data) => {
         try {
@@ -644,7 +653,7 @@ export class EdgeBridgeServer {
     if (reply) {
       const device = this._getOrCreateDevice(deviceId);
       device.directives.push({ command: `reply:${reply}`, queued_at: Date.now() / 1000 });
-      console.log(`🔌 [${deviceId}] reply queued (${reply.length} chars)`);
+      bridgeLog.info('edge', `[${deviceId}] reply queued (${reply.length} chars)`);
       try {
         const text = reply.slice(0, 500);
         // Write to activity_log (for /devices page)
