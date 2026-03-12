@@ -398,6 +398,13 @@ export class EdgeBridgeServer {
         : item as TelemetryItem
     );
 
+    const msgCount = telemetry.filter((t) => t.kind === 'message' && t.content).length;
+    if (msgCount > 0) {
+      bridgeLog.info('edge', `[${deviceId}] sync INBOUND telemetry=${telemetry.length} messages=${msgCount} → will forward to LLM`);
+    } else {
+      bridgeLog.info('edge', `[${deviceId}] sync INBOUND status-only (telemetry=${telemetry.length}) — no LLM`);
+    }
+
     // Merge device status blob
     const statusBlob = payload.status ?? payload.reachy_status ?? {};
 
@@ -460,6 +467,8 @@ export class EdgeBridgeServer {
     device.directives = [];
 
     if (directives.length > 0) {
+      const replyPreview = directives.find((d) => d.command.startsWith('reply:'))?.command.slice(0, 80) ?? '';
+      bridgeLog.info('edge', `[${deviceId}] sync OUTBOUND drain directives=${directives.length} ${replyPreview ? `reply: ${replyPreview}...` : ''}`);
       this._db.prepare(
         'INSERT INTO edge_sync_log (device_id, direction, event_type, payload) VALUES (?, ?, ?, ?)'
       ).run(deviceId, 'outbound', 'directives', JSON.stringify({ directives }));
@@ -621,7 +630,7 @@ export class EdgeBridgeServer {
           lastId = row.id;
         }
       } catch { /* ignore */ }
-    }, 5000);
+    }, 2000);
 
     req.on('close', () => {
       clearInterval(heartbeat);

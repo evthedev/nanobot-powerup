@@ -8,6 +8,8 @@ const FILTERS = [
   { id: 'main',     label: 'Main Agent' },
   { id: 'subagent', label: 'Subagents' },
   { id: 'channel',  label: 'Channels' },
+  { id: 'bridge',   label: 'Edge/Bridge' },
+  { id: 'tokens',   label: 'Tokens' },
   { id: 'telegram', label: '✈️ Telegram' },
   { id: 'error',    label: 'Errors' },
 ];
@@ -85,6 +87,8 @@ export default function LogsPanel({ mainModel, onToggleSidebar, sidebarOpen }) {
     if (filter === 'main'     && e.type !== 'main')     return false;
     if (filter === 'subagent' && e.type !== 'subagent') return false;
     if (filter === 'channel'  && e.type !== 'channel')  return false;
+    if (filter === 'bridge'   && e.type !== 'bridge')   return false;
+    if (filter === 'tokens'   && e.category !== 'tokens') return false;
     if (filter === 'telegram' && e.type !== 'telegram') return false;
     if (search && !e.msg.toLowerCase().includes(search.toLowerCase())) return false;
     return true;

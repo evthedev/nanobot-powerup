@@ -74,6 +74,32 @@ python3 /root/.nanobot/workspace/skills-auto/edge-sync/sync.py "your message her
 | directives always empty | Agent hasn't replied yet — wait for the next sync cycle. Only send \`kind=message\` telemetry when the user actually speaks; empty status-only polls are correct and expected. |
 | device shows stale | Cron not running — check with \`crontab -l\` |
 | script hangs | You used \`while True\` or \`nohup\` — the script must exit on its own |
+
+---
+
+## Stop polling / disconnect (to halt token burn)
+
+**1. Stop the cron job** (on the host running the gateway):
+\`\`\`
+nanobot cron list                    # find the edge-sync job id
+nanobot cron remove <id>             # remove permanently
+# or disable temporarily:
+nanobot cron enable <id> --disable
+\`\`\`
+(Docker: \`docker exec nanobot-gateway nanobot cron list\`)
+
+**2. Disconnect WebSocket stream** (if using WS \`/api/devices/:id/stream\`):  
+Close the client app or stop the process that holds the WebSocket. The server sends \`hello\` on connect; the handshake itself does not use tokens. Only \`message.send\` triggers the LLM.
+
+**3. Disable edge on host** (nuclear option — stops all devices):
+\`\`\`
+# In .env.docker or deploy env:
+EDGE_DEVICES_ENABLED=false
+# Then: docker compose restart nanobot-whatsapp-bridge
+\`\`\`
+
+**4. Find what's burning tokens:**  
+Check gateway logs for \`LLM usage | model=... tokens_in=...\` — that shows which session/channel triggered each call.
 `;
 
 function StatusDot({ online }) {
@@ -106,7 +132,7 @@ function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirecti
   }, []);
 
   // Load message history
-  useEffect(() => {
+  const fetchMessages = useCallback(() => {
     fetch(`${API}/api/devices/${device.device_id}/messages`)
       .then(r => r.json())
       .then(data => {
@@ -117,6 +143,16 @@ function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirecti
       })
       .catch(() => {});
   }, [device.device_id]);
+
+  useEffect(() => {
+    fetchMessages();
+  }, [fetchMessages]);
+
+  // Fallback poll for new messages (SSE can fail behind some proxies)
+  useEffect(() => {
+    const interval = setInterval(fetchMessages, 4000);
+    return () => clearInterval(interval);
+  }, [fetchMessages]);
 
   // Fetch the device's linked chat conversation ID
   useEffect(() => {

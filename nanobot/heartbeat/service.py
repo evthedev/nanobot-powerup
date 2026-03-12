@@ -163,11 +163,11 @@ class HeartbeatService:
         content = self._read_heartbeat_file()
 
         if _is_heartbeat_empty(content):
-            logger.debug("Heartbeat: no tasks (HEARTBEAT.md empty)")
+            logger.info("Heartbeat: no tasks (HEARTBEAT.md empty) — skipping LLM")
             return
 
         if not self._is_check_due():
-            logger.debug("Heartbeat: no checks due — skipping LLM call")
+            logger.info("Heartbeat: no checks due — skipping LLM")
             return
 
         logger.info("Heartbeat: check due, invoking agent...")

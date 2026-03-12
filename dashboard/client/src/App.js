@@ -87,6 +87,16 @@ function AppInner() {
     }
   }, []);
 
+  const refreshMessages = useCallback(async (convId) => {
+    if (!convId) return;
+    try {
+      const r = await fetch(`${API}/api/conversations/${convId}/messages`);
+      const msgs = await r.json();
+      setMessages(msgs);
+      fetchConversations();
+    } catch { /* ignore */ }
+  }, []);
+
   const isMobile = () => window.innerWidth <= 768;
 
   const selectConversation = useCallback((id) => {
@@ -387,6 +397,7 @@ function AppInner() {
                 loading={loading}
                 streaming={streaming}
                 onLoad={loadConversation}
+                onRefreshMessages={refreshMessages}
                 onSend={handleSend}
                 onToggleSidebar={() => setSidebarOpen(p => !p)}
                 sidebarOpen={sidebarOpen}
@@ -412,7 +423,7 @@ function AppInner() {
 }
 
 // ── ChatRoute — loads messages when chatId changes ───────────────────────────
-function ChatRoute({ conversations, activeConvId, messages, loading, streaming, onLoad, onSend, onToggleSidebar, sidebarOpen }) {
+function ChatRoute({ conversations, activeConvId, messages, loading, streaming, onLoad, onSend, onRefreshMessages, onToggleSidebar, sidebarOpen }) {
   const { chatId } = useParams();
 
   useEffect(() => {
@@ -420,6 +431,13 @@ function ChatRoute({ conversations, activeConvId, messages, loading, streaming, 
       onLoad(chatId);
     }
   }, [chatId, activeConvId, onLoad]);
+
+  // Edge device replies arrive asynchronously via sync; poll so they appear in the chat
+  useEffect(() => {
+    if (!chatId || !chatId.startsWith('edge-') || !onRefreshMessages) return;
+    const interval = setInterval(() => onRefreshMessages(chatId), 3000);
+    return () => clearInterval(interval);
+  }, [chatId, onRefreshMessages]);
 
   const conv = conversations.find(c => c.id === chatId);
 

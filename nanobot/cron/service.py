@@ -238,7 +238,8 @@ class CronService:
     async def _execute_job(self, job: CronJob) -> None:
         """Execute a single job."""
         start_ms = _now_ms()
-        logger.info("Cron: executing job '{}' ({})", job.name, job.id)
+        kind_label = "exec (no LLM)" if job.payload.kind == "exec" else "agent_turn (LLM)"
+        logger.info("Cron: executing job '{}' ({}) [{}]", job.name, job.id, kind_label)
 
         try:
             if job.payload.kind == "exec":

@@ -708,6 +708,10 @@ function parseLogLine(raw) {
   else if (msg.includes('executing:'))      category = 'tool';
   else if (msg.includes('completed successfully')) category = 'done';
   else if (msg.includes('messaged user directly')) category = 'done';
+  else if (msg.includes('status-only') && msg.includes('no LLM')) category = 'edge';
+  else if (msg.includes('sync INBOUND') || msg.includes('sync OUTBOUND')) category = 'edge';
+  else if (msg.includes('Cron:') && msg.includes('exec (no LLM)')) category = 'cron';
+  else if (msg.includes('Heartbeat:') && msg.includes('skipping')) category = 'heartbeat';
   else if (level === 'ERROR' || level === 'CRITICAL') category = 'error';
   else if (level === 'WARNING')             category = 'warning';
 
