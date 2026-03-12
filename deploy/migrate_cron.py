@@ -7,6 +7,10 @@ exec jobs so they run directly without an LLM call.
 Migration 2: Disable agent_turn jobs whose message is exactly "edge sync".
 Those are redundant with the exec job that runs the sync script and cause
 an LLM call every minute.
+
+Migration 3: Fix malformed jobs — agent_turn with command set should be exec.
+
+Migration 4: Deduplicate exec jobs — keep one per unique command, remove rest.
 """
 import json
 import os
@@ -25,10 +29,22 @@ if not os.path.exists(CRON_PATH):
     sys.exit(0)
 
 data = json.loads(Path(CRON_PATH).read_text())
+jobs = data.get("jobs", [])
 changed = 0
 
-for job in data.get("jobs", []):
+# ── Migrations 1–3: fix individual jobs ─────────────────────────────────────
+for job in jobs:
     payload = job.get("payload", {})
+
+    # Migration 3: malformed — agent_turn but command is set (should be exec)
+    if payload.get("kind") == "agent_turn" and (payload.get("command") or "").strip():
+        payload["kind"] = "exec"
+        payload["message"] = ""
+        job["payload"] = payload
+        changed += 1
+        print(f"migrate_cron: fixed malformed job '{job.get('id', '?')}' → exec")
+        continue
+
     if payload.get("kind") != "agent_turn":
         continue
     message = (payload.get("message") or "").strip()
@@ -51,6 +67,29 @@ for job in data.get("jobs", []):
         job["state"] = state
         changed += 1
         print(f"migrate_cron: disabled job '{job.get('id', '?')}' ({job.get('name', job.get('id', '?'))!r}) — redundant with exec edge-sync")
+
+# ── Migration 4: deduplicate exec jobs (same command → keep first) ───────────
+seen_commands = {}
+to_remove = []
+for i, job in enumerate(jobs):
+    payload = job.get("payload", {})
+    if payload.get("kind") != "exec":
+        continue
+    cmd = (payload.get("command") or "").strip()
+    if not cmd:
+        continue
+    # Normalise for comparison: strip trailing redirect variations
+    key = cmd.split(">>")[0].strip() if ">>" in cmd else cmd
+    if key in seen_commands:
+        to_remove.append(i)
+        changed += 1
+        print(f"migrate_cron: removed duplicate exec job '{job.get('id', '?')}' (same as {seen_commands[key]})")
+    else:
+        seen_commands[key] = job.get("id", "?")
+
+for i in reversed(to_remove):
+    jobs.pop(i)
+data["jobs"] = jobs
 
 if changed:
     Path(CRON_PATH).write_text(json.dumps(data, indent=2))
