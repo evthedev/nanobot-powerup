@@ -61,12 +61,14 @@ def _load_credentials():
     scopes = token_data.get("scope", "")
     scopes = scopes.split() if isinstance(scopes, str) else scopes
 
-    # Convert expiry_date (JS milliseconds timestamp) to a timezone-aware datetime
-    # so google-auth can correctly evaluate creds.valid and trigger a refresh.
+    # Convert expiry_date (JS milliseconds timestamp) to a datetime for google-auth.
+    # google-auth's _helpers.utcnow() returns naive UTC; it compares with expiry.
+    # Passing timezone-aware expiry causes: TypeError: can't compare offset-naive and offset-aware datetimes.
+    # Use naive UTC so the comparison succeeds.
     expiry = None
     expiry_date = token_data.get("expiry_date")
     if expiry_date:
-        expiry = datetime.fromtimestamp(int(expiry_date) / 1000, tz=timezone.utc)
+        expiry = datetime.fromtimestamp(int(expiry_date) / 1000, tz=timezone.utc).replace(tzinfo=None)
 
     creds = Credentials(
         token=token_data.get("access_token"),
