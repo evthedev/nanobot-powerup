@@ -10,7 +10,7 @@ from typing import Any, Callable, Coroutine
 
 from loguru import logger
 
-from nanobot.cron.types import CronJob, CronJobState, CronPayload, CronSchedule, CronStore
+from nanobot.cron.types import CronJob, CronJobState, CronPayload, CronSchedule, CronStore, looks_like_shell_command
 
 
 def _now_ms() -> int:
@@ -303,6 +303,11 @@ class CronService:
         delete_after_run: bool = False,
     ) -> CronJob:
         """Add a new job."""
+        if message and looks_like_shell_command(message):
+            raise ValueError(
+                "Message looks like a shell command. Use 'command' for scripts, not 'message'. "
+                "command= runs directly without LLM; message= invokes the agent (~20k tokens/run)."
+            )
         store = self._load_store()
         _validate_schedule_for_add(schedule)
         now = _now_ms()

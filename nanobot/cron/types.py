@@ -3,6 +3,15 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
+# Prefixes that indicate a shell command (use command= not message=)
+SHELL_PREFIXES = ("python3 ", "python ", "bash ", "sh ", "node ", "npx ", "/usr/bin/", "/usr/local/bin/")
+
+
+def looks_like_shell_command(text: str) -> bool:
+    """True if text appears to be a shell command rather than a natural-language agent task."""
+    t = (text or "").strip()
+    return bool(t and any(t.startswith(p) for p in SHELL_PREFIXES))
+
 
 @dataclass
 class CronSchedule:

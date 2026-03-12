@@ -13,9 +13,14 @@ import os
 import sys
 from pathlib import Path
 
-CRON_PATH = os.environ.get("CRON_PATH", "/opt/nanobot/cron/jobs.json")
+# Ensure we can import from nanobot (single source of truth for SHELL_PREFIXES)
+_REPO = Path(__file__).resolve().parent.parent
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
 
-_SHELL_PREFIXES = ("python3 ", "python ", "bash ", "sh ", "node ", "npx ", "/usr/bin/", "/usr/local/bin/")
+from nanobot.cron.types import SHELL_PREFIXES
+
+CRON_PATH = os.environ.get("CRON_PATH", "/opt/nanobot/cron/jobs.json")
 _EDGE_SYNC_MESSAGE = "edge sync"
 
 if not os.path.exists(CRON_PATH):
@@ -32,7 +37,7 @@ for job in data.get("jobs", []):
     message = (payload.get("message") or "").strip()
 
     # Migration 1: shell command → exec
-    if any(message.startswith(p) for p in _SHELL_PREFIXES):
+    if any(message.startswith(p) for p in SHELL_PREFIXES):
         payload["kind"] = "exec"
         payload["command"] = message
         payload["message"] = ""

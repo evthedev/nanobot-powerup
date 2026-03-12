@@ -1,5 +1,6 @@
 .assets
 .env
+.env.docker
 *.pyc
 dist/
 build/

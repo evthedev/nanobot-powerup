@@ -134,16 +134,19 @@ class CronTool(Tool):
         else:
             return "Error: either every_seconds, cron_expr, or at is required"
         
-        job = self._cron.add_job(
-            name=(command or message)[:30],
-            schedule=schedule,
-            message=message,
-            command=command,
-            deliver=True,
-            channel=self._channel,
-            to=self._chat_id,
-            delete_after_run=delete_after,
-        )
+        try:
+            job = self._cron.add_job(
+                name=(command or message)[:30],
+                schedule=schedule,
+                message=message,
+                command=command,
+                deliver=True,
+                channel=self._channel,
+                to=self._chat_id,
+                delete_after_run=delete_after,
+            )
+        except ValueError as e:
+            return f"Error: {e}"
         kind_label = "exec (no LLM)" if command else "agent_turn"
         return f"Created job '{job.name}' (id: {job.id}, kind: {kind_label})"
     
