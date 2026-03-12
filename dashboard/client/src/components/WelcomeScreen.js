@@ -62,7 +62,7 @@ export default function WelcomeScreen({ onNewChat, stats, onToggleSidebar, sideb
     if (!text && attachments.length === 0) return;
     const imageMarkdown = attachments
       .map(a => a.type === 'video'
-        ? `\n<video src="${a.url}" controls style="max-width:100%;border-radius:8px;display:block"></video>`
+        ? `\n![video](${a.url})`
         : `\n![image](${a.url})`)
       .join('');
     onNewChat((text + imageMarkdown).trim());

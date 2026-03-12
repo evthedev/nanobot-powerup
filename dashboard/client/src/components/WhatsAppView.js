@@ -3,7 +3,39 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import EmojiPicker from 'emoji-picker-react';
 import twemoji from 'twemoji';
+import Lightbox from 'yet-another-react-lightbox';
+import Zoom from 'yet-another-react-lightbox/plugins/zoom';
+import 'yet-another-react-lightbox/styles.css';
 import './WhatsAppView.css';
+
+const VIDEO_EXTS = /\.(mp4|webm|mov|ogg)$/i;
+
+function WaMedia({ src, alt, onLightbox }) {
+  const [broken, setBroken] = useState(false);
+  const resolved = API && src?.startsWith('/') ? `${API}${src}` : src;
+  if (broken) {
+    return <div className="chat-img-broken" title={src}><span>Media unavailable</span></div>;
+  }
+  if (VIDEO_EXTS.test(src)) {
+    return (
+      <video
+        src={resolved}
+        className="wa-video"
+        controls
+        onError={() => setBroken(true)}
+      />
+    );
+  }
+  return (
+    <img
+      src={resolved}
+      alt={alt || 'Image'}
+      className="wa-img-thumb"
+      onClick={() => onLightbox(resolved)}
+      onError={() => setBroken(true)}
+    />
+  );
+}
 
 function Twemoji({ text }) {
   const ref = useRef(null);
@@ -23,6 +55,7 @@ function chatLabel(chatId) {
 }
 
 export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
+  const [lightboxSrc, setLightboxSrc] = useState(null);
   const [messages, setMessages] = useState([]);
   const [status, setStatus] = useState(null);
   const [statusLoaded, setStatusLoaded] = useState(false);
@@ -207,6 +240,15 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
 
   return (
     <div className="whatsapp-view">
+      <Lightbox
+        open={!!lightboxSrc}
+        close={() => setLightboxSrc(null)}
+        slides={lightboxSrc ? [{ src: lightboxSrc }] : []}
+        plugins={[Zoom]}
+        zoom={{ maxZoomPixelRatio: 8, doubleTapDelay: 300 }}
+        carousel={{ finite: true }}
+        render={{ buttonPrev: () => null, buttonNext: () => null }}
+      />
       <div className="whatsapp-header">
         {!sidebarOpen && (
           <button className="icon-btn" onClick={onToggleSidebar} title="Open sidebar">▶</button>
@@ -281,13 +323,7 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
                           remarkPlugins={[remarkGfm]}
                           components={{
                             p: ({ children }) => <p><Twemoji text={children} /></p>,
-                            img: ({ src, alt }) => (
-                              <img
-                                src={API && src?.startsWith('/') ? `${API}${src}` : src}
-                                alt={alt || 'Image'}
-                                style={{ maxWidth: '100%', borderRadius: 8, display: 'block' }}
-                              />
-                            ),
+                            img: ({ src, alt }) => <WaMedia src={src} alt={alt} onLightbox={setLightboxSrc} />,
                           }}
                         >{msg.content}</ReactMarkdown>
                       </div>
@@ -312,7 +348,7 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
                   </div>
                 )}
                 <div className="wa-compose-row">
-                  <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
+                  <input ref={fileInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleFileChange} />
                   <button className="wa-attach-btn" onClick={() => fileInputRef.current?.click()} disabled={sending || uploading} title="Attach image">
                     {uploading ? '⏳' : '📎'}
                   </button>

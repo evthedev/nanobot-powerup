@@ -264,6 +264,25 @@
   border-radius: var(--radius-sm);
 }
 
+.chat-video-thumb,
+.attachment-video-preview {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--radius-sm);
+  margin: 8px 0;
+  border: 1px solid var(--border-subtle);
+  background: #000;
+}
+
+.attachment-video-preview {
+  height: 72px;
+  width: auto;
+  max-width: 120px;
+  margin: 0;
+  object-fit: cover;
+}
+
 .attachment-video-label {
   display: flex;
   align-items: center;

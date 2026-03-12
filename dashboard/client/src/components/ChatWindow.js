@@ -16,22 +16,34 @@ function Twemoji({ children }) {
   return <span ref={ref}>{children}</span>;
 }
 
+const VIDEO_EXTS = /\.(mp4|webm|mov|ogg)$/i;
+
 function ChatImg({ src, alt, onLightbox }) {
   const [broken, setBroken] = useState(false);
-  const imgSrc = src?.startsWith('/') ? `${window.location.origin}${src}` : src;
+  const resolved = src?.startsWith('/') ? `${window.location.origin}${src}` : src;
   if (broken) {
     return (
       <div className="chat-img-broken" title={src}>
-        <span>Image unavailable</span>
+        <span>Media unavailable</span>
       </div>
+    );
+  }
+  if (VIDEO_EXTS.test(src)) {
+    return (
+      <video
+        src={resolved}
+        className="chat-video-thumb"
+        controls
+        onError={() => setBroken(true)}
+      />
     );
   }
   return (
     <img
-      src={imgSrc}
+      src={resolved}
       alt={alt || ''}
       className="chat-img-thumb"
-      onClick={() => onLightbox(imgSrc)}
+      onClick={() => onLightbox(resolved)}
       onError={() => setBroken(true)}
     />
   );
@@ -123,8 +135,9 @@ export default function ChatWindow({
     if ((!text && attachments.length === 0) || streaming) return;
     // Append image markdown for each attachment
     const imageMarkdown = attachments
-      .filter(a => a.type === 'image')
-      .map(a => `\n![image](${a.url})`)
+      .map(a => a.type === 'video'
+        ? `\n![video](${a.url})`
+        : `\n![image](${a.url})`)
       .join('');
     const fullContent = text + imageMarkdown;
     setInput('');
@@ -226,7 +239,9 @@ export default function ChatWindow({
                 {a.type === 'image' && (
                   <img src={`${window.location.origin}${a.url}`} alt="attachment" />
                 )}
-                {a.type === 'video' && <span className="attachment-video-label">🎬 {a.filename}</span>}
+                {a.type === 'video' && (
+                <video src={`${window.location.origin}${a.url}`} className="chat-video-thumb attachment-video-preview" />
+              )}
                 <button className="attachment-remove" onClick={() => removeAttachment(a.filename)}>✕</button>
               </div>
             ))}
@@ -241,7 +256,7 @@ export default function ChatWindow({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             style={{ display: 'none' }}
             onChange={handleFileChange}
           />
