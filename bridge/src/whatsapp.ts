@@ -236,11 +236,16 @@ export class WhatsAppClient {
     const msgForDownload = unwrapped === msg.message ? msg : { ...msg, message: unwrapped };
 
     try {
-      const buffer = await downloadMediaMessage(
-        msgForDownload,
-        'buffer',
-        {},
-      );
+      let buffer: Buffer | undefined;
+      const downloadCtx = this.sock?.updateMediaMessage
+        ? { reuploadRequest: this.sock.updateMediaMessage, logger: this.sock.logger }
+        : undefined;
+      try {
+        buffer = await downloadMediaMessage(msgForDownload, 'buffer', {}, downloadCtx);
+      } catch (firstErr) {
+        console.warn(`WhatsApp bridge: media download failed for ${msg.key.id}, retrying:`, (firstErr as Error).message);
+        buffer = await downloadMediaMessage(msgForDownload, 'buffer', {});
+      }
       if (!buffer || !Buffer.isBuffer(buffer)) return null;
 
       if (!existsSync(MEDIA_DIR)) {

@@ -189,6 +189,7 @@ app.get('/api/wa-media/:filename', (req, res) => {
   }
   const filePath = path.join(WA_MEDIA_DIR, safe);
   if (!filePath.startsWith(WA_MEDIA_DIR) || !fs.existsSync(filePath)) {
+    serverLog('WARN', 'wa-media', `404: ${safe} (dir=${WA_MEDIA_DIR}, exists=${fs.existsSync(WA_MEDIA_DIR)})`);
     return res.status(404).send('Not found');
   }
   res.sendFile(filePath);

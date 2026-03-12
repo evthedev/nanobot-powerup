@@ -25,6 +25,7 @@ services:
       - BRIDGE_HOST=0.0.0.0
       - BRIDGE_TOKEN=${BRIDGE_TOKEN:-}
       - AUTH_DIR=/root/.nanobot/whatsapp-auth
+      - NANOBOT_MEDIA_DIR=/root/.nanobot/media
       - EDGE_DEVICES_ENABLED=${EDGE_DEVICES_ENABLED:-false}
       - REACHY_BRIDGE_PORT=18790
       - DB_PATH=/root/.nanobot/chat.db
