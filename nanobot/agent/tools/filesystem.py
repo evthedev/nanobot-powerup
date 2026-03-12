@@ -4,6 +4,7 @@ import difflib
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
 from nanobot.agent.tools.base import Tool
 
 
@@ -55,6 +56,9 @@ class ReadFileTool(Tool):
                 return f"Error: Not a file: {path}"
 
             content = file_path.read_text(encoding="utf-8")
+            if file_path.name == "SKILL.md":
+                skill_name = file_path.parent.name
+                logger.info("🔧 Skill activated: {}", skill_name)
             return content
         except PermissionError as e:
             return f"Error: {e}"

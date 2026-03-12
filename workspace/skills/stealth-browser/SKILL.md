@@ -5,12 +5,12 @@ Use this skill whenever a scraping or automation task hits bot detection, Cloudf
 ## Mandatory Approach — Always Follow This Order
 
 ```
-1. CloakBrowser  →  loads the page past Cloudflare interstitial
-2. CapSolver     →  solves any embedded Turnstile/CAPTCHA widget
+1. Patchright  →  loads the page past Cloudflare interstitial (pre-installed via scrapling[all])
+2. CapSolver   →  solves any embedded Turnstile/CAPTCHA widget
 3. Fill + submit the form
 ```
 
-**Never attempt a protected site with standard Playwright. Never rely on CloakBrowser alone for Turnstile — always pair with CapSolver.**
+**Never attempt a protected site with standard Playwright. Never rely on Patchright alone for Turnstile — always pair with CapSolver.**
 
 ---
 
@@ -26,8 +26,7 @@ python3 ~/.nanobot/workspace/my_task.py
 
 ## Critical API Rules
 
-- **Sync only** — `from cloakbrowser import launch` (never mix with `asyncio.run()`)
-- **Async import** — `from cloakbrowser import launch_async` (NOT `async_launch` — that does not exist)
+- **Sync only** — use `patchright.sync_api.sync_playwright` (same Playwright sync interface)
 - **No `page.wait_for_timeout()`** — use `import time; time.sleep(N)` (CDP leak vector)
 
 ## Screenshot Path — CRITICAL RULE
@@ -52,16 +51,17 @@ message(content="Done! ![Result](/api/screenshots/koala_solar.png)")
 
 ---
 
-## Step 1 — Load Page with CloakBrowser
+## Step 1 — Load Page with Patchright
 
 ```python
-from cloakbrowser import launch
+from patchright.sync_api import sync_playwright
 import time
 
-browser = launch(headless=True, args=["--fingerprint=42069"])  # fixed seed = returning visitor
-page = browser.new_page()
-page.goto("https://protected-site.com", wait_until="domcontentloaded", timeout=60000)
-time.sleep(5)  # allow Cloudflare interstitial to clear
+with sync_playwright() as p:
+    browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+    page = browser.new_page()
+    page.goto("https://protected-site.com", wait_until="domcontentloaded", timeout=60000)
+    time.sleep(5)  # allow Cloudflare interstitial to clear
 ```
 
 > Use `time.sleep()` not `page.wait_for_timeout()` — the latter sends CDP commands that reCAPTCHA detects.
@@ -156,7 +156,7 @@ Store in `~/.nanobot/config.json`:
 
 | Tool | Role | Handles |
 |---|---|---|
-| CloakBrowser | Browser fingerprint | Cloudflare interstitial, bot score checks |
+| Patchright | Browser fingerprint | Cloudflare interstitial, bot score checks |
 | CapSolver | Active CAPTCHA solve | Embedded Turnstile, reCAPTCHA widgets |
 
 They solve different problems. Both are required for fully protected forms.
@@ -165,9 +165,11 @@ They solve different problems. Both are required for fully protected forms.
 
 ## Installation
 
-Both are pre-installed in the Docker image. CloakBrowser binary is pre-downloaded at build time.
+Patchright Python package is pre-installed in the Docker image as part of `scrapling[all]`.
+The Chromium binary is downloaded on first use (stored in the persisted `/root/.nanobot/.patchright` volume — no re-download after restarts). The `submit_form.py` template handles this automatically.
 
 ```bash
 # If running locally:
-pip install cloakbrowser capsolver
+pip install "scrapling[all]" capsolver
+scrapling install  # downloads patchright Chromium
 ```

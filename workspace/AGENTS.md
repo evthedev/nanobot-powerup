@@ -146,6 +146,8 @@ The workspace path is `~/.nanobot/workspace/` (expands to the correct home direc
 
 **There are NO standalone scripts at `~/.nanobot/workspace/*.py`.** All runnable capabilities live under `~/.nanobot/workspace/skills/<name>/` (base layer) or `~/.nanobot/workspace/skills-auto/<name>/` (instance layer). Never guess or assume a `.py` file exists at workspace root — always check `skills/` first.
 
+**⛔ Never write one-off `.py` scripts to `~/.nanobot/workspace/` root.** If you need a temporary script, write it inside the relevant skill directory (e.g. `~/.nanobot/workspace/skills/gmail/send_task.py`). Scripts at workspace root are deleted on every deploy.
+
 ## Cross-Channel Memory — Critical Rule
 
 All conversations — web chat, Telegram, AND WhatsApp — are stored in `~/.nanobot/chat.db`.
@@ -228,7 +230,7 @@ skills/stealth-browser/SKILL.md
 3. Fill and submit the form
 
 **⛔ PROHIBITED — writing new browser automation scripts with `write_file`.**
-The working script already exists. Any `write_file` call that creates a new `.py` file using `cloakbrowser`, `capsolver`, or `playwright` is forbidden. It will reproduce bugs that are already fixed and waste CapSolver credits.
+The working script already exists. Any `write_file` call that creates a new `.py` file using `patchright`, `capsolver`, or plain `playwright` is forbidden. It will reproduce bugs that are already fixed and waste CapSolver credits.
 
 **✅ REQUIRED — always copy and use the existing script:**
 ```bash
@@ -240,32 +242,75 @@ Never use standard Playwright on a protected site. Never rely on CloakBrowser al
 
 CapSolver API key: `~/.nanobot/config.json` → `tools.capsolver.api_key`
 
-## Gmail — Sending Emails
+## Gmail — Reading and Sending Emails
 
-When the user asks to send an email, or a task naturally produces output worth emailing (a report, a confirmation, a summary), use the Gmail skill:
+**⛔ NEVER fabricate email content.** You do not know what emails exist until you run `read_gmail.py`. Do not guess, summarise from memory, or claim "no emails found" without running the script first.
 
-```
-skills/gmail/SKILL.md
-```
+### Step 1 — Always read first
 
-**✅ REQUIRED — always copy and use the existing script:**
+**For emails with attachments, use `fetch-attachment` — one command, no IDs to copy:**
 ```bash
-cp ~/.nanobot/workspace/skills/gmail/send_email.py ~/.nanobot/workspace/<task>_email.py
-# then edit ONLY the CONFIG section (TO, CC, SUBJECT, BODY_HTML, ATTACHMENTS)
-python3 ~/.nanobot/workspace/<task>_email.py
+# Fetch the first image attachment from emails matching the query
+python3 ~/.nanobot/workspace/skills/gmail/read_gmail.py fetch-attachment \
+  "to:support@pswenergy.com.au" \
+  --out-dir ~/.nanobot/workspace/screenshots
+```
+Output: `FILE: /root/.nanobot/workspace/screenshots/<filename>` — use this path directly.
+
+**For reading emails without attachments:**
+```bash
+python3 ~/.nanobot/workspace/skills/gmail/read_gmail.py search "in:all PSW" --max 10
+python3 ~/.nanobot/workspace/skills/gmail/read_gmail.py list --max 20
 ```
 
-**⛔ PROHIBITED — writing a new email script with `write_file`.**
-The working script already exists. Never recreate it — it will miss error handling and auth logic.
+**⛔ Never use `search` + `download` when the goal is to get an attachment.** `fetch-attachment` is atomic and cannot produce the wrong file. `search` + `download` requires copying IDs manually and has repeatedly produced the wrong image.
 
-**Quick reference — CONFIG fields:**
-| Field | Type | Notes |
-|---|---|---|
-| `TO` | `list[str]` | Required — one or more recipient addresses |
-| `CC` | `list[str]` | Optional — empty list = no CC |
-| `SUBJECT` | `str` | Email subject line |
-| `BODY_HTML` | `str` | Full HTML body — supports tables, links, images |
-| `ATTACHMENTS` | `list[str]` | Absolute paths to files — empty = no attachments |
+### Step 1b — Download an attachment from a found email
+
+**Use `fetch-attachment` — it searches and downloads in one atomic step, no ID copy-paste:**
+```bash
+python3 ~/.nanobot/workspace/skills/gmail/read_gmail.py fetch-attachment \
+  "to:support@pswenergy.com.au" \
+  --out-dir ~/.nanobot/workspace/screenshots
+```
+Output includes `FILE: /path/to/saved/image.jpg` — use that exact path for validation and `ATTACHMENTS`.
+
+Only use the manual `download` subcommand if you need a specific attachment from a specific message you've already identified via `search`.
+
+**Always save to `~/.nanobot/workspace/screenshots/`** — that is the only directory served by the dashboard at `/api/screenshots/`. Files saved anywhere else will not be visible in the UI.
+
+To show the image inline in your response after downloading:
+```
+![label](/api/screenshots/<filename.jpg>)
+```
+
+If the user asks to verify what the image shows, run `validate_evidence.py` **inline** (not via `spawn`) immediately after downloading:
+```bash
+python3 ~/.nanobot/workspace/skills/validate-evidence/validate_evidence.py --json \
+  '{"claim": "This image shows an electric meter box", "evidence": [{"type": "screenshot", "path": "/root/.nanobot/workspace/screenshots/<filename.jpg>", "label": "attachment"}]}'
+```
+
+**⛔ Never use `spawn` for image validation** — spawn is async and the result arrives after your response is already sent. The user will never see it inline.
+
+The `--out` path is also what you pass to `ATTACHMENTS` in the send script.
+
+### Step 2 — Draft and get approval
+
+Show the full draft (To, Subject, Body, Attachments) and ask: **"Shall I send this? Please confirm yes or no."** Wait for explicit approval.
+
+**⛔ ATTACHMENTS — use ONLY paths that exist on disk** (either provided by the user or just downloaded via `download`). Never guess a filename.
+
+### Step 3 — Send (only after approval)
+
+```bash
+cp ~/.nanobot/workspace/skills/gmail/send_email.py ~/.nanobot/workspace/skills/gmail/send_task.py
+# Edit ONLY the CONFIG section (TO, CC, SUBJECT, BODY_HTML, ATTACHMENTS)
+python3 ~/.nanobot/workspace/skills/gmail/send_task.py
+```
+
+Confirm success by checking the output for `✅ Sent to:`. **Never claim sent unless you see it.**
+
+**⛔ PROHIBITED — writing a new email script with `write_file`.** The working script already exists.
 
 Gmail credentials: `~/.nanobot/config.json` → `tools.gmail.email` + `tools.gmail.app_password`
 
@@ -282,12 +327,33 @@ screenshot_pages(
 )
 ```
 
-After the tool returns, embed **only ✅ USABLE** image URLs in your response:
+After the tool returns, copy the **exact** markdown lines marked `✅ COPY THIS` from the tool output into your response. **Never construct image URLs yourself** — filenames are lowercased by the tool and will not match what you type.
 
+Example tool output (copy the backtick-wrapped markdown line verbatim):
 ```
-![Label](/api/screenshots/<slug>-<label>.png)
+- ✅ COPY THIS: `![hybe_insight](/api/screenshots/bts-sources-hybe_insight.jpg)`
 ```
 
 Do this for every cited source — menus, flights, hotels, review sites, news articles, etc.
 
 > **Why not `spawn`?** `spawn` subagents run asynchronously — their "Reply with" message arrives as a *separate* message after your response is already sent. The screenshot will never appear inline. `screenshot_pages` is synchronous and returns the URL immediately so you can embed it in the same response.
+
+### ⛔ ABSOLUTE RULE — Image Hallucination is Forbidden
+
+**NEVER embed an image markdown reference (`![...](...))`) unless ALL of the following are true:**
+
+1. You called `screenshot_pages` for that exact URL in this conversation
+2. The tool output contained a `✅ COPY THIS:` line for that image
+3. You are copying that line **character-for-character** from the tool output
+
+**Violations that will cause broken images and user-visible failures:**
+- Inventing a filename like `![label](/api/screenshots/something_you_made_up.png)` — **forbidden**
+- Constructing a `/api/screenshots/` path from memory or from a label you assigned — **forbidden**
+- Embedding external image URLs (e.g. Google Maps Static API, any `?key=` URL) with placeholder values — **forbidden**
+- Referencing a screenshot from a previous conversation or a prior tool call in this conversation that did not emit a `✅ COPY THIS:` line — **forbidden**
+
+**If a screenshot was BLOCKED (`🚫`) or FAILED (`❌`), that image does NOT exist.** Do not embed it. Do not reference it. Instead:
+- Retry with `scrapling` (stealth mode) or the stealth-browser skill
+- Or acknowledge to the user that the source could not be captured
+
+**The only valid image source in a response is a `✅ COPY THIS:` line from the current `screenshot_pages` call.**

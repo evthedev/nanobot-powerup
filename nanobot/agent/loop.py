@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -17,6 +18,7 @@ from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
+from nanobot.agent.tools.chat_logs import ChatLogsTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
@@ -24,6 +26,7 @@ from nanobot.agent.tools.reddit import RedditSearchTool
 from nanobot.agent.tools.screenshot_pages import ScreenshotPagesTool
 from nanobot.agent.tools.plan_task import PlanTaskTool
 from nanobot.agent.tools.trustpilot import TrustpilotSearchTool
+from nanobot.agent.tools.edge_device_status import EdgeDeviceStatusTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.agent.tools.yelp import YelpSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -136,7 +139,15 @@ class AgentLoop:
         self.tools.register(RedditSearchTool())
         self.tools.register(TrustpilotSearchTool())
         self.tools.register(YelpSearchTool(api_key=self.yelp_api_key))
+        try:
+            from nanobot.config.loader import load_config as _load_config
+            _cfg = _load_config()
+            if _cfg.channels.edge_devices.enabled or _cfg.channels.reachy_bridge.enabled:
+                self.tools.register(EdgeDeviceStatusTool())
+        except Exception:
+            pass
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
+        self.tools.register(ChatLogsTool())
         self.tools.register(SpawnTool(manager=self.subagents))
         screenshots_dir = str(self.workspace / "screenshots")
         self.tools.register(ScreenshotPagesTool(manager=self.subagents, screenshots_dir=screenshots_dir))
@@ -180,6 +191,10 @@ class AgentLoop:
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.set_context(channel, chat_id, message_id)
+
+        if chat_logs_tool := self.tools.get("get_chat_logs"):
+            if isinstance(chat_logs_tool, ChatLogsTool):
+                chat_logs_tool.set_context(channel, chat_id)
 
         if spawn_tool := self.tools.get("spawn"):
             if isinstance(spawn_tool, SpawnTool):
@@ -232,12 +247,18 @@ class AgentLoop:
 
             if response.usage:
                 u = response.usage
+                _media_count = sum(
+                    1 for m in messages
+                    if isinstance(m.get("content"), list)
+                    and any(p.get("type") == "image_url" for p in m["content"])
+                )
                 logger.info(
-                    "LLM usage | model={} tokens_in={} tokens_out={} total={}",
+                    "LLM usage | model={} tokens_in={} tokens_out={} total={}{}",
                     self.model,
                     u.get("prompt_tokens", 0),
                     u.get("completion_tokens", 0),
                     u.get("total_tokens", 0),
+                    f" [media={_media_count}]" if _media_count else " [no media]",
                 )
 
             if response.has_tool_calls:
@@ -354,9 +375,12 @@ class AgentLoop:
                 # Evaluation gate: if plan_task was called but evaluate was not, block
                 # the response and force the agent to evaluate before sending.
                 # Max 2 evaluate attempts per turn to prevent infinite retry loops.
+                # Disable with: NANOBOT_DISABLE_EVAL_GATE=1
                 plan_tool = self.tools.get("plan_task")
+                _eval_gate_enabled = os.environ.get("NANOBOT_DISABLE_EVAL_GATE", "0") != "1"
                 if (
-                    isinstance(plan_tool, PlanTaskTool)
+                    _eval_gate_enabled
+                    and isinstance(plan_tool, PlanTaskTool)
                     and plan_tool.has_pending_evaluation()
                     and not plan_tool.evaluation_limit_reached()
                 ):
@@ -383,7 +407,7 @@ class AgentLoop:
                     }]
                     continue  # re-enter the loop, agent must now call evaluate
 
-                if isinstance(plan_tool, PlanTaskTool) and plan_tool.evaluation_limit_reached():
+                if _eval_gate_enabled and isinstance(plan_tool, PlanTaskTool) and plan_tool.evaluation_limit_reached():
                     last_failed = plan_tool.get_last_failed()
                     if last_failed and not plan_tool.disclosure_already_injected():
                         failed_summary = "; ".join(
@@ -537,7 +561,8 @@ class AgentLoop:
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
 
-        logger.info(">>> INBOUND [{}:{}]: {}", msg.channel, msg.sender_id, msg.content)
+        logger.info(">>> INBOUND [{}:{}] chat={}: {} {}", msg.channel, msg.sender_id, msg.chat_id, msg.content,
+                    f"[media={len(msg.media)}]" if msg.media else "[no media]")
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
@@ -602,7 +627,7 @@ class AgentLoop:
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
 
-        logger.info("<<< OUTBOUND [{}:{}]: {}", msg.channel, msg.sender_id, final_content)
+        logger.info("<<< OUTBOUND [{}:{}] chat={}: {}", msg.channel, msg.sender_id, msg.chat_id, final_content)
 
         session.add_message("user", msg.content)
         session.add_message("assistant", final_content,

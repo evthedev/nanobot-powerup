@@ -6,6 +6,9 @@ import WelcomeScreen from './components/WelcomeScreen';
 import Settings from './components/Settings';
 import LogsPanel from './components/LogsPanel';
 import TelegramView from './components/TelegramView';
+import WhatsAppView from './components/WhatsAppView';
+import PicoClawView from './components/PicoClawView';
+import EdgeDevicesView from './components/EdgeDevicesView';
 import './App.css';
 
 const API = process.env.REACT_APP_API_URL || '';
@@ -22,6 +25,7 @@ function AppInner() {
   const [stats, setStats] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
   const [serverOk, setServerOk] = useState(null);
+  const [environmentName, setEnvironmentName] = useState('nanobot');
   const [mainModel, setMainModel] = useState(null);
 
   useEffect(() => {
@@ -36,6 +40,7 @@ function AppInner() {
       const r = await fetch(`${API}/api/health`);
       const data = await r.json();
       setServerOk(data.status === 'ok');
+      if (data.environmentName) setEnvironmentName(data.environmentName);
     } catch {
       setServerOk(false);
     }
@@ -164,7 +169,12 @@ function AppInner() {
             if (event.type === 'delta') {
               const tid = assistantTempId;
               setMessages(prev => prev.map(m =>
-                m.id === tid ? { ...m, content: m.content + event.content } : m
+                m.id === tid ? { ...m, content: m.content + event.content, _progress: false } : m
+              ));
+            } else if (event.type === 'progress') {
+              const tid = assistantTempId;
+              setMessages(prev => prev.map(m =>
+                m.id === tid ? { ...m, _progressText: event.content } : m
               ));
             } else if (event.type === 'new_message') {
               const prevTid = assistantTempId;
@@ -300,6 +310,7 @@ function AppInner() {
     onRename: renameConversation,
     stats,
     serverOk,
+    environmentName,
     isOpen: sidebarOpen,
     onToggle: () => setSidebarOpen(p => !p),
     onLogs: () => navigate('/logs'),
@@ -340,6 +351,33 @@ function AppInner() {
             }
           />
           <Route
+            path="/whatsapp"
+            element={
+              <WhatsAppView
+                onToggleSidebar={() => setSidebarOpen(p => !p)}
+                sidebarOpen={sidebarOpen}
+              />
+            }
+          />
+          <Route
+            path="/devices"
+            element={
+              <EdgeDevicesView
+                onToggleSidebar={() => setSidebarOpen(p => !p)}
+                sidebarOpen={sidebarOpen}
+              />
+            }
+          />
+          <Route
+            path="/picoclaw"
+            element={
+              <PicoClawView
+                onToggleSidebar={() => setSidebarOpen(p => !p)}
+                sidebarOpen={sidebarOpen}
+              />
+            }
+          />
+          <Route
             path="/chat/:chatId"
             element={
               <ChatRoute
@@ -363,6 +401,7 @@ function AppInner() {
                 stats={stats}
                 onToggleSidebar={() => setSidebarOpen(p => !p)}
                 sidebarOpen={sidebarOpen}
+                environmentName={environmentName}
               />
             }
           />

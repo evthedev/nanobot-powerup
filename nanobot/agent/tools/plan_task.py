@@ -81,8 +81,9 @@ TYPE A — SEARCH-RESULTS SCREENSHOTS (valid ONLY for prices and availability):
   ✅ DuckDuckGo for flights: https://duckduckgo.com/?q=cheap+flights+{ORIGIN}+to+{DEST}+{MONTH+YEAR}+AUD&ia=web
   ✅ Booking.com for hotels: https://www.booking.com/searchresults.html?ss={LOCATION}&checkin=YYYY-MM-DD&checkout=YYYY-MM-DD&group_adults=1&no_rooms=1&order=price
   ✅ DuckDuckGo for tickets: https://duckduckgo.com/?q={EVENT}+{DATE}+tickets+buy&ia=web
+  ✅ Skyscanner direct URL (when user specifies Skyscanner): https://www.skyscanner.com.au/transport/flights/{FROM}/{TO}/{DDMMYY}/
   wait_seconds: 3 (flights/tickets), 6 (hotels)
-  ❌ NEVER airline sites or skyscanner.com — they show empty booking forms
+  If user explicitly specifies a booking site, use that site — do NOT substitute DuckDuckGo.
 
 TYPE B — SOURCE-PAGE SCREENSHOTS (required for ALL factual claims about specific things):
   The screenshot must show the ACTUAL PAGE that contains the information — not a link list.
@@ -267,6 +268,8 @@ For each named place/venue/attraction/product/event in the draft:
 For prices (flights, hotels, tickets):
   - DuckDuckGo/Bing search result screenshots ARE acceptable (snippets show prices)
   - Booking.com search results ARE acceptable (hotel cards shown)
+  - ANY booking site screenshot (Skyscanner, Kayak, Expedia, etc.) showing prices IS acceptable
+  - If the user explicitly instructed use of a specific site, a screenshot of that site showing prices PASSES
 
 ════════════════════════════════════════════════════════
 TRAVEL ITINERARY SCREENSHOT COVERAGE

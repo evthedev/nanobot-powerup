@@ -155,10 +155,9 @@ Supports up to 25 stops. If more than 25, use the most important ones.
 
 #### Google Calendar
 
-**🚨 CRITICAL: READ-ONLY ACCESS ONLY 🚨**
-- **NEVER create, update, or delete calendar events**
-- **ONLY use list_events() to READ calendar data**
-- If user asks to add to calendar, politely explain you can only view, not modify
+- You may **read, create, and update** calendar events
+- **NEVER delete calendar events**
+- Use the helper functions: `list_events()`, `create_event()`, `update_event()`
 
 **HOW TO ACCESS CALENDAR — run the script directly, never write your own Python:**
 ```
@@ -198,7 +197,14 @@ exec("python3 -c \"from datetime import datetime; print(datetime(2026, 2, 12).st
 
 # Current date in Perth (AWST):
 exec("python3 -c \"from datetime import datetime; import pytz; print(datetime.now(pytz.timezone('Australia/Perth')).strftime('%A, %B %d, %Y'))\""")
+
+# Next occurrence of a weekday (0=Mon … 6=Sun) — use ternary, NOT if-statement:
+# Example: next Wednesday (weekday=2)
+exec("python3 -c \"from datetime import datetime, timedelta; t=datetime.now(); d=(2-t.weekday())%7; print((t+timedelta(days=d if d else 7)).strftime('%Y-%m-%d'))\""")
 ```
+
+**⚠️ NEVER use `if`/`for`/`while` in a python3 -c one-liner — they cause SyntaxError.**
+**Use ternary expressions (`x if cond else y`) instead.**
 
 **EXAMPLES OF WRONG BEHAVIOR (DON'T DO THIS):**
 ❌ "Feb 12 is Wednesday" ← NO! You guessed and got it wrong

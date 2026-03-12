@@ -148,6 +148,7 @@ class ChannelManager:
                 logger.info("Web channel enabled on port {}", self.config.channels.web.port)
             except ImportError as e:
                 logger.warning("Web channel not available: {}", e)
+
     
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:
         """Start a channel and log any exceptions."""

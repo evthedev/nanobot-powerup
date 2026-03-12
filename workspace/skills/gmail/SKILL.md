@@ -1,40 +1,120 @@
 # Gmail Skill
 
-Send emails from the configured Gmail account. No extra packages needed — uses Python stdlib `smtplib`.
+Read emails and send replies from the configured Gmail account.
 
 ---
 
-## Ready-to-Run Script — Start Here
+## ⛔ ABSOLUTE RULES — No Exceptions
 
-**Do NOT write a new email script from scratch.** Copy the working script:
+1. **NEVER fabricate email content.** If you haven't run `read_gmail.py` yet, you do not know what emails exist. Do not guess, infer, or summarise from memory.
+2. **NEVER send without explicit user approval.** Show the full draft (To, Subject, Body, Attachments) and wait for a clear "yes" before running `send_email.py`.
+3. **NEVER attach an image unless the user explicitly provided its path in this conversation.** Use the EXACT path the user gave — do not invent filenames or guess from context.
+4. **NEVER claim an email was sent unless `send_email.py` printed `✅ Sent to:`.**
+
+---
+
+## Step 1 — Always Read First
+
+Before drafting any reply, run `read_gmail.py` to get the real email content.
+
+```bash
+# Search by sender name, keyword, or subject
+python3 ~/.nanobot/workspace/skills/gmail/read_gmail.py search "PSW" --max 10
+
+# Search all folders (inbox + spam + trash + sent)
+python3 ~/.nanobot/workspace/skills/gmail/read_gmail.py search "in:all PSW" --max 10
+
+# List latest inbox emails
+python3 ~/.nanobot/workspace/skills/gmail/read_gmail.py list --max 20
+
+# Read a specific email by ID (from search results)
+python3 ~/.nanobot/workspace/skills/gmail/read_gmail.py read <message_id>
+```
+
+**Gmail query syntax examples:**
+- `from:energy-team@pswenergy.com.au` — exact sender
+- `subject:solar quote` — subject keyword
+- `in:all PSW` — all folders including spam/trash
+- `after:2025/01/01 solar` — date-filtered
+- `is:unread` — unread only
+
+**After running, show the user:**
+- Exact From address
+- Exact Subject line
+- Exact Date
+- Full body (verbatim, not paraphrased)
+
+Only then draft a reply.
+
+---
+
+## Step 2 — Draft the Reply
+
+Write the reply based on the **actual email content** you just read. Do not add information the email didn't contain.
+
+Show the user:
+```
+To: <exact address from the email>
+Subject: Re: <exact subject from the email>
+Body:
+<full draft>
+Attachments: <list exact paths, or "none">
+```
+
+Ask: **"Shall I send this? Please confirm yes or no."**
+
+---
+
+## Step 3 — Attaching Images
+
+If the user provided an image path in this conversation (e.g. `/root/.nanobot/media/AgACAgUAAxkBAAIF.jpg`), use that **exact path** in `ATTACHMENTS`.
+
+**Never:**
+- Guess a filename from context
+- Use a screenshot path unless the user explicitly said to attach a screenshot
+- Attach more images than the user specified
+
+---
+
+## Step 4 — Send (only after approval)
+
+Copy `send_email.py`, edit the CONFIG section, run it:
 
 ```bash
 cp ~/.nanobot/workspace/skills/gmail/send_email.py ~/.nanobot/workspace/my_email.py
-# Edit the CONFIG section, then run:
+# Edit TO, SUBJECT, BODY_HTML, ATTACHMENTS in the CONFIG section
 python3 ~/.nanobot/workspace/my_email.py
 ```
 
-Edit **only** the CONFIG section at the top:
+Confirm success by checking the output for `✅ Sent to:`. Report the exact output line to the user.
 
-```python
-TO          = ["recipient@example.com"]   # one or more addresses
-CC          = []                          # empty = no CC
-SUBJECT     = "Subject here"
-BODY_HTML   = "<p>Hello,</p><p>Your message here.</p>"
-ATTACHMENTS = []                          # absolute paths, e.g. ["/tmp/report.pdf"]
+---
+
+## OAuth Scope Requirement
+
+`read_gmail.py` requires the Gmail API scope. The existing Google OAuth tokens (used for Calendar) must include:
+```
+https://www.googleapis.com/auth/gmail.readonly
+```
+
+If `read_gmail.py` prints `❌ Gmail scope not granted`, the user needs to re-authenticate:
+1. Dashboard → Settings → Google Auth
+2. The auth flow must request both Calendar and Gmail scopes
+
+To add Gmail scope to the dashboard auth flow, update `dashboard/server/index.js`:
+```js
+const SCOPES = [
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',   // needed for send via API (optional)
+];
 ```
 
 ---
 
-## One-Time Setup
+## Credentials (for send_email.py)
 
-1. Enable **2-Step Verification** on the Gmail account:
-   `myaccount.google.com/security`
-
-2. Generate an **App Password** (16-character code):
-   `myaccount.google.com/apppasswords` → select "Mail" + "Other (nanobot)"
-
-3. Credentials are injected automatically on deploy from GitHub secrets `GMAIL_EMAIL` and `GMAIL_APP_PASSWORD` into `~/.nanobot/config.json`. For local use, add them manually:
+`send_email.py` uses SMTP + App Password (separate from OAuth). Credentials in `~/.nanobot/config.json`:
 
 ```json
 {
@@ -47,54 +127,15 @@ ATTACHMENTS = []                          # absolute paths, e.g. ["/tmp/report.p
 }
 ```
 
-Alternatively, set environment variables directly (takes priority over config.json):
-```bash
-export GMAIL_EMAIL="you@gmail.com"
-export GMAIL_APP_PASSWORD="xxxx xxxx xxxx xxxx"
-```
+Generate an App Password at: `myaccount.google.com/apppasswords`
 
 ---
 
-## Screenshot Path Rule (if attaching screenshots)
+## Troubleshooting
 
-Always reference screenshots from `/root/.nanobot/workspace/screenshots/` so they're accessible via `/api/screenshots/`.
-
----
-
-## Examples
-
-**Plain notification:**
-```python
-TO       = ["ev@example.com"]
-SUBJECT  = "Nanobot: task complete"
-BODY_HTML = "<p>Your task has finished.</p>"
-```
-
-**With HTML table:**
-```python
-BODY_HTML = """
-<p>Here is your summary:</p>
-<table border="1" cellpadding="6">
-  <tr><th>Item</th><th>Value</th></tr>
-  <tr><td>Status</td><td>✅ Done</td></tr>
-</table>
-"""
-```
-
-**With attachment:**
-```python
-ATTACHMENTS = ["/root/.nanobot/workspace/screenshots/result.png"]
-```
-
-**Multiple recipients:**
-```python
-TO = ["alice@example.com", "bob@example.com"]
-CC = ["manager@example.com"]
-```
-
----
-
-## Pricing
-
-Free — uses your existing Gmail account via SMTP. App Passwords are free.
-Gmail free tier: 500 emails/day. Google Workspace: 2,000/day.
+| Problem | Fix |
+|---------|-----|
+| `❌ Gmail scope not granted` | Re-auth via dashboard with Gmail scope added |
+| `❌ Auth failed` in send | Check `app_password` in config.json — must be App Password, not account password |
+| Email not found in inbox | Try `in:all <keyword>` to search all folders including spam/trash |
+| `Attachment not found` | Verify the exact file path exists on disk before sending |

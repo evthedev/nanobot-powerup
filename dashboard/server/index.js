@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const WebSocket = require('ws');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -87,6 +88,16 @@ db.exec(`
     content TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS activity_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    sender TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log (created_at);
 `);
 
 // ─── Middleware ─────────────────────────────────────────────────────────────
@@ -105,7 +116,85 @@ if (fs.existsSync(CLIENT_BUILD)) {
 // Serve agent-captured screenshots
 const SCREENSHOTS_DIR = path.join(NANOBOT_HOME, 'workspace', 'screenshots');
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+
+// ─── File Upload (images; video reserved) ───────────────────────────────────
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+const ALLOWED_VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']); // reserved
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: SCREENSHOTS_DIR,
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname) || '.bin';
+      cb(null, `upload-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_IMAGE_TYPES.has(file.mimetype) || ALLOWED_VIDEO_TYPES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported file type: ${file.mimetype}`));
+    }
+  },
+});
+
+// POST /api/upload — returns { url, filename, type: 'image'|'video' }
+app.post('/api/upload', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file received' });
+  const type = ALLOWED_VIDEO_TYPES.has(req.file.mimetype) ? 'video' : 'image';
+  res.json({
+    url: `/api/screenshots/${req.file.filename}`,
+    filename: req.file.filename,
+    type,
+  });
+});
+
+app.use('/api/upload', (err, req, res, next) => {
+  res.status(400).json({ error: err.message });
+});
+// Fallback: agent embeds .png but screenshot_pages saves .jpg (and lowercases labels)
+app.use('/api/screenshots', (req, res, next) => {
+  let requested = req.path.replace(/^\//, '');
+  if (requested.includes('/')) requested = requested.split('/').pop(); // handle full path
+  if (requested.endsWith('.png')) {
+    const pngPath = path.join(SCREENSHOTS_DIR, requested);
+    if (fs.existsSync(pngPath)) return next();
+    const base = requested.slice(0, -4);
+    const jpgPath = path.join(SCREENSHOTS_DIR, base + '.jpg');
+    if (fs.existsSync(jpgPath)) {
+      res.setHeader('Content-Type', 'image/jpeg');
+      return res.sendFile(jpgPath);
+    }
+    // Case-insensitive: screenshot_pages lowercases labels (Flight_Prices → flight_prices)
+    try {
+      const files = fs.readdirSync(SCREENSHOTS_DIR);
+      const match = files.find(f => f.toLowerCase() === (base + '.jpg').toLowerCase());
+      if (match) {
+        res.setHeader('Content-Type', 'image/jpeg');
+        return res.sendFile(path.join(SCREENSHOTS_DIR, match));
+      }
+    } catch (_) { /* dir read failed */ }
+  }
+  next();
+});
 app.use('/api/screenshots', express.static(SCREENSHOTS_DIR));
+
+// Serve WhatsApp bridge media (images/videos downloaded from native WhatsApp)
+const WA_MEDIA_DIR = path.join(NANOBOT_HOME, 'media');
+app.get('/api/wa-media/:filename', (req, res) => {
+  const raw = req.params.filename || '';
+  const safe = raw.replace(/[^a-zA-Z0-9_.-]/g, '');
+  if (safe !== raw || raw.includes('..')) {
+    return res.status(400).send('Invalid filename');
+  }
+  const filePath = path.join(WA_MEDIA_DIR, safe);
+  if (!filePath.startsWith(WA_MEDIA_DIR) || !fs.existsSync(filePath)) {
+    serverLog('WARN', 'wa-media', `404: ${safe} (dir=${WA_MEDIA_DIR}, exists=${fs.existsSync(WA_MEDIA_DIR)})`);
+    return res.status(404).send('Not found');
+  }
+  res.sendFile(filePath);
+});
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function generateTitle(content) {
@@ -126,10 +215,18 @@ function updateStats() {
 
 // Health check
 app.get('/api/health', (req, res) => {
+  let environmentName = process.env.NANOBOT_ENV_NAME || '';
+  if (!environmentName) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+      environmentName = cfg?.runtime?.environment_name || cfg?.runtime?.environmentName || '';
+    } catch {}
+  }
   const stats = db.prepare('SELECT * FROM system_stats WHERE id = 1').get();
   res.json({
     status: 'ok',
     model: 'nanobot',
+    environmentName: environmentName || 'nanobot',
     nanobotWs: NANOBOT_WS,
     db: DB_PATH,
     stats
@@ -140,6 +237,7 @@ app.get('/api/health', (req, res) => {
 
 // List all conversations
 app.get('/api/conversations', (req, res) => {
+  serverLog('INFO', 'conversations', 'GET list');
   const conversations = db.prepare(`
     SELECT c.*,
       (SELECT content FROM messages WHERE conversation_id = c.id AND role != 'system'
@@ -153,6 +251,7 @@ app.get('/api/conversations', (req, res) => {
 // Create conversation
 app.post('/api/conversations', (req, res) => {
   const { title } = req.body;
+  serverLog('INFO', 'conversations', `POST create title=${(title || 'New Conversation').slice(0, 40)}`);
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(`
@@ -189,6 +288,7 @@ app.delete('/api/conversations/:id', (req, res) => {
 
 // Get messages for a conversation
 app.get('/api/conversations/:id/messages', (req, res) => {
+  serverLog('INFO', 'conversations', `GET messages conv=${req.params.id}`);
   const messages = db.prepare(`
     SELECT * FROM messages
     WHERE conversation_id = ? AND role != 'system'
@@ -201,6 +301,7 @@ app.get('/api/conversations/:id/messages', (req, res) => {
 app.post('/api/conversations/:id/messages', async (req, res) => {
   const { content, tempId: clientTempId } = req.body;
   const conversationId = req.params.id;
+  serverLog('INFO', 'conversations', `POST message conv=${conversationId} content_len=${(content || '').length}`);
 
   // Verify conversation exists
   const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId);
@@ -213,6 +314,10 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
     INSERT INTO messages (id, conversation_id, role, content, created_at)
     VALUES (?, ?, 'user', ?, ?)
   `).run(userMsgId, conversationId, content, now);
+  try {
+    db.prepare(`INSERT INTO activity_log (source, sender, content) VALUES ('web', 'web_user', ?)`) 
+      .run(content.slice(0, 500));
+  } catch (_) {}
 
   // Auto-title conversation if it's the first user message
   const msgCount = db.prepare(
@@ -282,6 +387,12 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
         try {
           const msg = JSON.parse(raw.toString());
 
+          if (msg.type === 'progress') {
+            // Tool-call hint from the agent loop — forward as-is so the client
+            // can show activity without mixing it into the final message content.
+            res.write(`data: ${JSON.stringify({ type: 'progress', content: msg.content })}\n\n`);
+          }
+
           if (msg.type === 'message') {
             if (!isFirstMessage) {
               // Subagent message — open a new bubble in React
@@ -298,6 +409,10 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
 
             // Commit to DB and send done immediately — no waiting for WS close
             saveAndFinish(msg.content, thisTempId);
+            try {
+              db.prepare(`INSERT INTO activity_log (source, sender, content) VALUES ('web', 'assistant', ?)`) 
+                .run(msg.content.slice(0, 500));
+            } catch (_) {}
           }
 
           if (msg.type === 'done') {
@@ -329,6 +444,7 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
       .run(count, conversationId);
 
     updateStats();
+    serverLog('INFO', 'conversations', `message complete conv=${conversationId}`);
 
   } catch (err) {
     serverLog('ERROR', 'gateway', `Nanobot Error: ${err.message}`);
@@ -398,7 +514,14 @@ async function fetchModelsForProvider(providerName, apiKey) {
     models = (data.data || []).map(m => {
       // NVIDIA NIM model IDs must be prefixed with "nvidia_nim/" for LiteLLM routing
       const id = providerName === 'nvidia' ? `nvidia_nim/${m.id}` : m.id;
-      return { id, name: m.name || m.id };
+      const model = { id, name: m.name || m.id };
+      if (m.pricing) {
+        const inp = parseFloat(m.pricing.prompt);
+        const out = parseFloat(m.pricing.completion);
+        if (!isNaN(inp)) model.inputCost  = inp * 1_000_000;   // $/1M tokens
+        if (!isNaN(out)) model.outputCost = out * 1_000_000;   // $/1M tokens
+      }
+      return model;
     }).sort((a, b) => a.id.localeCompare(b.id));
   } catch (e) {
     serverLog('ERROR', 'models', `fetch error for ${providerName}: ${e.message}`);
@@ -454,7 +577,8 @@ app.post('/api/models/refresh', async (req, res) => {
 app.post('/api/gateway/restart', (req, res) => {
   const { exec } = require('child_process');
 
-  exec('docker restart nanobot-gateway', { timeout: 20000 }, (dockerErr) => {
+  const docker = process.env.DOCKER_CLI_PATH || '/usr/bin/docker';
+  exec(`${docker} restart nanobot-gateway`, { timeout: 20000 }, (dockerErr) => {
     if (!dockerErr) {
       serverLog('INFO', 'restart', 'docker restart nanobot-gateway succeeded');
       return res.json({ success: true, method: 'docker' });
@@ -543,6 +667,7 @@ app.get('/api/status', (req, res) => {
 
 // ── Log streaming ────────────────────────────────────────────────────────────
 const LOG_FILE = path.join(NANOBOT_HOME, 'logs', 'gateway.log');
+const BRIDGE_LOG_FILE = path.join(NANOBOT_HOME, 'logs', 'bridge.log');
 
 // Loguru format: "2026-02-24 19:36:07.123 | INFO     | nanobot.agent.loop:fn:42 - message"
 function parseLogLine(raw) {
@@ -558,7 +683,8 @@ function parseLogLine(raw) {
 
   // Determine source type
   let type = 'system';
-  if (module.includes('agent.loop'))          type = 'main';
+  if (module.startsWith('bridge.'))           type = 'bridge';
+  else if (module.includes('agent.loop'))     type = 'main';
   else if (module.includes('agent.subagent')) type = 'subagent';
   else if (module.includes('tools.plan_task')) type = 'subagent';
   else if (module.includes('channels'))       type = 'channel';
@@ -603,6 +729,50 @@ function parseLogLine(raw) {
   };
 }
 
+// Read last N lines from a file (uses tail for efficiency on large files)
+function readLastLines(filePath, n = 500) {
+  if (!fs.existsSync(filePath)) return [];
+  return new Promise((resolve) => {
+    const tail = spawn('tail', ['-n', String(n), filePath]);
+    const chunks = [];
+    tail.stdout.on('data', (c) => chunks.push(c));
+    tail.stdout.on('end', () => resolve(Buffer.concat(chunks).toString().split('\n').filter(Boolean)));
+    tail.on('error', () => resolve([]));
+    tail.stderr.on('data', () => {});
+  });
+}
+
+// Fetch filtered logs for a channel or conversation. Returns parsed log entries.
+async function getFilteredLogs({ gatewayFilter, bridgeFilter, limit = 300 }) {
+  const lines = [];
+  if (fs.existsSync(LOG_FILE)) {
+    const gw = await readLastLines(LOG_FILE, limit * 2);
+    lines.push(...gw.filter(line => !gatewayFilter || gatewayFilter(line)));
+  }
+  if (bridgeFilter && fs.existsSync(BRIDGE_LOG_FILE)) {
+    const br = await readLastLines(BRIDGE_LOG_FILE, limit);
+    lines.push(...br.filter(bridgeFilter));
+  }
+  const parsed = lines.map(line => parseLogLine(line)).filter(Boolean);
+  parsed.sort((a, b) => (a.ts || '').localeCompare(b.ts || ''));
+  return parsed.slice(-limit);
+}
+
+// Filter logs for a specific conversation (web chat). Includes lines between INBOUND and OUTBOUND.
+function filterLinesForConversation(convId, lines) {
+  const escaped = String(convId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const chatRegex = new RegExp(`chat=${escaped}(?=[\\s:]|$)`);
+  let active = false;
+  const result = [];
+  for (const line of lines) {
+    const hasChat = chatRegex.test(line);
+    if (line.includes('>>> INBOUND') && hasChat) active = true;
+    if (active) result.push(line);
+    if (line.includes('<<< OUTBOUND') && hasChat) active = false;
+  }
+  return result;
+}
+
 // Convert a telegram_messages row into the shared log-entry schema
 function telegramToLogEntry(row) {
   const snippet = row.content.length > 300 ? row.content.slice(0, 300) + '…' : row.content;
@@ -634,26 +804,33 @@ app.get('/api/logs/stream', (req, res) => {
   const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
 
   // ── Gateway log tail ────────────────────────────────────────────────────
-  const args = fs.existsSync(LOG_FILE)
+  const tailArgs = fs.existsSync(LOG_FILE)
     ? ['-n', '200', '-F', LOG_FILE]   // -F retries if file is rotated
     : ['-n', '0', '-F', LOG_FILE];    // file doesn't exist yet, just follow
 
-  const tail = spawn('tail', args);
+  const tail = spawn('tail', tailArgs);
+
+  const pushLogLine = (line) => {
+    if (!line.trim()) return;
+    if (line.includes('mcp_playwright') && line.includes('registered tool')) return;
+    const parsed = parseLogLine(line);
+    if (parsed) res.write(`data: ${JSON.stringify(parsed)}\n\n`);
+  };
 
   tail.stdout.on('data', (chunk) => {
-    const lines = chunk.toString().split('\n');
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      // Skip pure MCP debug noise
-      if (line.includes('mcp_playwright') && line.includes('registered tool')) continue;
-      const parsed = parseLogLine(line);
-      if (parsed) {
-        res.write(`data: ${JSON.stringify(parsed)}\n\n`);
-      }
-    }
+    chunk.toString().split('\n').forEach(pushLogLine);
   });
+  tail.stderr.on('data', () => {});
 
-  tail.stderr.on('data', () => {}); // ignore tail warnings
+  // ── Bridge log tail (WhatsApp/Edge bridge) ─────────────────────────────────
+  const bridgeArgs = fs.existsSync(BRIDGE_LOG_FILE)
+    ? ['-n', '100', '-F', BRIDGE_LOG_FILE]
+    : ['-n', '0', '-F', BRIDGE_LOG_FILE];
+  const bridgeTail = spawn('tail', bridgeArgs);
+  bridgeTail.stdout.on('data', (chunk) => {
+    chunk.toString().split('\n').forEach(pushLogLine);
+  });
+  bridgeTail.stderr.on('data', () => {});
 
   // ── Telegram messages — seed last 50 then poll for new ones ────────────
   let lastTelegramId = 0;
@@ -683,7 +860,61 @@ app.get('/api/logs/stream', (req, res) => {
     clearInterval(heartbeat);
     clearInterval(tgPoll);
     tail.kill();
+    bridgeTail.kill();
   });
+});
+
+// ── Channel-specific log endpoints ───────────────────────────────────────────
+
+// GET /api/whatsapp/logs — filtered logs for WhatsApp (gateway + bridge)
+app.get('/api/whatsapp/logs', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '300', 10), 500);
+    const logs = await getFilteredLogs({
+      gatewayFilter: (line) => line.includes('[whatsapp:') || line.includes('whatsapp'),
+      bridgeFilter: (line) => line.includes('bridge.whatsapp') || line.includes('bridge.server'),
+      limit,
+    });
+    serverLog('INFO', 'whatsapp', `GET logs returned ${logs.length} entries`);
+    res.json(logs);
+  } catch (e) {
+    serverLog('ERROR', 'whatsapp', `GET logs failed: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/telegram/logs — filtered logs for Telegram
+app.get('/api/telegram/logs', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '300', 10), 500);
+    const logs = await getFilteredLogs({
+      gatewayFilter: (line) => line.includes('[telegram:') || line.includes('channels.telegram'),
+      bridgeFilter: null,
+      limit,
+    });
+    serverLog('INFO', 'telegram', `GET logs returned ${logs.length} entries`);
+    res.json(logs);
+  } catch (e) {
+    serverLog('ERROR', 'telegram', `GET logs failed: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/conversations/:id/logs — filtered logs for a web conversation
+app.get('/api/conversations/:id/logs', async (req, res) => {
+  try {
+    const convId = req.params.id;
+    const limit = Math.min(parseInt(req.query.limit || '300', 10), 500);
+    const gwLines = await readLastLines(LOG_FILE, limit * 3);
+    const filtered = filterLinesForConversation(convId, gwLines);
+    const parsed = filtered.map(line => parseLogLine(line)).filter(Boolean);
+    const logs = parsed.slice(-limit);
+    serverLog('INFO', 'conversations', `GET logs conv=${convId} returned ${logs.length} entries`);
+    res.json(logs);
+  } catch (e) {
+    serverLog('ERROR', 'conversations', `GET logs failed: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Google OAuth (for nanobot service integrations: Calendar, Gmail) ─────────
@@ -877,11 +1108,14 @@ app.post('/api/google/disconnect', (req, res) => {
 app.get('/api/telegram/messages', (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit || '200', 10), 500);
+    serverLog('INFO', 'telegram', `GET messages limit=${limit}`);
     const msgs = db.prepare(
       'SELECT * FROM telegram_messages ORDER BY id DESC LIMIT ?'
     ).all(limit).reverse();
+    serverLog('INFO', 'telegram', `GET messages returned ${msgs.length} rows`);
     res.json(msgs);
   } catch (e) {
+    serverLog('ERROR', 'telegram', `GET messages failed: ${e.message}`);
     res.json([]);
   }
 });
@@ -904,6 +1138,7 @@ app.get('/api/telegram/status', (req, res) => {
 // Uses SSE `id:` field so the browser sends Last-Event-ID on auto-reconnect,
 // allowing the server to resume from the correct position without missing messages.
 app.get('/api/telegram/stream', (req, res) => {
+  serverLog('INFO', 'telegram', `stream connected lastId=${req.headers['last-event-id'] || req.query.lastId || '0'}`);
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -946,6 +1181,346 @@ app.get('/api/telegram/stream', (req, res) => {
   });
 });
 
+// ── WhatsApp bridge send connection ────────────────────────────────────────
+const BRIDGE_WS_URL = process.env.BRIDGE_WS_URL || 'ws://nanobot-whatsapp-bridge:3002';
+const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || '';
+let bridgeWs = null;
+
+function getBridgeWs() {
+  if (bridgeWs && bridgeWs.readyState === WebSocket.OPEN) return bridgeWs;
+  bridgeWs = new WebSocket(BRIDGE_WS_URL);
+  bridgeWs.on('open', () => {
+    if (BRIDGE_TOKEN) bridgeWs.send(JSON.stringify({ type: 'auth', token: BRIDGE_TOKEN }));
+    serverLog('INFO', 'whatsapp-bridge', 'connected to bridge');
+  });
+  bridgeWs.on('error', (e) => serverLog('ERROR', 'whatsapp-bridge', e.message));
+  bridgeWs.on('close', () => { bridgeWs = null; });
+  return bridgeWs;
+}
+
+// POST /api/whatsapp/send — send a message via the bridge as the agent
+app.post('/api/whatsapp/send', (req, res) => {
+  const { chat_id, text, image_url, caption } = req.body || {};
+  if (!chat_id || (!text && !image_url)) return res.status(400).json({ error: 'chat_id and text or image_url required' });
+  try {
+    const ws = getBridgeWs();
+    const phone_number = chat_id.split('@')[0];
+    function doSend() {
+      if (image_url) {
+        serverLog('INFO', 'whatsapp-send', `send_image to=${chat_id} url=${image_url} caption_len=${(caption || '').length}`);
+        // Resolve relative URL to absolute so the bridge can fetch it
+        const absUrl = image_url.startsWith('http') ? image_url : `http://nanobot-dashboard:3001${image_url}`;
+        ws.send(JSON.stringify({ type: 'send_image', to: chat_id, url: absUrl, caption: caption || '' }));
+        const content = caption ? `![Image](${image_url})\n\n${caption}` : `![Image](${image_url})`;
+        const result = db.prepare(
+          'INSERT INTO whatsapp_messages (direction, chat_id, phone_number, content) VALUES (?,?,?,?)'
+        ).run('outbound', chat_id, phone_number, content);
+        const row = db.prepare('SELECT * FROM whatsapp_messages WHERE id = ?').get(result.lastInsertRowid);
+        res.json({ ok: true, message: row });
+      } else {
+        serverLog('INFO', 'whatsapp-send', `send to=${chat_id} text_len=${(text || '').length}`);
+        ws.send(JSON.stringify({ type: 'send', to: chat_id, text }));
+        const result = db.prepare(
+          'INSERT INTO whatsapp_messages (direction, chat_id, phone_number, content) VALUES (?,?,?,?)'
+        ).run('outbound', chat_id, phone_number, text);
+        const row = db.prepare('SELECT * FROM whatsapp_messages WHERE id = ?').get(result.lastInsertRowid);
+        res.json({ ok: true, message: row });
+      }
+    }
+    if (ws.readyState === WebSocket.OPEN) {
+      doSend();
+    } else {
+      ws.once('open', doSend);
+      ws.once('error', (e) => res.status(500).json({ error: e.message }));
+    }
+  } catch (e) {
+    serverLog('ERROR', 'whatsapp-send', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── WhatsApp history/stream ──────────────────────────────────────────────────
+
+// GET /api/whatsapp/messages — recent message history
+app.get('/api/whatsapp/messages', (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '300', 10), 1000);
+    serverLog('INFO', 'whatsapp', `GET messages limit=${limit}`);
+    const tableExists = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='whatsapp_messages'"
+    ).get();
+    if (!tableExists) { serverLog('WARN', 'whatsapp', 'whatsapp_messages table missing'); return res.json([]); }
+    const msgs = db.prepare(
+      'SELECT * FROM whatsapp_messages ORDER BY id DESC LIMIT ?'
+    ).all(limit).reverse();
+    serverLog('INFO', 'whatsapp', `GET messages returned ${msgs.length} rows`);
+    res.json(msgs);
+  } catch (e) {
+    serverLog('ERROR', 'whatsapp', `GET messages failed: ${e.message}`);
+    res.json([]);
+  }
+});
+
+// GET /api/whatsapp/stream — SSE stream of new WhatsApp messages
+app.get('/api/whatsapp/stream', (req, res) => {
+  serverLog('INFO', 'whatsapp', `stream connected lastId=${req.query.lastId || req.headers['last-event-id'] || '0'}`);
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (res.socket) res.socket.setNoDelay(true);
+
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
+  const headerLastId = parseInt(req.headers['last-event-id'] || '0', 10);
+  const queryLastId = parseInt(req.query.lastId || '0', 10);
+  let lastId = headerLastId || queryLastId;
+
+  if (!lastId) {
+    try {
+      const row = db.prepare('SELECT MAX(id) as maxId FROM whatsapp_messages').get();
+      lastId = row?.maxId || 0;
+    } catch {}
+  }
+
+  const poll = setInterval(() => {
+    try {
+      const msgs = db.prepare(
+        'SELECT * FROM whatsapp_messages WHERE id > ? ORDER BY id ASC LIMIT 100'
+      ).all(lastId);
+      for (const msg of msgs) {
+        res.write(`id: ${msg.id}\ndata: ${JSON.stringify(msg)}\n\n`);
+        lastId = msg.id;
+      }
+    } catch {}
+  }, 1000);
+
+  req.on('close', () => {
+    serverLog('INFO', 'whatsapp', 'stream disconnected');
+    clearInterval(heartbeat);
+    clearInterval(poll);
+  });
+});
+
+// ── Edge sync history ──────────────────────────────────────────────────────
+
+app.delete('/api/edge-sync/messages', (req, res) => {
+  try {
+    db.prepare('DELETE FROM reachy_sync_log').run();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/edge-sync/messages/:id', (req, res) => {
+  try {
+    db.prepare('DELETE FROM reachy_sync_log WHERE id = ?').run(req.params.id);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/edge-sync/messages', (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '300', 10), 1000);
+    serverLog('INFO', 'edge-sync', `GET messages limit=${limit}`);
+    const tableExists = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='reachy_sync_log'"
+    ).get();
+    if (!tableExists) return res.json([]);
+    const rows = db.prepare(
+      'SELECT * FROM reachy_sync_log ORDER BY id DESC LIMIT ?'
+    ).all(limit).reverse();
+    serverLog('INFO', 'edge-sync', `GET messages returned ${rows.length} rows`);
+    res.json(rows);
+  } catch (e) { serverLog('ERROR', 'edge-sync', `GET messages failed: ${e.message}`); res.json([]); }
+});
+
+app.get('/api/edge-sync/stream', (req, res) => {
+  serverLog('INFO', 'edge-sync', `stream connected lastId=${req.headers['last-event-id'] || req.query.lastId || '0'}`);
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (res.socket) res.socket.setNoDelay(true);
+
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000);
+  const headerLastId = parseInt(req.headers['last-event-id'] || '0', 10);
+  let lastId = headerLastId || parseInt(req.query.lastId || '0', 10);
+
+  if (!lastId) {
+    try {
+      const row = db.prepare('SELECT MAX(id) as maxId FROM reachy_sync_log').get();
+      lastId = row?.maxId || 0;
+    } catch {}
+  }
+
+  const poll = setInterval(() => {
+    try {
+      const rows = db.prepare(
+        'SELECT * FROM reachy_sync_log WHERE id > ? ORDER BY id ASC LIMIT 100'
+      ).all(lastId);
+      for (const row of rows) {
+        res.write(`id: ${row.id}\ndata: ${JSON.stringify(row)}\n\n`);
+        lastId = row.id;
+      }
+    } catch {}
+  }, 1000);
+
+  req.on('close', () => { clearInterval(heartbeat); clearInterval(poll); });
+});
+
+app.get('/api/edge-sync/status', (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
+    const bridgeUrl = rb.url || 'http://nanobot-whatsapp-bridge:18790';
+    // Proxy to bridge for live queue
+    fetch(`${bridgeUrl}/api/dashboard/status`)
+      .then(r => r.json())
+      .then(data => res.json({ enabled: !!rb.enabled, url: bridgeUrl, ...data }))
+      .catch(() => res.json({ enabled: !!rb.enabled, url: bridgeUrl }));
+  } catch { res.json({ enabled: false }); }
+});
+
+// DELETE /api/edge-sync/queue/:index — remove one pending directive by index
+app.delete('/api/edge-sync/queue/:index', async (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
+    const bridgeUrl = rb.url || 'http://nanobot-whatsapp-bridge:18790';
+    const r = await fetch(`${bridgeUrl}/api/dashboard/command/${req.params.index}`, { method: 'DELETE' });
+    res.status(r.status).json(await r.json());
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/edge-sync/queue — clear all pending directives
+app.delete('/api/edge-sync/queue', async (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
+    const bridgeUrl = rb.url || 'http://nanobot-whatsapp-bridge:18790';
+    const r = await fetch(`${bridgeUrl}/api/dashboard/command`, { method: 'DELETE' });
+    res.status(r.status).json(await r.json());
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Edge devices proxy (new multi-device API) ───────────────────────────────
+
+function _bridgeUrl() {
+  if (process.env.EDGE_BRIDGE_URL) return process.env.EDGE_BRIDGE_URL.replace(/\/$/, '');
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const ed = cfg?.channels?.edgeDevices || cfg?.channels?.edge_devices || {};
+    const rb = cfg?.channels?.reachyBridge || cfg?.channels?.reachy_bridge || {};
+    return ed.url || rb.url || 'http://nanobot-whatsapp-bridge:18790';
+  } catch { return 'http://nanobot-whatsapp-bridge:18790'; }
+}
+
+app.get('/api/devices', async (req, res) => {
+  try {
+    serverLog('INFO', 'edge', 'GET devices');
+    const r = await fetch(`${_bridgeUrl()}/api/devices`);
+    res.status(r.status).json(await r.json());
+  } catch (e) { serverLog('ERROR', 'edge', `GET devices failed: ${e.message}`); res.status(502).json({ error: e.message }); }
+});
+
+app.get('/api/devices/:id/status', async (req, res) => {
+  try {
+    serverLog('INFO', 'edge', `GET status device=${req.params.id}`);
+    const r = await fetch(`${_bridgeUrl()}/api/devices/${req.params.id}/status`);
+    res.status(r.status).json(await r.json());
+  } catch (e) { serverLog('ERROR', 'edge', `GET status device=${req.params.id}: ${e.message}`); res.status(502).json({ error: e.message }); }
+});
+
+app.post('/api/devices/:id/command', async (req, res) => {
+  try {
+    serverLog('INFO', 'edge', `POST command device=${req.params.id} body_keys=${Object.keys(req.body || {}).join(',')}`);
+    const r = await fetch(`${_bridgeUrl()}/api/devices/${req.params.id}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+    res.status(r.status).json(await r.json());
+  } catch (e) { serverLog('ERROR', 'edge', `POST command device=${req.params.id}: ${e.message}`); res.status(502).json({ error: e.message }); }
+});
+
+app.delete('/api/devices/:id/command/:idx', async (req, res) => {
+  try {
+    const r = await fetch(`${_bridgeUrl()}/api/devices/${req.params.id}/command/${req.params.idx}`, { method: 'DELETE' });
+    res.status(r.status).json(await r.json());
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.delete('/api/devices/:id/command', async (req, res) => {
+  try {
+    const r = await fetch(`${_bridgeUrl()}/api/devices/${req.params.id}/command`, { method: 'DELETE' });
+    res.status(r.status).json(await r.json());
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// GET /api/devices/:id/conversation — return the conversation_id for this device's chat thread
+// Allows the dashboard to link directly to /chat/edge-{deviceId}
+app.get('/api/devices/:id/conversation', async (req, res) => {
+  const convId = `edge-${req.params.id}`;
+  const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(convId);
+  if (conv) return res.json(conv);
+  // Not in local DB — ask the bridge (bridge may have created it)
+  try {
+    const r = await fetch(`${_bridgeUrl()}/api/conversations/${encodeURIComponent(convId)}`);
+    if (r.ok) return res.json(await r.json());
+  } catch { /* ignore */ }
+  res.status(404).json({ error: 'No conversation yet for this device' });
+});
+
+// GET /api/devices/:id/messages — conversation history for a device (proxied to bridge so replies show when bridge runs remotely)
+app.get('/api/devices/:id/messages', async (req, res) => {
+  try {
+    const limit = req.query.limit || '100';
+    serverLog('INFO', 'edge', `GET messages device=${req.params.id} limit=${limit}`);
+    const r = await fetch(`${_bridgeUrl()}/api/devices/${req.params.id}/messages?limit=${encodeURIComponent(limit)}`);
+    res.status(r.status);
+    if (r.ok) {
+      const data = await r.json();
+      res.json(data);
+    } else {
+      res.send(await r.text());
+    }
+  } catch (e) { serverLog('ERROR', 'edge', `GET messages device=${req.params.id}: ${e.message}`); res.status(502).json({ error: e.message }); }
+});
+
+// GET /api/devices/:id/messages/stream — SSE stream of new messages for a device (proxied to bridge)
+app.get('/api/devices/:id/messages/stream', (req, res) => {
+  const deviceId = req.params.id;
+  serverLog('INFO', 'edge', `stream connected device=${deviceId} lastId=${req.query.lastId || '0'}`);
+  const lastId = req.query.lastId || '0';
+  const streamUrl = `${_bridgeUrl()}/api/devices/${encodeURIComponent(deviceId)}/messages/stream?lastId=${encodeURIComponent(lastId)}`;
+  fetch(streamUrl, { headers: { Accept: 'text/event-stream' } })
+    .then((r) => {
+      if (!r.ok) {
+        return r.text().then((t) => { res.status(r.status).send(t); });
+      }
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      if (res.socket) res.socket.setNoDelay(true);
+      r.body.pipe(res);
+      req.on('close', () => { if (r.body && typeof r.body.destroy === 'function') r.body.destroy(); });
+    })
+    .catch((e) => { res.status(502).json({ error: e.message }); });
+});
+
+app.get('/api/edge-sync/integration-guide', (req, res) => {
+  const candidates = [
+    path.join(__dirname, 'EDGE_DEVICE_INTEGRATION.md'),
+    path.join(__dirname, '..', '..', 'nanobot', 'channels', 'EDGE_DEVICE_INTEGRATION.md'),
+    '/opt/nanobot-app/nanobot/channels/EDGE_DEVICE_INTEGRATION.md',
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return res.type('text/plain').send(fs.readFileSync(p, 'utf8'));
+    } catch {}
+  }
+  res.status(404).send('Not found');
+});
 // ── WhatsApp (pairing QR from bridge) ────────────────────────────────────────
 const WHATSAPP_QR_FILE = path.join(NANOBOT_HOME, 'whatsapp-pending-qr.json');
 const WHATSAPP_STATUS_FILE = path.join(NANOBOT_HOME, 'whatsapp-status.json');
@@ -961,7 +1536,8 @@ app.get('/api/whatsapp/status', (req, res) => {
     try {
       if (fs.existsSync(WHATSAPP_QR_FILE)) {
         const data = JSON.parse(fs.readFileSync(WHATSAPP_QR_FILE, 'utf8'));
-        pairing = !!(data.qr && data.qr.length > 0);
+        const age = Date.now() - (data.timestamp || 0);
+        pairing = !!(data.qr && data.qr.length > 0 && age <= 60000);
       }
       if (fs.existsSync(WHATSAPP_STATUS_FILE)) {
         const data = JSON.parse(fs.readFileSync(WHATSAPP_STATUS_FILE, 'utf8'));
@@ -982,10 +1558,45 @@ app.get('/api/whatsapp/qr', (req, res) => {
     }
     const data = JSON.parse(fs.readFileSync(WHATSAPP_QR_FILE, 'utf8'));
     if (!data.qr) return res.json({ status: 'connected', qr: null });
+    const age = Date.now() - (data.timestamp || 0);
+    if (age > 60000) return res.json({ status: 'expired', qr: null });
     res.json({ status: 'pending', qr: data.qr, timestamp: data.timestamp });
   } catch {
     res.json({ status: 'unknown', qr: null });
   }
+});
+
+// POST /api/whatsapp/reset-auth — clear pairing state and restart bridge
+app.post('/api/whatsapp/reset-auth', (req, res) => {
+  const authDir = path.join(NANOBOT_HOME, 'whatsapp-auth');
+  try {
+    // Clear auth files so bridge generates a fresh QR on restart
+    if (fs.existsSync(authDir)) {
+      for (const f of fs.readdirSync(authDir)) {
+        fs.rmSync(path.join(authDir, f), { recursive: true, force: true });
+      }
+    }
+    // Clear stale QR and status files
+    [WHATSAPP_QR_FILE, WHATSAPP_STATUS_FILE].forEach(f => {
+      try { fs.unlinkSync(f); } catch {}
+    });
+  } catch (err) {
+    return res.status(500).json({ error: `Failed to clear auth: ${err.message}` });
+  }
+
+  // Restart the bridge container so it picks up the cleared auth (best-effort;
+  // docker may not be in PATH inside the dashboard container, e.g. in prod).
+  serverLog('INFO', 'whatsapp-reset', 'auth cleared');
+  const { exec } = require('child_process');
+  const docker = process.env.DOCKER_CLI_PATH || '/usr/bin/docker';
+  exec(`${docker} restart nanobot-whatsapp-bridge`, { timeout: 15000 }, (err) => {
+    if (err) {
+      console.warn('[whatsapp-reset] docker restart failed:', err.message, '— restart bridge manually to get a new QR');
+      return res.json({ ok: true, warning: 'Auth cleared. The new QR code should appear shortly—if it doesn’t within a minute, your system administrator may need to restart the WhatsApp bridge service.' });
+    }
+    serverLog('INFO', 'whatsapp-reset', 'bridge restarted');
+    res.json({ ok: true });
+  });
 });
 
 // ── Workspace Docs ───────────────────────────────────────────────────────────
@@ -1115,9 +1726,42 @@ async function githubRequest(token, method, urlPath, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.message || `GitHub API ${res.status}`);
+  if (!res.ok) {
+    let msg = data.message || `GitHub API ${res.status}`;
+    if (res.status === 403 && msg.includes('Resource not accessible by personal access token')) {
+      msg = 'GitHub token lacks permission to create pull requests. Use a classic Personal Access Token with the "repo" scope (github.com/settings/tokens → Generate new token (classic) → check "repo").';
+    }
+    throw new Error(msg);
+  }
   return data;
 }
+
+// ── Skills Delete — remove a skill from skills-auto ──────────────────────────
+app.delete('/api/skills', (req, res) => {
+  const { skillName } = req.body || {};
+
+  if (!skillName || /[./\\]/.test(skillName)) {
+    return res.status(400).json({ error: 'Invalid skill name' });
+  }
+
+  const skillPath = path.resolve(WORKSPACE_DIR, 'skills-auto', skillName);
+  const allowed   = path.resolve(WORKSPACE_DIR, 'skills-auto');
+
+  if (!skillPath.startsWith(allowed + path.sep)) {
+    return res.status(400).json({ error: 'Path traversal not allowed' });
+  }
+
+  if (!fs.existsSync(skillPath)) {
+    return res.status(404).json({ error: 'Skill not found' });
+  }
+
+  try {
+    fs.rmSync(skillPath, { recursive: true, force: true });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.post('/api/skills/promote', async (req, res) => {
   const { skillName } = req.body || {};
@@ -1125,6 +1769,11 @@ app.post('/api/skills/promote', async (req, res) => {
   if (!skillName || /[./\\]/.test(skillName)) {
     return res.status(400).json({ error: 'Invalid skill name' });
   }
+
+  // Reload config from disk so we pick up tokens saved via UI or inject_keys
+  try {
+    nanobotConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  } catch (_) { /* keep in-memory config */ }
 
   const token = nanobotConfig.tools?.github?.token || process.env.GITHUB_TOKEN;
   const repo  = nanobotConfig.tools?.github?.repo  || process.env.GITHUB_REPO;

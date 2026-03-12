@@ -30,6 +30,15 @@ resource "aws_security_group" "nanobot" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # Edge devices bridge — HTTP sync (PicoClaw/edge devices POST /api/sync). Only used when EDGE_DEVICES_ENABLED=true.
+  ingress {
+    description = "Reachy bridge HTTP"
+    from_port   = 18790
+    to_port     = 18790
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   # All outbound (needed for: LLM API calls, Telegram, package installs, Playwright)
   egress {
     from_port   = 0

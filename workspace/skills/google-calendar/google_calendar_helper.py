@@ -36,6 +36,7 @@ def _requests_session():
 def _load_credentials():
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
+    from datetime import datetime, timezone
 
     config = _read_config()
     gc_cfg = config.get("tools", {}).get("google_calendar", {})
@@ -60,6 +61,15 @@ def _load_credentials():
     scopes = token_data.get("scope", "")
     scopes = scopes.split() if isinstance(scopes, str) else scopes
 
+    # Convert expiry_date (JS milliseconds timestamp) to a datetime for google-auth.
+    # google-auth's _helpers.utcnow() returns naive UTC; it compares with expiry.
+    # Passing timezone-aware expiry causes: TypeError: can't compare offset-naive and offset-aware datetimes.
+    # Use naive UTC so the comparison succeeds.
+    expiry = None
+    expiry_date = token_data.get("expiry_date")
+    if expiry_date:
+        expiry = datetime.fromtimestamp(int(expiry_date) / 1000, tz=timezone.utc).replace(tzinfo=None)
+
     creds = Credentials(
         token=token_data.get("access_token"),
         refresh_token=token_data.get("refresh_token"),
@@ -67,6 +77,7 @@ def _load_credentials():
         client_id=client_id or token_data.get("client_id", ""),
         client_secret=client_secret or token_data.get("client_secret", ""),
         scopes=scopes,
+        expiry=expiry,
     )
 
     if not creds.valid:
@@ -78,6 +89,7 @@ def _load_credentials():
             "client_id": creds.client_id,
             "client_secret": creds.client_secret,
             "scope": " ".join(creds.scopes) if creds.scopes else "",
+            "expiry_date": int(creds.expiry.timestamp() * 1000) if creds.expiry else None,
         })
         CONFIG_PATH.write_text(json.dumps(config, indent=2))
 

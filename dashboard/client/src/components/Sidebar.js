@@ -12,6 +12,7 @@ export default function Sidebar({
   onRename,
   stats,
   serverOk,
+  environmentName,
   isOpen,
   onToggle,
   onLogs,
@@ -20,6 +21,8 @@ export default function Sidebar({
   const navigate = useNavigate();
   const showLogs      = location.pathname === '/logs';
   const showTelegram  = location.pathname === '/telegram';
+  const showWhatsApp  = location.pathname === '/whatsapp';
+  const showPicoClaw  = location.pathname === '/picoclaw' || location.pathname === '/devices';
   const showSettings  = location.pathname === '/settings';
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
@@ -67,7 +70,7 @@ export default function Sidebar({
       <div className="sidebar-header">
         <div className="sidebar-brand">
           <span className="brand-icon">🐈</span>
-          {isOpen && <span className="brand-name">nanobot</span>}
+          {isOpen && <span className="brand-name">{environmentName || 'nanobot'}</span>}
         </div>
         <button className="icon-btn toggle-btn" onClick={onToggle} title={isOpen ? 'Collapse' : 'Expand'}>
           {isOpen ? '◀' : '▶'}
@@ -87,6 +90,22 @@ export default function Sidebar({
         >
           <span className="btn-icon">✈️</span>
           {isOpen && <span>Telegram</span>}
+        </button>
+        <button
+          className={`logs-nav-btn ${showWhatsApp ? 'active' : ''}`}
+          onClick={() => navigate('/whatsapp')}
+          title="WhatsApp Chat"
+        >
+          <span className="btn-icon">💬</span>
+          {isOpen && <span>WhatsApp</span>}
+        </button>
+        <button
+          className={`logs-nav-btn ${showPicoClaw ? 'active' : ''}`}
+          onClick={() => navigate('/devices')}
+          title="Edge Devices"
+        >
+          <span className="btn-icon">🔌</span>
+          {isOpen && <span>Edge Devices</span>}
         </button>
         <button
           className={`logs-nav-btn ${showLogs ? 'active' : ''}`}

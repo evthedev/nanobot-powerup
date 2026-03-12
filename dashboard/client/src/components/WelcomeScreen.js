@@ -1,5 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import EmojiPicker from 'emoji-picker-react';
 import './WelcomeScreen.css';
+
+const API_BASE = process.env.REACT_APP_API_URL || '';
 
 const SUGGESTIONS = [
   "What's the weather like today?",
@@ -10,16 +13,61 @@ const SUGGESTIONS = [
   "Help me write a quick summary",
 ];
 
-export default function WelcomeScreen({ onNewChat, stats, onToggleSidebar, sidebarOpen }) {
+export default function WelcomeScreen({ onNewChat, stats, onToggleSidebar, sidebarOpen, environmentName }) {
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const pickerRef = useRef(null);
+
+  useEffect(() => {
+    if (!showPicker) return;
+    function handler(e) { if (pickerRef.current && !pickerRef.current.contains(e.target)) setShowPicker(false); }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showPicker]);
+
+  function onEmojiClick({ emoji }) {
+    const ta = textareaRef.current;
+    const start = ta.selectionStart;
+    setInput(d => d.slice(0, start) + emoji + d.slice(ta.selectionEnd));
+    setShowPicker(false);
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(start + emoji.length, start + emoji.length); }, 0);
+  }
+
+  async function handleFileChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`${API_BASE}/api/upload`, { method: 'POST', body: form });
+      if (!res.ok) throw new Error((await res.json()).error || 'Upload failed');
+      const data = await res.json();
+      setAttachments(prev => [...prev, data]);
+    } catch (err) {
+      alert(`Upload failed: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   function handleSubmit(e) {
     e.preventDefault();
-    if (input.trim()) {
-      onNewChat(input.trim());
-      setInput('');
-    }
+    const text = input.trim();
+    if (!text && attachments.length === 0) return;
+    const imageMarkdown = attachments
+      .map(a => a.type === 'video'
+        ? `\n![video](${a.url})`
+        : `\n![image](${a.url})`)
+      .join('');
+    onNewChat((text + imageMarkdown).trim());
+    setInput('');
+    setAttachments([]);
   }
 
   function handleKeyDown(e) {
@@ -55,7 +103,7 @@ export default function WelcomeScreen({ onNewChat, stats, onToggleSidebar, sideb
       {/* Hero */}
       <div className="welcome-hero">
         <div className="hero-icon">🐈</div>
-        <h1 className="hero-title">nanobot</h1>
+        <h1 className="hero-title">{environmentName || 'nanobot'}</h1>
         <p className="hero-subtitle">
           Your intelligent assistant — calendar, weather, todos, and more.
         </p>
@@ -78,21 +126,47 @@ export default function WelcomeScreen({ onNewChat, stats, onToggleSidebar, sideb
       {/* Input */}
       <div className="welcome-input-area">
         <form className="welcome-form" onSubmit={handleSubmit}>
+          {attachments.length > 0 && (
+            <div className="chat-attachments" style={{ marginBottom: 8 }}>
+              {attachments.map(a => (
+                <div key={a.filename} className="chat-attachment-thumb">
+                  {a.type === 'image' && <img src={`${window.location.origin}${a.url}`} alt="attachment" />}
+                  <button className="attachment-remove" onClick={() => setAttachments(prev => prev.filter(x => x.filename !== a.filename))}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="welcome-input-wrap">
+            {showPicker && (
+              <div className="chat-emoji-picker" ref={pickerRef}>
+                <EmojiPicker onEmojiClick={onEmojiClick} skinTonesDisabled height={380} />
+              </div>
+            )}
+            <input ref={fileInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleFileChange} />
+            <button
+              type="button"
+              className={`chat-attach-btn ${uploading ? 'uploading' : ''}`}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              title="Attach image or video"
+            >
+              {uploading ? <span className="send-spinner" /> : '📎'}
+            </button>
+            <button type="button" className="chat-emoji-btn" onClick={() => setShowPicker(p => !p)} title="Emoji">😊</button>
             <textarea
               ref={textareaRef}
               className="welcome-textarea"
               value={input}
               onChange={e => { setInput(e.target.value); autoResize(); }}
               onKeyDown={handleKeyDown}
-              placeholder="Ask nanobot anything…"
+              placeholder={`Ask ${environmentName || 'nanobot'} anything…`}
               rows={1}
               autoFocus
             />
             <button
               type="submit"
-              className={`welcome-send-btn ${input.trim() ? 'active' : ''}`}
-              disabled={!input.trim()}
+              className={`welcome-send-btn ${(input.trim() || attachments.length > 0) ? 'active' : ''}`}
+              disabled={!input.trim() && attachments.length === 0}
               title="Send"
             >
               ↑

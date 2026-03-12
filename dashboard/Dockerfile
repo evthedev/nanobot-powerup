@@ -1,9 +1,9 @@
 # ── Stage 1: Build React ──────────────────────────────────────────────────────
-FROM node:20-alpine AS react-builder
+FROM node:22-alpine AS react-builder
 
 WORKDIR /build/client
 COPY client/package*.json ./
-RUN npm ci --silent
+RUN npm install --silent
 
 COPY client/ ./
 # Production build — REACT_APP_API_URL is empty so all API calls use relative paths
@@ -12,14 +12,15 @@ RUN npm run build
 # ── Stage 2: Production Express server ───────────────────────────────────────
 FROM node:20-alpine
 
-# docker CLI — used by /api/gateway/restart to restart the nanobot-gateway container
+# Docker CLI — used by dashboard to restart gateway and WhatsApp bridge (Settings → Save, WhatsApp reset).
+# Requires the host to mount: -v /var/run/docker.sock:/var/run/docker.sock
 RUN apk add --no-cache docker-cli
 
 WORKDIR /app
 
 # Server dependencies only
 COPY server/package*.json ./
-RUN npm ci --only=production --silent
+RUN npm install --only=production --silent
 
 COPY server/ ./
 

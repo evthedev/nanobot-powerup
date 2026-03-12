@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sqlite3
+import time as _time
 from pathlib import Path
 from typing import Any
 
@@ -65,18 +66,26 @@ def _persist_whatsapp_sync(direction: str, chat_id: str, phone_number: str, cont
 class WhatsAppChannel(BaseChannel):
     """
     WhatsApp channel that connects to a Node.js bridge.
-    
+
     The bridge uses @whiskeysockets/baileys to handle the WhatsApp Web protocol.
     Communication between Python and Node.js is via WebSocket.
+
+    Reply-allowed: only senders in config.allow_from (phone numbers) get agent
+    replies; reply goes to the same chat (DM or group). See base.is_allowed().
     """
     
     name = "whatsapp"
     
+    # Chat IDs we've accepted an inbound from (allowed sender). Reply is allowed to these
+    # even when chat_id is a LID (e.g. 158149403226136@lid) and not in allow_from as a number.
+    _MAX_ALLOWED_CHATS = 100
+
     def __init__(self, config: WhatsAppConfig, bus: MessageBus):
         super().__init__(config, bus)
         self.config: WhatsAppConfig = config
         self._ws = None
         self._connected = False
+        self._allowed_chat_ids: set[str] = set()
     
     async def start(self) -> None:
         """Start the WhatsApp channel by connecting to the bridge."""
@@ -127,19 +136,38 @@ class WhatsAppChannel(BaseChannel):
             self._ws = None
     
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through WhatsApp."""
+        """Send a reply via the WhatsApp bridge. Only sends to destinations on the allow list."""
+        # Dual-response diagnostic
+        _send_key = f"{msg.chat_id}:{int(_time.time()) // 30}"
+        if not hasattr(self, "_send_counter"):
+            self._send_counter: dict[str, int] = {}
+        self._send_counter[_send_key] = self._send_counter.get(_send_key, 0) + 1
+        if self._send_counter[_send_key] > 1:
+            logger.warning(
+                "DUAL RESPONSE DETECTED: {} sends to {} in 30s window",
+                self._send_counter[_send_key], msg.chat_id,
+            )
+        if len(self._send_counter) > 20:
+            for k in sorted(self._send_counter)[:-20]:
+                del self._send_counter[k]
+        logger.info("send() called: chat_id={} content_len={}", msg.chat_id, len(msg.content))
+
         if not self._ws or not self._connected:
             logger.warning("WhatsApp bridge not connected")
             return
-        
+        # Enforce allow list: reply only if destination is in allow_from OR is a chat we
+        # already accepted (e.g. LID for self-messages, where the sender number was allowed).
+        destination_id = msg.chat_id.split("@")[0] if "@" in msg.chat_id else msg.chat_id
+        allowed = self.is_allowed(destination_id) or msg.chat_id in self._allowed_chat_ids
+        if not allowed:
+            logger.warning(
+                "WhatsApp outbound blocked: destination {} not in allowFrom. Message not sent.",
+                destination_id,
+            )
+            return
         try:
-            payload = {
-                "type": "send",
-                "to": msg.chat_id,
-                "text": msg.content
-            }
+            payload = {"type": "send", "to": msg.chat_id, "text": msg.content}
             await self._ws.send(json.dumps(payload, ensure_ascii=False))
-            # Persist outbound message to shared DB
             phone = msg.chat_id.split("@")[0] if "@" in msg.chat_id else msg.chat_id
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
@@ -148,7 +176,7 @@ class WhatsAppChannel(BaseChannel):
             )
         except Exception as e:
             logger.error("Error sending WhatsApp message: {}", e)
-    
+
     async def _handle_bridge_message(self, raw: str) -> None:
         """Handle a message from the bridge."""
         try:
@@ -156,44 +184,79 @@ class WhatsAppChannel(BaseChannel):
         except json.JSONDecodeError:
             logger.warning("Invalid JSON from bridge: {}", raw[:100])
             return
-        
+
         msg_type = data.get("type")
-        
+
         if msg_type == "message":
-            # Incoming message from WhatsApp
-            # Deprecated by whatsapp: old phone number style typically: <phone>@s.whatspp.net
-            pn = data.get("pn", "")
-            # New LID sytle typically: 
             sender = data.get("sender", "")
             content = data.get("content", "")
-            
-            # Extract just the phone number or lid as chat_id
+            direction = data.get("direction", "inbound")
+            if not content:
+                return
+
+            # Media paths from bridge (downloaded images/videos so the agent can pass them to the LLM)
+            media = data.get("media") or []
+
+            # Allow media-only messages (no caption) through
+            if not content and not media:
+                return
+
+            pn = data.get("pn", "")
             user_id = pn if pn else sender
-            sender_id = user_id.split("@")[0] if "@" in user_id else user_id
-            logger.info("Sender {}", sender)
-            
-            # Handle voice transcription if it's a voice message
-            if content == "[Voice Message]":
-                logger.info("Voice message received from {}, but direct download from bridge is not yet supported.", sender_id)
-                content = "[Voice Message: Transcription not available for WhatsApp yet]"
-            
-            # Persist inbound message to shared DB
+            phone_number = user_id.split("@")[0] if "@" in user_id else user_id
+
+            # Build persist_content: if we have media, use markdown image URL for dashboard display
+            if media:
+                filename = Path(media[0]).name
+                img_md = f"![Image](/api/wa-media/{filename})"
+                if content and content not in ("[Image]", "[Video]"):
+                    caption = content.replace("[Image] ", "").replace("[Video] ", "").strip()
+                    persist_content = f"{img_md}\n\n{caption}" if caption else img_md
+                else:
+                    persist_content = img_md
+            else:
+                persist_content = content or f"[media: {len(media)} file(s)]"
+
+            logger.info(
+                "whatsapp: {} from {} — persisting to DB{}",
+                direction, phone_number, f" (media={len(media)})" if media else ""
+            )
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None, _persist_whatsapp_sync,
-                "inbound", sender, sender_id, content
+                direction, sender, phone_number, persist_content
             )
 
-            await self._handle_message(
-                sender_id=sender_id,
-                chat_id=sender,  # Use full LID for replies
-                content=content,
-                metadata={
-                    "message_id": data.get("id"),
-                    "timestamp": data.get("timestamp"),
-                    "is_group": data.get("isGroup", False)
-                }
-            )
+            # Only route to agent if sender is on allow list; track this chat_id so we can reply to it.
+            if self.is_allowed(phone_number):
+                self._allowed_chat_ids.add(sender)
+                while len(self._allowed_chat_ids) > self._MAX_ALLOWED_CHATS:
+                    self._allowed_chat_ids.pop()
+
+                # Optional Reachy command interception (requires channels.reachy_bridge.enabled)
+                from nanobot.config.loader import load_config
+                _cfg = load_config()
+                _rb = _cfg.channels.reachy_bridge
+                if _rb.enabled:
+                    from nanobot.channels.edge_bridge import handle_reachy_command
+                    reachy_resp = await handle_reachy_command(content, _rb)
+                    if reachy_resp:
+                        logger.info("Reachy command intercepted: {}", content[:40])
+                        if self._ws and self._connected:
+                            await self._ws.send(json.dumps({"type": "send", "to": sender, "text": reachy_resp}))
+                        return
+
+                await self._handle_message(
+                    sender_id=phone_number,
+                    chat_id=sender,
+                    content=content or "[Image]",
+                    media=media if media else None,
+                    metadata={
+                        "message_id": data.get("id"),
+                        "timestamp": data.get("timestamp"),
+                        "is_group": data.get("isGroup", False),
+                    },
+                )
         
         elif msg_type == "status":
             # Connection status update

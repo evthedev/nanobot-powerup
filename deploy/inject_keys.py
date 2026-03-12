@@ -42,6 +42,9 @@ maps_key              = _get("GOOGLE_STATIC_MAPS_API_KEY")
 telegram_token        = _get("TELEGRAM_BOT_TOKEN")
 bridge_token          = _get("BRIDGE_TOKEN")
 whatsapp_allow_from   = _get("WHATSAPP_ALLOW_FROM")
+edge_devices_enabled = _get("EDGE_DEVICES_ENABLED").lower() in ("1", "true", "yes")
+bridge_secret         = _get("BRIDGE_SECRET")
+edge_devices_json     = _get("EDGE_DEVICES_JSON")  # optional JSON map of device configs
 google_client_id      = _get("GOOGLE_CLIENT_ID")
 google_client_secret  = _get("GOOGLE_CLIENT_SECRET")
 capsolver_api_key     = _get("CAPSOLVER_API_KEY")
@@ -49,6 +52,7 @@ gmail_email           = _get("GMAIL_EMAIL")
 gmail_app_password    = _get("GMAIL_APP_PASSWORD")
 github_token          = _get("GITHUB_TOKEN")
 github_repo           = _get("GITHUB_REPO")
+nanobot_env_name      = _get("NANOBOT_ENV_NAME")
 
 if grok_api_key and not grok_api_key.startswith("REPLACE"):
     set_nested(cfg, "providers.grok.apiKey", grok_api_key)
@@ -89,6 +93,34 @@ if bridge_token or whatsapp_allow_from:
         set_nested(cfg, "channels.whatsapp.allow_from", allow_list)
     print(f"  whatsapp channel enabled")
 
+if edge_devices_enabled:
+    set_nested(cfg, "channels.reachyBridge.enabled", True)
+    set_nested(cfg, "channels.reachyBridge.url", "http://nanobot-whatsapp-bridge:18790")
+    if bridge_secret:
+        set_nested(cfg, "channels.reachyBridge.secret", bridge_secret)
+    print("  edge devices enabled")
+    # Also populate edge_devices.reachy for forward compat if not already set
+    if not cfg.get("channels", {}).get("edgeDevices", {}).get("devices", {}).get("reachy"):
+        set_nested(cfg, "channels.edgeDevices.enabled", True)
+        set_nested(cfg, "channels.edgeDevices.url", "http://nanobot-whatsapp-bridge:18790")
+        set_nested(cfg, "channels.edgeDevices.devices.reachy.enabled", True)
+        set_nested(cfg, "channels.edgeDevices.devices.reachy.secret", bridge_secret or "")
+        set_nested(cfg, "channels.edgeDevices.devices.reachy.pollIntervalSeconds", 30)
+        print("  edge_devices.reachy auto-populated from legacy reachy bridge config")
+
+if edge_devices_json and not edge_devices_json.startswith("REPLACE"):
+    import json as _json
+    try:
+        devices = _json.loads(edge_devices_json)
+        set_nested(cfg, "channels.edgeDevices.enabled", True)
+        set_nested(cfg, "channels.edgeDevices.url", "http://nanobot-whatsapp-bridge:18790")
+        for device_id, device_cfg in devices.items():
+            for k, v in device_cfg.items():
+                set_nested(cfg, f"channels.edgeDevices.devices.{device_id}.{k}", v)
+        print(f"  edge_devices configured: {list(devices.keys())}")
+    except Exception as e:
+        print(f"  WARNING: EDGE_DEVICES_JSON parse failed: {e}")
+
 if google_client_id and not google_client_id.startswith("REPLACE"):
     set_nested(cfg, "tools.google_calendar.clientId", google_client_id)
     print(f"  google client ID set")
@@ -117,8 +149,16 @@ if github_repo and not github_repo.startswith("REPLACE"):
     set_nested(cfg, "tools.github.repo", github_repo)
     print(f"  github repo set ({github_repo})")
 
-set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
-print("  agent model: google/gemini-3-flash-preview")
+if nanobot_env_name and not nanobot_env_name.startswith("REPLACE"):
+    set_nested(cfg, "runtime.environment_name", nanobot_env_name)
+    print(f"  runtime environment set ({nanobot_env_name})")
+
+if not cfg.get("agents", {}).get("defaults", {}).get("model"):
+    set_nested(cfg, "agents.defaults.model", "google/gemini-3-flash-preview")
+    print("  agent model: google/gemini-3-flash-preview (default)")
+
+set_nested(cfg, "ssl_verify", False)
+print("  ssl_verify: False (bypass corporate proxy cert)")
 
 with open(cfg_path, "w") as f:
     json.dump(cfg, f, indent=2)

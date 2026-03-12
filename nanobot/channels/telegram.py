@@ -60,6 +60,14 @@ def _persist_sync(direction: str, chat_id: str, content: str, sender_id: str = "
             "INSERT INTO telegram_messages (direction, chat_id, sender_id, sender_name, content) VALUES (?, ?, ?, ?, ?)",
             (direction, chat_id, sender_id, sender_name, content)
         )
+        # Also write to activity_log for cross-channel context digest
+        sender_label = sender_name or sender_id or "telegram_user"
+        if direction == "outbound":
+            sender_label = "assistant"
+        conn.execute(
+            "INSERT OR IGNORE INTO activity_log (source, sender, content) VALUES ('telegram', ?, ?)",
+            (sender_label, content[:500])
+        )
         conn.commit()
         conn.close()
     except Exception as e:

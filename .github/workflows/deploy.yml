@@ -7,9 +7,14 @@ on:
 
 jobs:
   provision-and-deploy:
-    name: Terraform + SSH deploy
+    name: Terraform + SSH deploy (${{ matrix.environment }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [clyde, shantelle]
+    environment: ${{ matrix.environment }}
 
     env:
       AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -18,6 +23,7 @@ jobs:
       # Terraform reads TF_VAR_* automatically as input variables
       TF_VAR_aws_region:     ${{ vars.AWS_REGION }}
       TF_VAR_key_pair_name:  ${{ secrets.EC2_KEY_PAIR_NAME }}
+      TF_VAR_project_name:   ${{ vars.PROJECT_NAME }}
 
     steps:
       - uses: actions/checkout@v4
@@ -29,12 +35,18 @@ jobs:
           terraform_version: "~1.7"
           terraform_wrapper: false  # wrapper interferes with output parsing
 
+      - name: Debug credentials
+        run: |
+          echo "KEY_ID=${AWS_ACCESS_KEY_ID:0:8}..."
+          echo "SECRET_LEN=${#AWS_SECRET_ACCESS_KEY}"
+
       - name: Terraform init
         working-directory: deploy/terraform
         run: |
           terraform init \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-            -backend-config="region=${{ vars.AWS_REGION }}"
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="key=${{ vars.PROJECT_NAME || 'nanobot' }}/terraform.tfstate"
 
       - name: Terraform apply
         working-directory: deploy/terraform
@@ -50,6 +62,8 @@ jobs:
         env:
           EC2_HOST:                 ${{ steps.tf.outputs.ec2_host }}
           OPENROUTER_API_KEY:       ${{ secrets.OPENROUTER_API_KEY }}
+          NVIDIA_API_KEY:           ${{ secrets.NVIDIA_API_KEY }}
+          GROK_API_KEY:             ${{ secrets.GROK_API_KEY }}
           BRAVE_API_KEY:            ${{ secrets.BRAVE_API_KEY }}
           TAVILY_API_KEY:           ${{ secrets.TAVILY_API_KEY }}
           GOOGLE_CLIENT_ID:         ${{ secrets.GOOGLE_CLIENT_ID }}
@@ -57,12 +71,16 @@ jobs:
           GOOGLE_STATIC_MAPS_API_KEY: ${{ secrets.GOOGLE_STATIC_MAPS_API_KEY }}
           TELEGRAM_BOT_TOKEN:       ${{ secrets.TELEGRAM_BOT_TOKEN }}
           BRIDGE_TOKEN:             ${{ secrets.BRIDGE_TOKEN }}
+          BRIDGE_SECRET:            ${{ secrets.BRIDGE_SECRET }}
+          # Edge devices: set GitHub env var EDGE_DEVICES_ENABLED=true and secret BRIDGE_SECRET to enable
+          EDGE_DEVICES_ENABLED:      ${{ vars.EDGE_DEVICES_ENABLED || 'false' }}
           WHATSAPP_ALLOW_FROM:      ${{ secrets.WHATSAPP_ALLOW_FROM }}
           CAPSOLVER_API_KEY:        ${{ secrets.CAPSOLVER_API_KEY }}
           GMAIL_EMAIL:              ${{ secrets.GMAIL_EMAIL }}
           GMAIL_APP_PASSWORD:       ${{ secrets.GMAIL_APP_PASSWORD }}
           GH_PAT:                   ${{ secrets.GH_PAT }}
           GH_REPO:                  ${{ vars.GH_REPO }}
+          NANOBOT_ENV_NAME:         ${{ matrix.environment }}
         run: |
           printf '%s' "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2.pem
           chmod 600 /tmp/ec2.pem
@@ -134,8 +152,20 @@ jobs:
                 cp -r "$skill_dir"* "$WORKSPACE_DST/skills/$skill_name/"
               echo "  synced skill: $skill_name"
             done
+            # Remove skills deleted from repo (skills present on instance but not in git)
+            for live_dir in "$WORKSPACE_DST/skills/"/*/; do
+              skill_name=$(basename "$live_dir")
+              if [ ! -d "$WORKSPACE_SRC/skills/$skill_name" ]; then
+                rm -rf "$live_dir"
+                echo "  removed deleted skill: $skill_name"
+              fi
+            done
             # Ensure instance layer directory exists so the agent can write to it immediately
             mkdir -p "$WORKSPACE_DST/skills-auto"
+
+            # Flush rogue one-off scripts from workspace root (agent writes these; they accumulate)
+            find "$WORKSPACE_DST" -maxdepth 1 -name '*.py' -delete
+            echo "  flushed rogue scripts from workspace root"
 
             # ── Inject API keys into config.json ──────────────────────────────────
             echo "--- injecting API keys ---"
@@ -162,17 +192,28 @@ jobs:
             cd /opt/nanobot-app
             # Remove local dev override so it never pollutes the EC2 environment
             rm -f docker-compose.override.yml
-            echo "--- building ---"
-            docker compose -f docker-compose.yml build --pull
-            echo "--- stopping old containers (prevents name-conflict on recreate) ---"
+
+            # Free disk before build: stop containers so old images become unused, then prune.
+            # Patchright/Chromium layer extraction needs substantial space; 20GB root can fill during build.
+            echo "--- disk before cleanup ---"
+            df -h /
+            echo "--- stopping containers (releases image refs so prune can remove them) ---"
             docker compose -f docker-compose.yml down --remove-orphans --timeout 30
-            # Wait for all containers to finish removal before recreating
             for i in $(seq 1 10); do
               REMAINING=$(docker ps -aq --filter "name=nanobot" | wc -l)
               [ "$REMAINING" -eq 0 ] && break
               echo "  waiting for $REMAINING container(s) to finish removal ($i/10)..."
               sleep 3
             done
+            echo "--- pruning unused images and build cache to free disk ---"
+            docker image prune -af
+            docker builder prune -af
+            echo "--- disk after cleanup ---"
+            df -h /
+
+            echo "--- building ---"
+            docker compose -f docker-compose.yml build --pull
+
             echo "--- starting fresh ---"
             docker compose -f docker-compose.yml --env-file .env.docker up -d
             docker image prune -f

@@ -14,7 +14,15 @@ class Base(BaseModel):
 
 
 class WhatsAppConfig(Base):
-    """WhatsApp channel configuration."""
+    """
+    WhatsApp channel configuration.
+
+    Reply-allowed logic (when the channel is not monitor-only):
+    - allow_from: list of phone numbers (e.g. ["61434992528"]). Only messages
+      from these senders are passed to the agent; replies go to the same chat
+      (DM or group) the message came from.
+    - If allow_from is empty, all senders are allowed (see channels.base.is_allowed).
+    """
 
     enabled: bool = False
     bridge_url: str = "ws://localhost:3001"
@@ -174,6 +182,29 @@ class WebConfig(Base):
     allow_from: list[str] = Field(default_factory=list)
 
 
+class ReachyBridgeConfig(Base):
+    """Reachy robot bridge configuration (legacy — use edge_devices instead)."""
+
+    enabled: bool = False
+    url: str = "http://localhost:18790"
+    secret: str = ""
+
+
+class EdgeDeviceConfig(Base):
+    """Per-device configuration for the edge device bridge."""
+
+    enabled: bool = True
+    secret: str = ""  # HMAC-SHA256 secret for this device
+    poll_interval_seconds: int = 30  # Advisory poll interval returned in sync response
+    stream_mode: str | None = None  # None | "snapshot" | "trigger" | "interval" | "on_demand"
+
+
+class EdgeDevicesConfig(Base):
+    enabled: bool = False
+    url: str = "http://nanobot-whatsapp-bridge:18790"
+    devices: dict[str, EdgeDeviceConfig] = Field(default_factory=dict)
+
+
 class ChannelsConfig(Base):
     """Configuration for chat channels."""
 
@@ -187,6 +218,8 @@ class ChannelsConfig(Base):
     slack: SlackConfig = Field(default_factory=SlackConfig)
     qq: QQConfig = Field(default_factory=QQConfig)
     web: WebConfig = Field(default_factory=WebConfig)
+    reachy_bridge: ReachyBridgeConfig = Field(default_factory=ReachyBridgeConfig)  # legacy
+    edge_devices: EdgeDevicesConfig = Field(default_factory=EdgeDevicesConfig)
 
 
 class AgentDefaults(Base):
@@ -244,6 +277,12 @@ class GatewayConfig(Base):
 
     host: str = "0.0.0.0"
     port: int = 18790
+
+
+class RuntimeConfig(Base):
+    """Runtime metadata for environment-specific UI/ops context."""
+
+    environment_name: str = ""
 
 
 class WebSearchConfig(Base):
@@ -337,6 +376,7 @@ class Config(BaseSettings):
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     # Set NANOBOT_SSL_VERIFY=false to disable TLS certificate verification.
     # Use this when behind a proxy that intercepts HTTPS with a self-signed cert.

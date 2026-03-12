@@ -9,6 +9,7 @@ build/
 .env
 .assets
 node_modules/
+bridge/node_modules/
 bridge/dist/
 workspace/
 # Test artefacts

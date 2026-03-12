@@ -22,9 +22,9 @@ variable "key_pair_name" {
 }
 
 variable "root_volume_size_gb" {
-  description = "Root EBS volume size (GB) — needs ~15GB for Docker images (Python + Node.js + Chromium layers)"
+  description = "Root EBS volume size (GB). Needs ~25GB+ for Docker builds: Python + Node + system Chromium + Patchright headless shell; build extraction can double layer size temporarily."
   type        = number
-  default     = 20
+  default     = 30
 }
 
 variable "data_volume_size_gb" {

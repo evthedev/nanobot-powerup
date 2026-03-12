@@ -88,6 +88,8 @@ function fileExt(filename) {
 function WhatsAppSection({ api, Field: FieldComponent }) {
   const [status, setStatus] = useState({ enabled: false, pairing: false, connected: false });
   const [qr, setQr] = useState(null);
+  const [resetting, setResetting] = useState(false);
+  const [resetMsg, setResetMsg] = useState(null);
 
   const fetchStatus = useCallback(() => {
     fetch(`${api}/api/whatsapp/status`)
@@ -112,19 +114,41 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
     else setQr(null);
   }, [status.pairing, fetchQr]);
 
-  // Poll when pairing (QR refreshes every ~60s) or when enabled (to detect connect)
+  // Always poll to detect QR appearance, connection, and disconnection
   useEffect(() => {
-    if (!status.enabled) return;
     const id = setInterval(() => {
       fetchStatus();
       if (status.pairing) fetchQr();
     }, 3000);
     return () => clearInterval(id);
-  }, [status.enabled, status.pairing, fetchStatus, fetchQr]);
+  }, [status.pairing, fetchStatus, fetchQr]);
 
   const qrImageUrl = qr
     ? `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(qr)}`
     : null;
+
+  async function resetAuth() {
+    setResetting(true);
+    setResetMsg(null);
+    try {
+      const r = await fetch(`${api}/api/whatsapp/reset-auth`, { method: 'POST' });
+      const text = await r.text();
+      let d = {};
+      try { d = text ? JSON.parse(text) : {}; } catch {}
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setResetMsg({
+        type: d.warning ? 'warning' : 'success',
+        text: d.warning || 'Auth cleared — scan the new QR to re-pair.',
+      });
+      // Poll for new QR a few times (bridge may take several seconds to restart and emit QR)
+      fetchStatus();
+      [2000, 5000, 10000].forEach((ms) => setTimeout(fetchStatus, ms));
+    } catch (e) {
+      setResetMsg({ type: 'error', text: e.message });
+    } finally {
+      setResetting(false);
+    }
+  }
 
   return (
     <section className="settings-section">
@@ -136,14 +160,18 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
         helpText="Comma-separated, no + prefix"
         isPassword={false}
       />
-      {status.enabled && (
-        <div className="whatsapp-pairing" style={{ marginTop: '1rem' }}>
+      <div className="whatsapp-pairing" style={{ marginTop: '1rem' }}>
           {status.connected && (
-            <p className="field-help" style={{ color: 'var(--success, #22c55e)' }}>
-              ✅ WhatsApp connected
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <p className="field-help" style={{ color: 'var(--success, #22c55e)', margin: 0 }}>
+                ✅ WhatsApp connected
+              </p>
+              <button className="btn-danger-sm" onClick={resetAuth} disabled={resetting}>
+                {resetting ? 'Disconnecting…' : 'Disconnect'}
+              </button>
+            </div>
           )}
-          {status.pairing && qrImageUrl && (
+          {!status.connected && status.pairing && qrImageUrl && (
             <div className="whatsapp-qr-box" style={{ marginTop: '0.5rem' }}>
               <p className="field-help">Scan with WhatsApp → Linked Devices</p>
               <img
@@ -153,13 +181,25 @@ function WhatsAppSection({ api, Field: FieldComponent }) {
               />
             </div>
           )}
-          {status.enabled && !status.connected && !status.pairing && (
-            <p className="field-help" style={{ marginTop: '0.5rem' }}>
-              Waiting for bridge… Ensure the WhatsApp bridge container is running.
+          {!status.connected && !status.pairing && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: '0.5rem' }}>
+              <p className="field-help" style={{ margin: 0 }}>
+                Not connected. Reset pairing to generate a new QR.
+              </p>
+              <button className="btn-danger-sm" onClick={resetAuth} disabled={resetting}>
+                {resetting ? 'Resetting…' : '🔄 Reset Pairing'}
+              </button>
+            </div>
+          )}
+          {resetMsg && (
+            <p className="field-help" style={{
+              marginTop: '0.5rem',
+              color: resetMsg.type === 'error' ? 'var(--error)' : resetMsg.type === 'warning' ? 'var(--warning, #eab308)' : 'var(--success, #22c55e)',
+            }}>
+              {resetMsg.text}
             </p>
           )}
         </div>
-      )}
     </section>
   );
 }
@@ -176,6 +216,9 @@ function SkillsSection({ api }) {
   const [prState, setPrState]             = useState({});
   // toggleState[`source/skillName`] = 'idle' | 'saving'
   const [toggleState, setToggleState]     = useState({});
+  // deleteConfirm = skillName to confirm, or null
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleteState, setDeleteState]     = useState({});   // skillName → 'deleting'|'error'
 
   useEffect(() => {
     fetch(`${api}/api/skills`)
@@ -222,12 +265,20 @@ function SkillsSection({ api }) {
     e.stopPropagation();
     setPrState(s => ({ ...s, [skillName]: { status: 'loading' } }));
     try {
-      const r    = await fetch(`${api}/api/skills/promote`, {
+      const r = await fetch(`${api}/api/skills/promote`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ skillName }),
+        credentials: 'include', // ensure HTTP Basic Auth is sent behind nginx
       });
-      const data = await r.json();
+      const text = await r.text();
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (_) {
+        // 401/500 may return HTML from nginx; surface a clear message
+        throw new Error(r.status === 401 ? 'Authentication required — please log in again' : `Request failed (${r.status})`);
+      }
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
       setPrState(s => ({ ...s, [skillName]: { status: 'success', prUrl: data.prUrl, prNumber: data.prNumber } }));
     } catch (err) {
@@ -268,6 +319,26 @@ function SkillsSection({ api }) {
       });
     } finally {
       setToggleState(s => ({ ...s, [key]: 'idle' }));
+    }
+  }
+
+  async function deleteSkill(skillName) {
+    setDeleteState(s => ({ ...s, [skillName]: 'deleting' }));
+    try {
+      const r = await fetch(`${api}/api/skills`, {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ skillName }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
+      setSkills(prev => ({ ...prev, auto: prev.auto.filter(s => s.name !== skillName) }));
+      setDeleteConfirm(null);
+      if (expandedKey === `skills-auto/${skillName}`) setExpandedKey(null);
+    } catch (err) {
+      setDeleteState(s => ({ ...s, [skillName]: 'error' }));
+      setDeleteConfirm(null);
+    } finally {
+      setDeleteState(s => ({ ...s, [skillName]: undefined }));
     }
   }
 
@@ -325,10 +396,17 @@ function SkillsSection({ api }) {
                     )}
                     {pr.status === 'error' && (
                       <span className="skill-pr-error" title={pr.error}>
-                        ✗ Failed
+                        ✗ {pr.error.length > 50 ? pr.error.slice(0, 47) + '…' : pr.error}
                         <button className="skill-pr-retry" onClick={e => submitPr(skill.name, e)}>retry</button>
                       </span>
                     )}
+                    <button
+                      className="skill-delete-btn"
+                      onClick={e => { e.stopPropagation(); setDeleteConfirm(skill.name); }}
+                      title="Delete this skill"
+                    >
+                      🗑
+                    </button>
                   </div>
                 )}
               </div>
@@ -383,6 +461,26 @@ function SkillsSection({ api }) {
         <div className="skills-list">
           <SkillGroup label="Workspace"     badge="workspace" source="skills"      list={skills.workspace} />
           <SkillGroup label="Auto-Generated" badge="auto"     source="skills-auto" list={skills.auto} />
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div className="skill-delete-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="skill-delete-modal" onClick={e => e.stopPropagation()}>
+            <p className="skill-delete-modal-title">Delete skill?</p>
+            <p className="skill-delete-modal-name">{deleteConfirm}</p>
+            <p className="skill-delete-modal-warn">This permanently removes the skill folder from skills-auto. This cannot be undone.</p>
+            <div className="skill-delete-modal-actions">
+              <button className="skill-delete-cancel" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+              <button
+                className="skill-delete-confirm"
+                onClick={() => deleteSkill(deleteConfirm)}
+                disabled={deleteState[deleteConfirm] === 'deleting'}
+              >
+                {deleteState[deleteConfirm] === 'deleting' ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
@@ -464,9 +562,17 @@ function ModelSelector({ id, label, value, onChange, options, loading, helpText 
                 onMouseDown={e => { e.preventDefault(); select(opt.id); }}
               >
                 <span className="model-dropdown-id">{opt.id}</span>
-                {opt.name && opt.name !== opt.id && (
-                  <span className="model-dropdown-name">{opt.name}</span>
-                )}
+                <span className="model-dropdown-meta">
+                  {opt.name && opt.name !== opt.id && (
+                    <span className="model-dropdown-name">{opt.name}</span>
+                  )}
+                  {(opt.inputCost != null || opt.outputCost != null) && (
+                    <span className="model-dropdown-pricing">
+                      {opt.inputCost  != null && <span title="Input cost per 1M tokens">↑${opt.inputCost  < 0.01 ? opt.inputCost.toFixed(3)  : opt.inputCost.toFixed(2)}/1M</span>}
+                      {opt.outputCost != null && <span title="Output cost per 1M tokens">↓${opt.outputCost < 0.01 ? opt.outputCost.toFixed(3) : opt.outputCost.toFixed(2)}/1M</span>}
+                    </span>
+                  )}
+                </span>
               </div>
             ))}
             {!loading && filtered.length > 150 && (
@@ -590,6 +696,10 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
     setSaving(true);
     setStatus(null);
     try {
+      const whatsappAllowFrom = fields.whatsapp_allowed_numbers
+        .split(',')
+        .map(n => n.trim())
+        .filter(Boolean);
       const updates = {
         agents: {
           defaults: {
@@ -612,10 +722,10 @@ export default function Settings({ onToggleSidebar, sidebarOpen }) {
       },
         channels: {
           whatsapp: {
-            allowFrom: fields.whatsapp_allowed_numbers
-              .split(',')
-              .map(n => n.trim())
-              .filter(Boolean),
+            // If allow-list is configured in Settings, ensure channel is enabled.
+            enabled: whatsappAllowFrom.length > 0,
+            bridgeUrl: "ws://nanobot-whatsapp-bridge:3002",
+            allowFrom: whatsappAllowFrom,
           },
         },
       };

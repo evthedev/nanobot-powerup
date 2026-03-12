@@ -1,20 +1,17 @@
 ---
 name: whatsapp-monitor
-description: Monitor incoming WhatsApp messages and send batched summaries to Telegram via the heartbeat. All WhatsApp activity is persisted to the unified chat.db for cross-channel recall.
+description: Monitor incoming WhatsApp messages, triage for attention, and notify via Telegram. Never reply on WhatsApp.
 ---
 
 # WhatsApp Monitor
 
-This skill powers the periodic WhatsApp→Telegram summary pipeline. Every 30 minutes (on the heartbeat cycle), the agent checks for new WhatsApp messages and delivers a concise digest to Telegram.
+WhatsApp is **monitor-only**. The agent reads messages and forwards anything needing attention to Telegram. It never replies via WhatsApp — not even to acknowledge receipt.
 
-## How It Works
+## How it works
 
-1. All inbound and outbound WhatsApp messages are persisted to `~/.nanobot/chat.db` → `whatsapp_messages` table.
-2. The heartbeat checks for new messages since the last check.
-3. If new messages exist, the agent summarises them and returns the summary as the heartbeat response.
-4. The heartbeat system automatically delivers the response to the last known Telegram chat.
+All inbound WhatsApp messages are persisted to `~/.nanobot/chat.db` → `whatsapp_messages` table by the bridge. The heartbeat queries this table, triages messages, and sends a Telegram notification for anything that needs attention.
 
-## Query New Messages (heartbeat use)
+## Fetch recent messages
 
 ```bash
 python3 ~/.nanobot/workspace/skills/whatsapp-monitor/query_recent.py
@@ -29,47 +26,36 @@ python3 query_recent.py --minutes 60   # last 60 minutes
 python3 query_recent.py --all          # last 50 messages ever
 ```
 
-## Summary Format for Telegram
+## Triage rules — what gets forwarded
 
-When new messages are found, produce a summary like:
+Forward to Telegram if the message contains any of:
+- A direct question or request requiring a response
+- Urgency signals: "urgent", "ASAP", "emergency", "call me", "need you", "important"
+- Something actionable (booking, appointment, money, decision needed)
+- A message from a known contact (in the allowFrom list) that isn't casual/automated
+
+**Do NOT forward:**
+- Automated notifications (OTP codes, delivery updates, bank alerts, marketing)
+- Group message spam or broadcast messages
+- Anything clearly not requiring a response
+
+## Telegram notification format
 
 ```
-📱 WhatsApp digest (last 30 min):
+📱 WhatsApp — {contact} ({time})
+"{message content}"
 
-• +61401234567 → 3 messages: asked about calendar, confirmed meeting at 3pm, sent a photo
-• +61498765432 → 1 message: "Can you call me back?"
-• nanobot replied to 2 chats
+→ Needs: {one line on what action, if any, the owner might want to take}
 ```
 
-Keep it tight — 1 line per contact. If only 1–2 messages total, just quote them directly.
+Keep it under 5 lines. One notification per contact thread, not per message.
 
-## Update State After Check
+If multiple contacts need attention, send one combined notification listing each.
 
-Always update `last_whatsapp` in heartbeat-state.json after processing:
+If nothing needs attention → reply `HEARTBEAT_OK`.
 
-```bash
-exec("python3 -c \"import json,time,pathlib; p=pathlib.Path.home()/'.nanobot/workspace/heartbeat-state.json'; s=json.loads(p.read_text()) if p.exists() else {}; s['whatsapp']=int(time.time()); p.write_text(json.dumps(s))\"")
-```
+## IMPORTANT
 
-## WhatsApp Table Schema
-
-```sql
-CREATE TABLE whatsapp_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    direction TEXT NOT NULL CHECK(direction IN ('inbound','outbound')),
-    chat_id TEXT NOT NULL,       -- full JID e.g. 61401234567@s.whatsapp.net
-    phone_number TEXT DEFAULT '', -- extracted number e.g. 61401234567
-    content TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-```
-
-## Cross-Channel Recall
-
-WhatsApp messages are searchable via the unified cross-chat-memory skill:
-
-```bash
-python3 ~/.nanobot/workspace/skills/cross-chat-memory/query.py <keyword>
-```
-
-This always searches web chat + Telegram + WhatsApp simultaneously.
+- **Never reply on WhatsApp** — not even "ok" or "seen". The channel is receive-only.
+- If the owner wants to reply, they do so manually on their phone.
+- Do not suggest using exec or the WhatsApp send API. It is disabled.

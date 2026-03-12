@@ -151,7 +151,9 @@ class SubagentManager:
         bg_task.add_done_callback(lambda _: self._running_tasks.pop(task_id, None))
         
         model_note = f" using {effective_model}" if model else ""
-        logger.info("Spawned subagent [{}]{}: {}", task_id, model_note, display_label)
+        logger.info("Spawned subagent [{}]{}: {} (origin={}:{})",
+                    task_id, model_note, display_label,
+                    origin_channel, origin_chat_id)
         return f"Subagent [{display_label}] started (id: {task_id}{model_note}). I'll notify you when it completes."
     
     async def _run_subagent(
@@ -248,8 +250,9 @@ class SubagentManager:
                     # Execute tools
                     for tool_call in response.tool_calls:
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                        logger.debug("Subagent [{}] executing: {} with arguments: {}", task_id, tool_call.name, args_str)
+                        logger.info("Subagent [{}] ▶ {}({})", task_id, tool_call.name, args_str[:200])
                         result = await tools.execute(tool_call.name, tool_call.arguments)
+                        logger.info("Subagent [{}] ◀ {} → {}", task_id, tool_call.name, str(result)[:300])
                         if tool_call.name == "message" and not result.startswith("Error:"):
                             messaged_directly = True
                         messages.append({

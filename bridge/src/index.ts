@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 /**
- * nanobot WhatsApp Bridge
- * 
- * This bridge connects WhatsApp Web to nanobot's Python backend
- * via WebSocket. It handles authentication, message forwarding,
- * and reconnection logic.
- * 
+ * nanobot Edge Bridge
+ *
+ * HTTP + WebSocket server for edge device integration.
+ * Handles device sync, directive queuing, and real-time streaming.
+ *
  * Usage:
  *   npm run build && npm start
- *   
- * Or with custom settings:
- *   BRIDGE_PORT=3001 AUTH_DIR=~/.nanobot/whatsapp npm start
  */
 
 // Polyfill crypto for Baileys in ESM
@@ -20,6 +16,8 @@ if (!globalThis.crypto) {
 }
 
 import { BridgeServer } from './server.js';
+import { EdgeBridgeServer } from './edge_bridge.js';
+import { bridgeLog } from './logger.js';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -27,15 +25,24 @@ const PORT = parseInt(process.env.BRIDGE_PORT || '3001', 10);
 const HOST = process.env.BRIDGE_HOST || '127.0.0.1';  // 0.0.0.0 for Docker
 const AUTH_DIR = process.env.AUTH_DIR || join(homedir(), '.nanobot', 'whatsapp-auth');
 const TOKEN = process.env.BRIDGE_TOKEN || undefined;
+const EDGE_PORT = parseInt(process.env.REACHY_BRIDGE_PORT || '18790', 10);
+const EDGE_ENABLED = process.env.EDGE_DEVICES_ENABLED === 'true';
+const WHATSAPP_ENABLED = process.env.WHATSAPP_ENABLED !== 'false';
 
-console.log('🐈 nanobot WhatsApp Bridge');
-console.log('========================\n');
+bridgeLog.info('main', 'nanobot Bridge');
 
 const server = new BridgeServer(PORT, AUTH_DIR, TOKEN, HOST);
 
+if (EDGE_ENABLED) {
+  const edge = new EdgeBridgeServer(EDGE_PORT);
+  edge.start();
+  process.on('SIGINT', () => edge.stop());
+  process.on('SIGTERM', () => edge.stop());
+}
+
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('\n\nShutting down...');
+  bridgeLog.info('main', 'Shutting down...');
   await server.stop();
   process.exit(0);
 });
@@ -45,8 +52,11 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-// Start the server
-server.start().catch((error) => {
-  console.error('Failed to start bridge:', error);
-  process.exit(1);
-});
+if (WHATSAPP_ENABLED) {
+  server.start().catch((error) => {
+    bridgeLog.error('main', `Failed to start bridge: ${error}`);
+    process.exit(1);
+  });
+} else {
+  bridgeLog.info('main', 'WhatsApp bridge disabled (WHATSAPP_ENABLED=false)');
+}

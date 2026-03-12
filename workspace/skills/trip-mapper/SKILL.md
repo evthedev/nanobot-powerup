@@ -1,4 +1,18 @@
+---
+name: trip-mapper
+description: Generate a map image with numbered pins for a list of locations, plus a clickable Google Maps directions link.
+note: Max 30 stops. Stops beyond 30 will be silently dropped.
+triggers:
+  - "map these locations"
+  - "show on a map"
+  - "map out my itinerary"
+  - "visualise these stops"
+  - "route between"
+---
+
 # Trip Mapper Skill
+
+**Note: Max 30 stops. Stops beyond 30 will be silently dropped.**
 
 Generate a map image with numbered pins for a list of locations, plus a clickable Google Maps directions link.
 
@@ -21,8 +35,8 @@ exec: python3 ~/.nanobot/workspace/skills/trip-mapper/trip-mapper.py "Stop 1" "S
 ```
 
 - Each stop is a quoted string — be specific enough to geocode (e.g. `"Gamcheon Culture Village, Busan"` not `"Gamcheon"`)
-- Minimum 2 stops, maximum 25 stops
-- If the user gives more than 25, pick the 25 most important
+- Minimum 2 stops, maximum 30 stops
+- If the user gives more than 30, pick the 30 most important
 
 ## Reading the output
 

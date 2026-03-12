@@ -5,14 +5,57 @@ Decoupled from any domain: the caller constructs the URLs. Works for travel rese
 product reviews, restaurant lookups, news pages, or anything else.
 """
 
+import json
 import os
 import re
+import subprocess
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, parse_qs, urlencode, quote_plus
 
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
+
+_VALIDATE_SCRIPT = Path.home() / ".nanobot/workspace/skills/validate-evidence/validate_evidence.py"
+
+
+def _evaluate_screenshot(filepath: str, dom_text: str, label: str, url: str) -> tuple[bool, str, str]:
+    """
+    Run validate_evidence.py against the screenshot + DOM text.
+    Returns (is_blocked, reason, ocr_excerpt).
+    Delegates all detection — OCR and LLM — to the validate-evidence skill.
+    """
+    if not _VALIDATE_SCRIPT.exists():
+        logger.warning("screenshot_pages: validate_evidence.py not found at {}", _VALIDATE_SCRIPT)
+        return False, "", ""
+
+    payload = {
+        "claim": f"The page rendered accessible {label} content (not a bot challenge, login wall, or access denial)",
+        "evidence": [
+            {"type": "screenshot", "path": filepath, "label": "screenshot"},
+            {"type": "text",       "content": dom_text, "label": "dom_text"},
+        ],
+    }
+    try:
+        result = subprocess.run(
+            ["python3", str(_VALIDATE_SCRIPT)],
+            input=json.dumps(payload),
+            capture_output=True, text=True, timeout=60,
+        )
+        data = json.loads(result.stdout)
+        verdict    = data.get("verdict", "INCONCLUSIVE")
+        reasoning  = data.get("reasoning", "")
+        ocr_excerpt = ""
+        for ev in data.get("evidence_results", []):
+            if ev.get("type") == "screenshot":
+                ocr_excerpt = ev.get("text_excerpt", "")
+                break
+        is_blocked = verdict == "UNSUPPORTED"
+        return is_blocked, reasoning if is_blocked else "", ocr_excerpt
+    except Exception as exc:
+        logger.warning("screenshot_pages: evaluation failed — {}", exc)
+        return False, "", ""
 
 
 def _rewrite_google_url(url: str) -> tuple[str, bool]:
@@ -186,7 +229,7 @@ class ScreenshotPagesTool(Tool):
                 _exec_path = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None
                 browser = await pw.chromium.launch(headless=_headless, executable_path=_exec_path)
                 # 1024px viewport keeps content readable while roughly halving file size vs 1280px
-                page = await browser.new_page(viewport={"width": 1024, "height": 768})
+                page = await browser.new_page(viewport={"width": 1024, "height": 768}, ignore_https_errors=True)
 
                 for entry in pages[:5]:
                     url = entry.get("url", "").strip()
@@ -243,10 +286,22 @@ class ScreenshotPagesTool(Tool):
                             pass
                         content = (await page.inner_text("body"))[:5000]
                         await page.screenshot(path=filepath, type="jpeg", quality=82, full_page=False)
-                        ok = True
-                        logger.info("screenshot_pages: ✅ {} saved → {}", label, filepath)
+                        # ── Evaluate: OCR + LLM via validate-evidence skill ───
+                        is_blocked, blocked_reason, ocr_excerpt = _evaluate_screenshot(
+                            filepath, content, label, url
+                        )
+                        if is_blocked:
+                            ok = False
+                            logger.warning(
+                                "screenshot_pages: 🚫 {} BLOCKED — {}", label, blocked_reason
+                            )
+                        else:
+                            ok = True
+                            logger.info("screenshot_pages: ✅ {} saved → {}", label, filepath)
                     except Exception as exc:
                         logger.warning("screenshot_pages: ⚠️ {} failed: {}", label, exc)
+                        ocr_excerpt = ""
+                        blocked_reason = ""
                         try:
                             await page.screenshot(path=filepath, type="jpeg", quality=82)
                         except Exception:
@@ -260,6 +315,8 @@ class ScreenshotPagesTool(Tool):
                         "ok": ok,
                         "rewritten": was_rewritten,
                         "search_results_warning": _is_search_results and label not in _price_labels,
+                        "blocked_reason": blocked_reason if not ok else "",
+                        "ocr_excerpt": ocr_excerpt,
                     })
 
                 await browser.close()
@@ -271,38 +328,50 @@ class ScreenshotPagesTool(Tool):
         lines = [
             f"## screenshot_pages results for '{safe_slug}'\n",
             f"Captured {sum(1 for r in results if r['ok'])}/{len(results)} pages successfully.\n",
-            "\n### Image URLs\n",
-            "⚠️ CRITICAL: Only embed URLs marked ✅ USABLE — those files were saved to disk.\n"
-            "DO NOT embed ❌ FAILED URLs — those files do NOT exist and will show as broken images.\n\n",
+            "\n### Ready-to-embed markdown (COPY THESE EXACTLY — do NOT reconstruct URLs)\n",
+            "⚠️ CRITICAL: Copy the exact markdown lines below. "
+            "The filenames are lowercased — if you construct the URL yourself it will be wrong.\n\n",
         ]
         for r in results:
-            rewrite_note = " [Google URL redirected to DuckDuckGo]" if r.get("rewritten") else ""
             search_warn = (
                 " ❌ [SEARCH RESULTS PAGE — does not verify factual claims. "
                 "Re-screenshot using Wikipedia/TripAdvisor/official source page instead.]"
             ) if r.get("search_results_warning") else ""
             if r["ok"]:
-                lines.append(f"- **{r['label']}** ✅ USABLE{rewrite_note}{search_warn}: `{r['img_url']}`\n")
+                rewrite_note = " <!-- Google URL redirected to DuckDuckGo -->" if r.get("rewritten") else ""
+                lines.append(f"- ✅ COPY THIS: `![{r['label']}]({r['img_url']})`{rewrite_note}{search_warn}\n")
+            elif r.get("blocked_reason"):
+                lines.append(
+                    f"- 🚫 BLOCKED: `![{r['label']}]({r['img_url']})` — {r['blocked_reason']}.\n"
+                    f"  → Retry using scrapling skill (--mode stealth) or stealth-browser skill.\n"
+                )
             else:
                 lines.append(
-                    f"- **{r['label']}** ❌ FAILED — file NOT saved — DO NOT EMBED: `{r['img_url']}`\n"
+                    f"- ❌ DO NOT EMBED: `![{r['label']}]({r['img_url']})` — file NOT saved on disk\n"
                 )
 
         lines.append("\n")
         for r in results:
-            status = "✅" if r["ok"] else "⚠️ no content"
+            if r["ok"]:
+                status = "✅"
+            elif r.get("blocked_reason"):
+                status = f"🚫 BLOCKED — {r['blocked_reason']}"
+            else:
+                status = "⚠️ no content"
             lines.append(f"### {r['label'].upper()} page content ({status})\n")
             lines.append(f"Source: {r['url']}\n")
             if r["content"]:
                 lines.append(f"```\n{r['content']}\n```\n\n")
             else:
                 lines.append("```\n(failed to load)\n```\n\n")
+            if r.get("ocr_excerpt"):
+                lines.append(f"OCR (what was visually rendered):\n```\n{r['ocr_excerpt']}\n```\n\n")
 
         lines.append(
             "Extract all relevant data (prices, names, availability, etc.) from the content above. "
-            "Embed ONLY the ✅ USABLE image URLs in your response — never the ❌ FAILED ones.\n"
-            "For any ❌ FAILED page, retry with a different URL (e.g. Wikipedia or TripAdvisor) "
-            "rather than embedding a broken URL.\n"
+            "Embed ONLY the ✅ markdown lines listed above — copy them character-for-character.\n"
+            "NEVER reconstruct image URLs yourself — the filenames are lowercased and may differ from your label.\n"
+            "For any ❌ FAILED page, retry with a different URL (e.g. Wikipedia or TripAdvisor).\n"
         )
 
         return "".join(lines)
