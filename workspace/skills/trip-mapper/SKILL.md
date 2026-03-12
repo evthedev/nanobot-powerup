@@ -1,6 +1,7 @@
 ---
 name: trip-mapper
 description: Generate a map image with numbered pins for a list of locations, plus a clickable Google Maps directions link.
+note: Max 25 stops. Stops beyond 25 will be silently dropped.
 triggers:
   - "map these locations"
   - "show on a map"
@@ -10,6 +11,8 @@ triggers:
 ---
 
 # Trip Mapper Skill
+
+**Note: Max 25 stops. Stops beyond 25 will be silently dropped.**
 
 Generate a map image with numbered pins for a list of locations, plus a clickable Google Maps directions link.
 
