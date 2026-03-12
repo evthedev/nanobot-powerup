@@ -1,6 +1,8 @@
 """Heartbeat service - periodic agent wake-up to check for tasks."""
 
 import asyncio
+import json
+import time
 from pathlib import Path
 from typing import Any, Callable, Coroutine
 
@@ -16,6 +18,16 @@ If nothing needs attention, reply with just: HEARTBEAT_OK"""
 
 # Token that indicates "nothing to do"
 HEARTBEAT_OK_TOKEN = "HEARTBEAT_OK"
+
+# Per-check thresholds (seconds) — must stay in sync with HEARTBEAT.md.
+# reddit has an additional hour constraint enforced in _is_check_due().
+_CHECK_THRESHOLDS: dict[str, int] = {
+    "calendar": 7200,   # 2 hours
+    "whatsapp": 1800,   # 30 minutes
+    "todos":    1800,   # 30 minutes
+    "reddit":   82800,  # 23 hours, only 07:00–10:00 local
+}
+_REDDIT_HOUR_RANGE = (7, 10)
 
 
 def _is_heartbeat_empty(content: str | None) -> bool:
@@ -33,7 +45,6 @@ def _is_heartbeat_empty(content: str | None) -> bool:
     for line in content.split("\n"):
         stripped = line.strip()
 
-        # Track multi-line HTML comment blocks
         if in_comment:
             if "-->" in stripped:
                 in_comment = False
@@ -43,7 +54,6 @@ def _is_heartbeat_empty(content: str | None) -> bool:
                 in_comment = True
             continue
 
-        # Only unchecked task items with actual text are actionable
         if stripped.startswith("- [ ]") or stripped.startswith("* [ ]"):
             task_text = stripped[5:].strip()
             if task_text:
@@ -55,13 +65,11 @@ def _is_heartbeat_empty(content: str | None) -> bool:
 class HeartbeatService:
     """
     Periodic heartbeat service that wakes the agent to check for tasks.
-    
+
     The agent reads HEARTBEAT.md from the workspace and executes any
     tasks listed there. If nothing needs attention, it replies HEARTBEAT_OK.
     """
 
-    # Tick timeout: 80% of the interval, so a hung tick can't swallow the next cycle.
-    # E.g. 30-min interval → 24-min tick timeout.
     _TICK_TIMEOUT_RATIO = 0.8
 
     def __init__(
@@ -77,39 +85,63 @@ class HeartbeatService:
         self.enabled = enabled
         self._running = False
         self._task: asyncio.Task | None = None
-    
+
     @property
     def heartbeat_file(self) -> Path:
         return self.workspace / "HEARTBEAT.md"
-    
+
     def _read_heartbeat_file(self) -> str | None:
-        """Read HEARTBEAT.md content."""
         if self.heartbeat_file.exists():
             try:
                 return self.heartbeat_file.read_text(encoding="utf-8")
             except Exception:
                 return None
         return None
-    
+
+    def _is_check_due(self) -> bool:
+        """Return True if any check in heartbeat-state.json is past its threshold.
+
+        Reads the state file written by the agent after each check. If the file
+        is missing or a key is absent, that check is treated as never run (due).
+
+        NOTE: _CHECK_THRESHOLDS must be kept in sync with HEARTBEAT.md.
+        """
+        state_file = self.workspace / "heartbeat-state.json"
+        try:
+            state = json.loads(state_file.read_text()) if state_file.exists() else {}
+        except Exception:
+            return True  # unreadable — let agent run
+
+        now = int(time.time())
+        hour = time.localtime(now).tm_hour
+
+        for check, threshold in _CHECK_THRESHOLDS.items():
+            elapsed = now - state.get(check, 0)
+            if elapsed < threshold:
+                continue
+            if check == "reddit" and not (_REDDIT_HOUR_RANGE[0] <= hour <= _REDDIT_HOUR_RANGE[1]):
+                continue
+            logger.info("Heartbeat: '{}' due ({}s elapsed, threshold {}s)", check, elapsed, threshold)
+            return True
+
+        return False
+
     async def start(self) -> None:
-        """Start the heartbeat service."""
         if not self.enabled:
             logger.info("Heartbeat disabled")
             return
-        
+
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
         logger.info("Heartbeat started (every {}s)", self.interval_s)
-    
+
     def stop(self) -> None:
-        """Stop the heartbeat service."""
         self._running = False
         if self._task:
             self._task.cancel()
             self._task = None
-    
+
     async def _run_loop(self) -> None:
-        """Main heartbeat loop."""
         tick_timeout = max(60, int(self.interval_s * self._TICK_TIMEOUT_RATIO))
         while self._running:
             try:
@@ -126,33 +158,33 @@ class HeartbeatService:
                 break
             except Exception as e:
                 logger.error("Heartbeat error: {}", e)
-    
+
     async def _tick(self) -> None:
-        """Execute a single heartbeat tick."""
         content = self._read_heartbeat_file()
-        
-        # Skip if HEARTBEAT.md is empty or doesn't exist
+
         if _is_heartbeat_empty(content):
             logger.debug("Heartbeat: no tasks (HEARTBEAT.md empty)")
             return
-        
-        logger.info("Heartbeat: checking for tasks...")
-        
+
+        if not self._is_check_due():
+            logger.debug("Heartbeat: no checks due — skipping LLM call")
+            return
+
+        logger.info("Heartbeat: check due, invoking agent...")
+
         if self.on_heartbeat:
             try:
                 response = await self.on_heartbeat(HEARTBEAT_PROMPT)
-                
-                # Check if agent said "nothing to do"
+
                 if HEARTBEAT_OK_TOKEN.replace("_", "") in response.upper().replace("_", ""):
                     logger.info("Heartbeat: OK (no action needed)")
                 else:
                     logger.info("Heartbeat: completed task")
-                    
+
             except Exception as e:
                 logger.error("Heartbeat execution failed: {}", e)
-    
+
     async def trigger_now(self) -> str | None:
-        """Manually trigger a heartbeat."""
         if self.on_heartbeat:
             return await self.on_heartbeat(HEARTBEAT_PROMPT)
         return None

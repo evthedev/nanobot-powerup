@@ -83,27 +83,38 @@ Use for complex or time-consuming tasks that can run independently. The subagent
 
 ## Scheduled Reminders (Cron)
 
-Use the `exec` tool to create scheduled reminders with `nanobot cron add`:
+Use the `cron` tool to schedule tasks. There are two kinds:
 
-### Set a recurring reminder
-```bash
-# Every day at 9am
-nanobot cron add --name "morning" --message "Good morning! ☀️" --cron "0 9 * * *"
-
-# Every 2 hours
-nanobot cron add --name "water" --message "Drink water! 💧" --every 7200
+**`command` — shell command, runs directly, NO LLM call:**
+Use this for scripts, syncs, and any automation that doesn't need the agent to think.
+```
+cron(action="add", command="python3 ~/script.py", cron_expr="*/5 * * * *")
 ```
 
-### Set a one-time reminder
-```bash
-# At a specific time (ISO format)
-nanobot cron add --name "meeting" --message "Meeting starts now!" --at "2025-01-31T15:00:00"
+**`message` — agent task, fires a full LLM turn:**
+Use this ONLY for reminders or tasks that genuinely need the agent to reason and respond.
+```
+cron(action="add", message="Check calendar and send morning brief", cron_expr="0 9 * * *")
 ```
 
-### Manage reminders
+⚠️ **Never use `message` to run a shell command.** Every `message` job costs ~20k tokens per execution. If the task is just running a script, use `command`.
+
+### Examples
 ```bash
-nanobot cron list              # List all jobs
-nanobot cron remove <job_id>   # Remove a job
+# Shell script on a schedule — zero LLM cost
+cron(action="add", command="python3 ~/.nanobot/workspace/skills-auto/edge-sync/sync.py", cron_expr="*/1 * * * *")
+
+# Daily reminder — needs agent reasoning
+cron(action="add", message="Good morning! Check calendar and send brief", cron_expr="0 9 * * *")
+
+# One-time reminder
+cron(action="add", message="Meeting starts now!", at="2025-01-31T15:00:00")
+```
+
+### Manage jobs
+```
+cron(action="list")
+cron(action="remove", job_id="<id>")
 ```
 
 ## Heartbeat Task Management

@@ -178,6 +178,10 @@ jobs:
             echo "--- migrating DB ---"
             DB_PATH=/opt/nanobot/chat.db python3 "$REPO_DIR/deploy/migrate_db.py"
 
+            # ── Migrate cron: convert agent_turn shell-command jobs → exec ────────
+            echo "--- migrating cron jobs ---"
+            CRON_PATH=/opt/nanobot/cron/jobs.json python3 "$REPO_DIR/deploy/migrate_cron.py"
+
             # ── Write .env for Google OAuth (read from config.json — already injected) ──
             echo "--- writing .env ---"
             python3 "$REPO_DIR/deploy/write_dotenv.py"

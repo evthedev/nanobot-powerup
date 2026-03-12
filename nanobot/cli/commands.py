@@ -909,9 +909,10 @@ def cron_list(
 @cron_app.command("add")
 def cron_add(
     name: str = typer.Option(..., "--name", "-n", help="Job name"),
-    message: str = typer.Option(..., "--message", "-m", help="Message for agent"),
+    message: str = typer.Option(None, "--message", "-m", help="Agent task message (fires a full LLM turn — use only when the agent needs to reason)"),
+    command: str = typer.Option(None, "--command", "-c", help="Shell command to run directly with NO LLM call (use for scripts and automation)"),
     every: int = typer.Option(None, "--every", "-e", help="Run every N seconds"),
-    cron_expr: str = typer.Option(None, "--cron", "-c", help="Cron expression (e.g. '0 9 * * *')"),
+    cron_expr: str = typer.Option(None, "--cron", help="Cron expression (e.g. '0 9 * * *')"),
     tz: str | None = typer.Option(None, "--tz", help="IANA timezone for cron (e.g. 'America/Vancouver')"),
     at: str = typer.Option(None, "--at", help="Run once at time (ISO format)"),
     deliver: bool = typer.Option(False, "--deliver", "-d", help="Deliver response to channel"),
@@ -922,7 +923,14 @@ def cron_add(
     from nanobot.config.loader import get_data_dir
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronSchedule
-    
+
+    if not message and not command:
+        console.print("[red]Error: either --message or --command is required[/red]")
+        raise typer.Exit(1)
+    if message and command:
+        console.print("[red]Error: --message and --command are mutually exclusive[/red]")
+        raise typer.Exit(1)
+
     if tz and not cron_expr:
         console.print("[red]Error: --tz can only be used with --cron[/red]")
         raise typer.Exit(1)
@@ -939,15 +947,16 @@ def cron_add(
     else:
         console.print("[red]Error: Must specify --every, --cron, or --at[/red]")
         raise typer.Exit(1)
-    
+
     store_path = get_data_dir() / "cron" / "jobs.json"
     service = CronService(store_path)
-    
+
     try:
         job = service.add_job(
             name=name,
             schedule=schedule,
-            message=message,
+            message=message or "",
+            command=command or "",
             deliver=deliver,
             to=to,
             channel=channel,
@@ -956,7 +965,8 @@ def cron_add(
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1) from e
 
-    console.print(f"[green]✓[/green] Added job '{job.name}' ({job.id})")
+    kind_label = "exec (no LLM)" if command else "agent_turn"
+    console.print(f"[green]✓[/green] Added job '{job.name}' ({job.id}) [{kind_label}]")
 
 
 @cron_app.command("remove")

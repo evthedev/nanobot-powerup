@@ -26,8 +26,13 @@ class CronTool(Tool):
     
     @property
     def description(self) -> str:
-        return "Schedule reminders and recurring tasks. Actions: add, list, remove."
-    
+        return (
+            "Schedule reminders and recurring tasks. Actions: add, list, remove.\n"
+            "IMPORTANT: Use 'command' (not 'message') for shell commands that should run "
+            "directly without LLM involvement. Use 'message' only for tasks that require "
+            "the agent to think and respond (e.g. reminders, research tasks)."
+        )
+
     @property
     def parameters(self) -> dict[str, Any]:
         return {
@@ -40,7 +45,11 @@ class CronTool(Tool):
                 },
                 "message": {
                     "type": "string",
-                    "description": "Reminder message (for add)"
+                    "description": "Agent task message — use this for reminders or tasks that need the agent to think. DO NOT use for shell commands."
+                },
+                "command": {
+                    "type": "string",
+                    "description": "Shell command to run directly on schedule, with NO LLM call. Use this for scripts, syncs, and any automation that doesn't need the agent."
                 },
                 "every_seconds": {
                     "type": "integer",
@@ -70,6 +79,7 @@ class CronTool(Tool):
         self,
         action: str,
         message: str = "",
+        command: str = "",
         every_seconds: int | None = None,
         cron_expr: str | None = None,
         tz: str | None = None,
@@ -78,23 +88,26 @@ class CronTool(Tool):
         **kwargs: Any
     ) -> str:
         if action == "add":
-            return self._add_job(message, every_seconds, cron_expr, tz, at)
+            return self._add_job(message, command, every_seconds, cron_expr, tz, at)
         elif action == "list":
             return self._list_jobs()
         elif action == "remove":
             return self._remove_job(job_id)
         return f"Unknown action: {action}"
-    
+
     def _add_job(
         self,
         message: str,
+        command: str,
         every_seconds: int | None,
         cron_expr: str | None,
         tz: str | None,
         at: str | None,
     ) -> str:
-        if not message:
-            return "Error: message is required for add"
+        if not message and not command:
+            return "Error: either message or command is required for add"
+        if message and command:
+            return "Error: provide either message (agent task) or command (shell exec), not both"
         if not self._channel or not self._chat_id:
             return "Error: no session context (channel/chat_id)"
         if tz and not cron_expr:
@@ -122,15 +135,17 @@ class CronTool(Tool):
             return "Error: either every_seconds, cron_expr, or at is required"
         
         job = self._cron.add_job(
-            name=message[:30],
+            name=(command or message)[:30],
             schedule=schedule,
             message=message,
+            command=command,
             deliver=True,
             channel=self._channel,
             to=self._chat_id,
             delete_after_run=delete_after,
         )
-        return f"Created job '{job.name}' (id: {job.id})"
+        kind_label = "exec (no LLM)" if command else "agent_turn"
+        return f"Created job '{job.name}' (id: {job.id}, kind: {kind_label})"
     
     def _list_jobs(self) -> str:
         jobs = self._cron.list_jobs()

@@ -97,6 +97,7 @@ class CronService:
                         payload=CronPayload(
                             kind=j["payload"].get("kind", "agent_turn"),
                             message=j["payload"].get("message", ""),
+                            command=j["payload"].get("command", ""),
                             deliver=j["payload"].get("deliver", False),
                             channel=j["payload"].get("channel"),
                             to=j["payload"].get("to"),
@@ -144,6 +145,7 @@ class CronService:
                     "payload": {
                         "kind": j.payload.kind,
                         "message": j.payload.message,
+                        "command": j.payload.command,
                         "deliver": j.payload.deliver,
                         "channel": j.payload.channel,
                         "to": j.payload.to,
@@ -237,12 +239,27 @@ class CronService:
         """Execute a single job."""
         start_ms = _now_ms()
         logger.info("Cron: executing job '{}' ({})", job.name, job.id)
-        
+
         try:
-            response = None
-            if self.on_job:
-                response = await self.on_job(job)
-            
+            if job.payload.kind == "exec":
+                # Run shell command directly — no LLM involved
+                cmd = job.payload.command
+                if not cmd:
+                    raise ValueError("exec job has no command")
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
+                output = stdout.decode(errors="replace").strip() if stdout else ""
+                rc = proc.returncode or 0
+                if rc != 0:
+                    raise RuntimeError(f"exited {rc}: {output[:200]}")
+                logger.info("Cron: exec job '{}' done (rc={})", job.name, rc)
+            elif self.on_job:
+                await self.on_job(job)
+
             job.state.last_status = "ok"
             job.state.last_error = None
             logger.info("Cron: job '{}' completed", job.name)
@@ -278,7 +295,8 @@ class CronService:
         self,
         name: str,
         schedule: CronSchedule,
-        message: str,
+        message: str = "",
+        command: str = "",
         deliver: bool = False,
         channel: str | None = None,
         to: str | None = None,
@@ -288,15 +306,17 @@ class CronService:
         store = self._load_store()
         _validate_schedule_for_add(schedule)
         now = _now_ms()
-        
+
+        kind = "exec" if command else "agent_turn"
         job = CronJob(
             id=str(uuid.uuid4())[:8],
             name=name,
             enabled=True,
             schedule=schedule,
             payload=CronPayload(
-                kind="agent_turn",
+                kind=kind,
                 message=message,
+                command=command,
                 deliver=deliver,
                 channel=channel,
                 to=to,

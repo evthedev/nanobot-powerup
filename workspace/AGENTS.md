@@ -93,10 +93,19 @@ Pick the **most targeted** tool — never fall back to `web_search` when a speci
 
 ## Scheduled Reminders
 
-When user asks for a reminder at a specific time, use `exec` to run:
+When scheduling tasks, use the `cron` tool directly. Two kinds — choose carefully:
+
+**Shell command (NO LLM cost):** use `command` for scripts and automation:
 ```
-nanobot cron add --name "reminder" --message "Your message" --at "YYYY-MM-DDTHH:MM:SS" --deliver --to "USER_ID" --channel "CHANNEL"
+cron(action="add", command="python3 ~/script.py", cron_expr="*/5 * * * *")
 ```
+
+**Agent task (costs ~20k tokens per run):** use `message` ONLY when the agent needs to reason:
+```
+cron(action="add", message="Check calendar and send morning brief", cron_expr="0 9 * * *", deliver=True, channel="telegram", to="USER_ID")
+```
+
+⚠️ Never use `message` to run a shell command — every `message` job fires a full LLM turn.
 Get USER_ID and CHANNEL from the current session (e.g., `8281248569` and `telegram` from `telegram:8281248569`).
 
 **Do NOT just write reminders to MEMORY.md** — that won't trigger actual notifications.

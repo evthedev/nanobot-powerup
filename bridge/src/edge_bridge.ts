@@ -440,11 +440,15 @@ export class EdgeBridgeServer {
     // carrying the same content don't trigger repeated LLM calls.
     for (const item of telemetry) {
       if (item.kind !== 'message' || !item.content) continue;
-      const msgHash = `${deviceId}:${(item.content as string).trim()}`;
+      const timeBucket = Math.floor(Date.now() / 300000);
+      const msgHash = `${deviceId}:${(item.content as string).trim()}:${timeBucket}`;
       if (msgHash === device.lastForwardedMsgHash) {
         bridgeLog.info('edge', `[${deviceId}] skipping duplicate message forward`);
         continue;
       }
+      // Include a time bucket (5-minute window) so the same message can be
+      // forwarded again after a restart or after sufficient time has passed,
+      // but duplicate syncs within the same window are still suppressed.
       device.lastForwardedMsgHash = msgHash;
       this._forwardToGateway(deviceId, item.content as string).catch(e =>
         bridgeLog.error('edge', `[${deviceId}] gateway forward error: ${e}`)
@@ -617,7 +621,7 @@ export class EdgeBridgeServer {
           lastId = row.id;
         }
       } catch { /* ignore */ }
-    }, 1000);
+    }, 5000);
 
     req.on('close', () => {
       clearInterval(heartbeat);

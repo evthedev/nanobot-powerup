@@ -54,8 +54,10 @@ handle(sync())         # second sync — picks up agent reply
 
 **Schedule it (one cron job, covers both syncs per minute):**
 \`\`\`
-cron("*/1 * * * * python3 /root/.nanobot/workspace/skills-auto/edge-sync/sync.py >> /tmp/edge-sync.log 2>&1")
+nanobot cron add --name "edge-sync" --command "python3 /root/.nanobot/workspace/skills-auto/edge-sync/sync.py >> /tmp/edge-sync.log 2>&1" --cron "* * * * *"
 \`\`\`
+
+> ⚠️ **Do NOT use** \`cron(action="add", message="python3 ...")\` — that routes every execution through the LLM (~20k tokens/run). Use \`--command\` (shown above) which runs the script directly with zero LLM cost.
 
 **To send a message manually:**
 \`\`\`
@@ -69,7 +71,7 @@ python3 /root/.nanobot/workspace/skills-auto/edge-sync/sync.py "your message her
 | Symptom | Fix |
 |---------|-----|
 | \`401 Unauthorized\` | \`BRIDGE_URL\` has \`/bridge\` suffix — remove it. Or wrong \`DEVICE_SECRET\`. |
-| directives always empty | Pass a message as argument — empty polls don't trigger agent replies |
+| directives always empty | Agent hasn't replied yet — wait for the next sync cycle. Only send \`kind=message\` telemetry when the user actually speaks; empty status-only polls are correct and expected. |
 | device shows stale | Cron not running — check with \`crontab -l\` |
 | script hangs | You used \`while True\` or \`nohup\` — the script must exit on its own |
 `;
