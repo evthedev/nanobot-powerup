@@ -50,6 +50,12 @@ ENV CURL_CA_BUNDLE=""
 ENV REQUESTS_CA_BUNDLE=""
 RUN pip install "scrapling[all]" && scrapling install
 
+# Install Tesseract OCR and Python wrapper
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-eng && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir pytesseract
+
 # Create config directory
 RUN mkdir -p /root/.nanobot
 

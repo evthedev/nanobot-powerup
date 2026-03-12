@@ -102,7 +102,8 @@ db.exec(`
 
 // ─── Middleware ─────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // Serve React build — in Docker the build is copied to ./public
 const CLIENT_BUILD = process.env.CLIENT_BUILD
