@@ -401,6 +401,7 @@ function AppInner() {
                 stats={stats}
                 onToggleSidebar={() => setSidebarOpen(p => !p)}
                 sidebarOpen={sidebarOpen}
+                environmentName={environmentName}
               />
             }
           />

@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import EmojiPicker from 'emoji-picker-react';
 import './WelcomeScreen.css';
 
 const API_BASE = process.env.REACT_APP_API_URL || '';
@@ -12,12 +13,29 @@ const SUGGESTIONS = [
   "Help me write a quick summary",
 ];
 
-export default function WelcomeScreen({ onNewChat, stats, onToggleSidebar, sidebarOpen }) {
+export default function WelcomeScreen({ onNewChat, stats, onToggleSidebar, sidebarOpen, environmentName }) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
+  const pickerRef = useRef(null);
+
+  useEffect(() => {
+    if (!showPicker) return;
+    function handler(e) { if (pickerRef.current && !pickerRef.current.contains(e.target)) setShowPicker(false); }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showPicker]);
+
+  function onEmojiClick({ emoji }) {
+    const ta = textareaRef.current;
+    const start = ta.selectionStart;
+    setInput(d => d.slice(0, start) + emoji + d.slice(ta.selectionEnd));
+    setShowPicker(false);
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(start + emoji.length, start + emoji.length); }, 0);
+  }
 
   async function handleFileChange(e) {
     const file = e.target.files?.[0];
@@ -43,8 +61,9 @@ export default function WelcomeScreen({ onNewChat, stats, onToggleSidebar, sideb
     const text = input.trim();
     if (!text && attachments.length === 0) return;
     const imageMarkdown = attachments
-      .filter(a => a.type === 'image')
-      .map(a => `\n![image](${a.url})`)
+      .map(a => a.type === 'video'
+        ? `\n<video src="${a.url}" controls style="max-width:100%;border-radius:8px;display:block"></video>`
+        : `\n![image](${a.url})`)
       .join('');
     onNewChat((text + imageMarkdown).trim());
     setInput('');
@@ -84,7 +103,7 @@ export default function WelcomeScreen({ onNewChat, stats, onToggleSidebar, sideb
       {/* Hero */}
       <div className="welcome-hero">
         <div className="hero-icon">🐈</div>
-        <h1 className="hero-title">nanobot</h1>
+        <h1 className="hero-title">{environmentName || 'nanobot'}</h1>
         <p className="hero-subtitle">
           Your intelligent assistant — calendar, weather, todos, and more.
         </p>
@@ -118,23 +137,29 @@ export default function WelcomeScreen({ onNewChat, stats, onToggleSidebar, sideb
             </div>
           )}
           <div className="welcome-input-wrap">
-            <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
+            {showPicker && (
+              <div className="chat-emoji-picker" ref={pickerRef}>
+                <EmojiPicker onEmojiClick={onEmojiClick} skinTonesDisabled height={380} />
+              </div>
+            )}
+            <input ref={fileInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleFileChange} />
             <button
               type="button"
               className={`chat-attach-btn ${uploading ? 'uploading' : ''}`}
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              title="Attach image"
+              title="Attach image or video"
             >
               {uploading ? <span className="send-spinner" /> : '📎'}
             </button>
+            <button type="button" className="chat-emoji-btn" onClick={() => setShowPicker(p => !p)} title="Emoji">😊</button>
             <textarea
               ref={textareaRef}
               className="welcome-textarea"
               value={input}
               onChange={e => { setInput(e.target.value); autoResize(); }}
               onKeyDown={handleKeyDown}
-              placeholder="Ask nanobot anything…"
+              placeholder={`Ask ${environmentName || 'nanobot'} anything…`}
               rows={1}
               autoFocus
             />
