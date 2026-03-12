@@ -14,6 +14,7 @@ import { join } from 'path';
 import { randomUUID } from 'crypto';
 import WebSocket from 'ws';
 import Database from 'better-sqlite3';
+import { bridgeLog } from './logger.js';
 
 export interface ReachyStatus {
   daemon: string;
@@ -60,7 +61,7 @@ export class ReachyBridgeServer {
   start(): void {
     this._server = createServer((req, res) => this._route(req, res));
     this._server.listen(this.port, '0.0.0.0', () => {
-      console.log(`🤖 Reachy bridge HTTP server on :${this.port}`);
+      bridgeLog.info('reachy', `HTTP server on :${this.port}`);
     });
   }
 
@@ -95,7 +96,7 @@ export class ReachyBridgeServer {
         res.writeHead(404).end();
       }
     } catch (e) {
-      console.error('Reachy bridge error:', e);
+      bridgeLog.error('reachy', `Route error: ${e}`);
       res.writeHead(500).end(JSON.stringify({ error: String(e) }));
     }
   }
@@ -162,7 +163,7 @@ export class ReachyBridgeServer {
       ? (payload.pending_feedback as unknown[]).filter((x): x is string => typeof x === 'string')
       : [];
     for (const msg of feedback) {
-      this._forwardToGateway(msg).catch(e => console.error('Reachy: gateway forward error:', e));
+      this._forwardToGateway(msg).catch(e => bridgeLog.error('reachy', `Gateway forward error: ${e}`));
     }
 
     // Drain pending commands
@@ -197,7 +198,7 @@ export class ReachyBridgeServer {
       return;
     }
     this._pendingCommands.push({ command, queued_at: Date.now() / 1000 });
-    console.log(`🤖 Reachy command queued: ${command}`);
+    bridgeLog.info('reachy', `Command queued: ${command}`);
     this._json(res, 200, { queued: true });
   }
 
@@ -209,7 +210,7 @@ export class ReachyBridgeServer {
       const timer = setTimeout(() => { ws.close(); resolve(parts.join('').trim()); }, 120000);
       ws.once('open', () => {
         ws.send(JSON.stringify({ session_id: sessionId, content }));
-        console.log(`🤖 Reachy feedback → gateway: ${content.slice(0, 60)}`);
+        bridgeLog.info('reachy', `Feedback → gateway: ${content.slice(0, 60)}`);
       });
       ws.on('message', (data) => {
         try {
@@ -223,7 +224,7 @@ export class ReachyBridgeServer {
     });
     if (reply) {
       this._pendingCommands.push({ command: `reply:${reply}`, queued_at: Date.now() / 1000 });
-      console.log(`🤖 Reachy reply queued (${reply.length} chars)`);
+      bridgeLog.info('reachy', `Reply queued (${reply.length} chars)`);
     }
   }
 

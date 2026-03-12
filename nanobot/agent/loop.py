@@ -18,6 +18,7 @@ from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
+from nanobot.agent.tools.chat_logs import ChatLogsTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
@@ -146,6 +147,7 @@ class AgentLoop:
         except Exception:
             pass
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
+        self.tools.register(ChatLogsTool())
         self.tools.register(SpawnTool(manager=self.subagents))
         screenshots_dir = str(self.workspace / "screenshots")
         self.tools.register(ScreenshotPagesTool(manager=self.subagents, screenshots_dir=screenshots_dir))
@@ -189,6 +191,10 @@ class AgentLoop:
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.set_context(channel, chat_id, message_id)
+
+        if chat_logs_tool := self.tools.get("get_chat_logs"):
+            if isinstance(chat_logs_tool, ChatLogsTool):
+                chat_logs_tool.set_context(channel, chat_id)
 
         if spawn_tool := self.tools.get("spawn"):
             if isinstance(spawn_tool, SpawnTool):
@@ -555,7 +561,7 @@ class AgentLoop:
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
 
-        logger.info(">>> INBOUND [{}:{}]: {} {}", msg.channel, msg.sender_id, msg.content,
+        logger.info(">>> INBOUND [{}:{}] chat={}: {} {}", msg.channel, msg.sender_id, msg.chat_id, msg.content,
                     f"[media={len(msg.media)}]" if msg.media else "[no media]")
 
         key = session_key or msg.session_key
@@ -621,7 +627,7 @@ class AgentLoop:
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
 
-        logger.info("<<< OUTBOUND [{}:{}]: {}", msg.channel, msg.sender_id, final_content)
+        logger.info("<<< OUTBOUND [{}:{}] chat={}: {}", msg.channel, msg.sender_id, msg.chat_id, final_content)
 
         session.add_message("user", msg.content)
         session.add_message("assistant", final_content,

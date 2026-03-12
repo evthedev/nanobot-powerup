@@ -17,6 +17,7 @@ if (!globalThis.crypto) {
 
 import { BridgeServer } from './server.js';
 import { EdgeBridgeServer } from './edge_bridge.js';
+import { bridgeLog } from './logger.js';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -28,8 +29,7 @@ const EDGE_PORT = parseInt(process.env.REACHY_BRIDGE_PORT || '18790', 10);
 const EDGE_ENABLED = process.env.EDGE_DEVICES_ENABLED === 'true';
 const WHATSAPP_ENABLED = process.env.WHATSAPP_ENABLED !== 'false';
 
-console.log('🐈 nanobot Bridge');
-console.log('========================\n');
+bridgeLog.info('main', 'nanobot Bridge');
 
 const server = new BridgeServer(PORT, AUTH_DIR, TOKEN, HOST);
 
@@ -42,7 +42,7 @@ if (EDGE_ENABLED) {
 
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('\n\nShutting down...');
+  bridgeLog.info('main', 'Shutting down...');
   await server.stop();
   process.exit(0);
 });
@@ -54,9 +54,9 @@ process.on('SIGTERM', async () => {
 
 if (WHATSAPP_ENABLED) {
   server.start().catch((error) => {
-    console.error('Failed to start bridge:', error);
+    bridgeLog.error('main', `Failed to start bridge: ${error}`);
     process.exit(1);
   });
 } else {
-  console.log('⏭️  WhatsApp bridge disabled (WHATSAPP_ENABLED=false)');
+  bridgeLog.info('main', 'WhatsApp bridge disabled (WHATSAPP_ENABLED=false)');
 }

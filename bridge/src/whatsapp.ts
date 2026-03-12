@@ -20,6 +20,7 @@ import makeWASocket, {
 import { Boom } from '@hapi/boom';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
+import { bridgeLog } from './logger.js';
 
 const VERSION = '0.1.0';
 
@@ -62,7 +63,7 @@ export class WhatsAppClient {
     const { state, saveCreds } = await useMultiFileAuthState(this.options.authDir);
     const { version } = await fetchLatestBaileysVersion();
 
-    console.log(`Using Baileys version: ${version.join('.')}`);
+    bridgeLog.info('whatsapp', `Using Baileys version: ${version.join('.')}`);
 
     // Create socket following OpenClaw's pattern
     this.sock = makeWASocket({
@@ -81,7 +82,7 @@ export class WhatsAppClient {
     // Handle WebSocket errors
     if (this.sock.ws && typeof this.sock.ws.on === 'function') {
       this.sock.ws.on('error', (err: Error) => {
-        console.error('WebSocket error:', err.message);
+        bridgeLog.error('whatsapp', `WebSocket error: ${err.message}`);
       });
     }
 
@@ -91,7 +92,7 @@ export class WhatsAppClient {
 
       if (qr) {
         // Display QR code in terminal
-        console.log('\n📱 Scan this QR code with WhatsApp (Linked Devices):\n');
+        bridgeLog.info('whatsapp', 'Scan QR code with WhatsApp (Linked Devices)');
         qrcode.generate(qr, { small: true });
         this.options.onQR(qr);
       }
@@ -100,7 +101,7 @@ export class WhatsAppClient {
         const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-        console.log(`Connection closed. Status: ${statusCode}, Will reconnect: ${shouldReconnect}`);
+        bridgeLog.info('whatsapp', `Connection closed. Status: ${statusCode}, Will reconnect: ${shouldReconnect}`);
         this.options.onStatus('disconnected');
 
         if (shouldReconnect && !this.reconnecting) {
@@ -112,17 +113,17 @@ export class WhatsAppClient {
               for (const f of fs.readdirSync(this.options.authDir)) {
                 fs.rmSync(`${this.options.authDir}/${f}`, { recursive: true, force: true });
               }
-              console.log('Stale session cleared, will show QR on reconnect');
+              bridgeLog.info('whatsapp', 'Stale session cleared, will show QR on reconnect');
             } catch {}
           }
-          console.log('Reconnecting in 5 seconds...');
+          bridgeLog.info('whatsapp', 'Reconnecting in 5 seconds...');
           setTimeout(() => {
             this.reconnecting = false;
             this.connect();
           }, 5000);
         }
       } else if (connection === 'open') {
-        console.log('✅ Connected to WhatsApp');
+        bridgeLog.info('whatsapp', 'Connected to WhatsApp');
         this.options.onStatus('connected');
       }
     });
@@ -150,7 +151,7 @@ export class WhatsAppClient {
           if (paths?.length) {
             media = paths;
           } else if (content.startsWith('[Image]') || content.startsWith('[Video]')) {
-            console.warn(`WhatsApp bridge: media download returned null for ${msg.key.id} (contentType=${getContentType(msg.message)}) — agent will receive text only`);
+            bridgeLog.warn('whatsapp', `Media download returned null for ${msg.key.id} (contentType=${getContentType(msg.message)}) — agent will receive text only`);
           }
         }
 
@@ -243,7 +244,7 @@ export class WhatsAppClient {
       try {
         buffer = await downloadMediaMessage(msgForDownload, 'buffer', {}, downloadCtx);
       } catch (firstErr) {
-        console.warn(`WhatsApp bridge: media download failed for ${msg.key.id}, retrying:`, (firstErr as Error).message);
+        bridgeLog.warn('whatsapp', `Media download failed for ${msg.key.id}, retrying: ${(firstErr as Error).message}`);
         buffer = await downloadMediaMessage(msgForDownload, 'buffer', {});
       }
       if (!buffer || !Buffer.isBuffer(buffer)) return null;
@@ -264,10 +265,10 @@ export class WhatsAppClient {
       const filename = `wa_${safeId}_${Date.now()}${ext}`;
       const filePath = join(MEDIA_DIR, filename);
       writeFileSync(filePath, buffer);
-      console.log(`WhatsApp bridge: saved media to ${filePath} (${buffer.length} bytes)`);
+      bridgeLog.info('whatsapp', `Saved media to ${filePath} (${buffer.length} bytes)`);
       return [filePath];
     } catch (err) {
-      console.error('WhatsApp bridge: failed to download media:', err);
+      bridgeLog.error('whatsapp', `Failed to download media: ${err}`);
       return null;
     }
   }

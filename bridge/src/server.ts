@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { writeFileSync, unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
 import { WhatsAppClient, InboundMessage } from './whatsapp.js';
+import { bridgeLog } from './logger.js';
 
 const QR_FILE = 'whatsapp-pending-qr.json';
 const STATUS_FILE = 'whatsapp-status.json';
@@ -39,8 +40,8 @@ export class BridgeServer {
   async start(): Promise<void> {
     // host: 127.0.0.1 for local; 0.0.0.0 for Docker (internal network only)
     this.wss = new WebSocketServer({ host: this.host, port: this.port });
-    console.log(`🌉 Bridge server listening on ws://${this.host}:${this.port}`);
-    if (this.token) console.log('🔒 Token authentication enabled');
+    bridgeLog.info('server', `Bridge server listening on ws://${this.host}:${this.port}`);
+    if (this.token) bridgeLog.info('server', 'Token authentication enabled');
 
     // Initialize WhatsApp client
     this.wa = new WhatsAppClient({
@@ -67,7 +68,7 @@ export class BridgeServer {
           try {
             const msg = JSON.parse(data.toString());
             if (msg.type === 'auth' && msg.token === this.token) {
-              console.log('🔗 Python client authenticated');
+              bridgeLog.info('server', 'Python client authenticated');
               this.setupClient(ws);
             } else {
               ws.close(4003, 'Invalid token');
@@ -77,7 +78,7 @@ export class BridgeServer {
           }
         });
       } else {
-        console.log('🔗 Python client connected');
+        bridgeLog.info('server', 'Python client connected');
         this.setupClient(ws);
       }
     });
@@ -95,18 +96,18 @@ export class BridgeServer {
         await this.handleCommand(cmd);
         ws.send(JSON.stringify({ type: 'sent', to: cmd.to }));
       } catch (error) {
-        console.error('Error handling command:', error);
+        bridgeLog.error('server', `Error handling command: ${error}`);
         ws.send(JSON.stringify({ type: 'error', error: String(error) }));
       }
     });
 
     ws.on('close', () => {
-      console.log('🔌 Python client disconnected');
+      bridgeLog.info('server', 'Python client disconnected');
       this.clients.delete(ws);
     });
 
     ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
+      bridgeLog.error('server', `WebSocket error: ${error}`);
       this.clients.delete(ws);
     });
   }
@@ -134,7 +135,7 @@ export class BridgeServer {
       const qrPath = join(this.authDir, '..', QR_FILE);
       writeFileSync(qrPath, JSON.stringify({ qr, timestamp: Date.now() }), 'utf8');
     } catch (e) {
-      console.error('Failed to write QR file:', e);
+      bridgeLog.error('server', `Failed to write QR file: ${e}`);
     }
   }
 
@@ -144,7 +145,7 @@ export class BridgeServer {
       const qrPath = join(this.authDir, '..', QR_FILE);
       if (existsSync(qrPath)) unlinkSync(qrPath);
     } catch (e) {
-      console.error('Failed to clear QR file:', e);
+      bridgeLog.error('server', `Failed to clear QR file: ${e}`);
     }
   }
 
@@ -154,7 +155,7 @@ export class BridgeServer {
       const statusPath = join(this.authDir, '..', STATUS_FILE);
       writeFileSync(statusPath, JSON.stringify({ status, timestamp: Date.now() }), 'utf8');
     } catch (e) {
-      console.error('Failed to write status file:', e);
+      bridgeLog.error('server', `Failed to write status file: ${e}`);
     }
   }
 
