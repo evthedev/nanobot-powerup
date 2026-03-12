@@ -13,12 +13,9 @@ import os
 import sys
 from pathlib import Path
 
-# Ensure we can import from nanobot (single source of truth for SHELL_PREFIXES)
-_REPO = Path(__file__).resolve().parent.parent
-if str(_REPO) not in sys.path:
-    sys.path.insert(0, str(_REPO))
-
-from nanobot.cron.types import SHELL_PREFIXES
+# Must match nanobot.cron.types.SHELL_PREFIXES — kept local to avoid pulling in nanobot
+# (deploy runs this before/without full nanobot deps e.g. loguru)
+_SHELL_PREFIXES = ("python3 ", "python ", "bash ", "sh ", "node ", "npx ", "/usr/bin/", "/usr/local/bin/")
 
 CRON_PATH = os.environ.get("CRON_PATH", "/opt/nanobot/cron/jobs.json")
 _EDGE_SYNC_MESSAGE = "edge sync"
@@ -37,13 +34,13 @@ for job in data.get("jobs", []):
     message = (payload.get("message") or "").strip()
 
     # Migration 1: shell command → exec
-    if any(message.startswith(p) for p in SHELL_PREFIXES):
+    if any(message.startswith(p) for p in _SHELL_PREFIXES):
         payload["kind"] = "exec"
         payload["command"] = message
         payload["message"] = ""
         job["payload"] = payload
         changed += 1
-        print(f"migrate_cron: converted job '{job['id']}' ({job['name']!r}) → exec")
+        print(f"migrate_cron: converted job '{job.get('id', '?')}' ({job.get('name', job.get('id', '?'))!r}) → exec")
         continue
 
     # Migration 2: redundant "edge sync" agent_turn → disable
@@ -53,7 +50,7 @@ for job in data.get("jobs", []):
         state["nextRunAtMs"] = None
         job["state"] = state
         changed += 1
-        print(f"migrate_cron: disabled job '{job['id']}' ({job['name']!r}) — redundant with exec edge-sync")
+        print(f"migrate_cron: disabled job '{job.get('id', '?')}' ({job.get('name', job.get('id', '?'))!r}) — redundant with exec edge-sync")
 
 if changed:
     Path(CRON_PATH).write_text(json.dumps(data, indent=2))
