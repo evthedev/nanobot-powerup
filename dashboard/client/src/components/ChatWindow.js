@@ -189,9 +189,14 @@ export default function ChatWindow({
               <div className="message-body">
                 <div className={`message-bubble ${msg.error ? 'error' : ''} ${msg.streaming ? 'streaming' : ''}`}>
                   {msg.role === 'assistant' ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                      {msg.content || (msg.streaming ? '…' : '')}
-                    </ReactMarkdown>
+                    <>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                        {msg.content || (msg.streaming ? '' : '')}
+                      </ReactMarkdown>
+                      {msg.streaming && msg._progressText && !msg.content && (
+                        <span className="progress-hint">{msg._progressText}</span>
+                      )}
+                    </>
                   ) : (
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
                       {msg.content || ''}

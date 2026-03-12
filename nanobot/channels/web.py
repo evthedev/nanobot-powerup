@@ -86,13 +86,18 @@ class WebChannel(BaseChannel):
             logger.info("Web channel stopped")
 
     async def send(self, msg: OutboundMessage) -> None:
-        # Progress messages (tool-call hints emitted mid-loop) are for Telegram typing
-        # indicators only — ignore them here so the connection stays open until the
-        # agent produces its real final answer.
-        if msg.metadata and msg.metadata.get("_progress"):
-            return
-
         ws = self._connections.get(msg.chat_id)
+
+        # Progress messages (tool-call hints) — forward as a lightweight event
+        # so the client can show activity instead of a blank spinner.
+        if msg.metadata and msg.metadata.get("_progress"):
+            if ws is None:
+                return
+            try:
+                await ws.send(json.dumps({"type": "progress", "content": msg.content}))
+            except Exception:
+                pass
+            return
         if ws is None:
             logger.warning("Web channel: no active connection for session {}", msg.chat_id)
             return

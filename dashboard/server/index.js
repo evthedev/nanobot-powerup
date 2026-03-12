@@ -386,6 +386,12 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
         try {
           const msg = JSON.parse(raw.toString());
 
+          if (msg.type === 'progress') {
+            // Tool-call hint from the agent loop — forward as-is so the client
+            // can show activity without mixing it into the final message content.
+            res.write(`data: ${JSON.stringify({ type: 'progress', content: msg.content })}\n\n`);
+          }
+
           if (msg.type === 'message') {
             if (!isFirstMessage) {
               // Subagent message — open a new bubble in React

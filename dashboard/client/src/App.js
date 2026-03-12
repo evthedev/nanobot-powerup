@@ -169,7 +169,12 @@ function AppInner() {
             if (event.type === 'delta') {
               const tid = assistantTempId;
               setMessages(prev => prev.map(m =>
-                m.id === tid ? { ...m, content: m.content + event.content } : m
+                m.id === tid ? { ...m, content: m.content + event.content, _progress: false } : m
+              ));
+            } else if (event.type === 'progress') {
+              const tid = assistantTempId;
+              setMessages(prev => prev.map(m =>
+                m.id === tid ? { ...m, _progressText: event.content } : m
               ));
             } else if (event.type === 'new_message') {
               const prevTid = assistantTempId;
