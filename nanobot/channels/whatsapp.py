@@ -205,6 +205,18 @@ class WhatsAppChannel(BaseChannel):
             user_id = pn if pn else sender
             phone_number = user_id.split("@")[0] if "@" in user_id else user_id
 
+            # Build persist_content: if we have media, use markdown image URL for dashboard display
+            if media:
+                filename = Path(media[0]).name
+                img_md = f"![Image](/api/wa-media/{filename})"
+                if content and content not in ("[Image]", "[Video]"):
+                    caption = content.replace("[Image] ", "").replace("[Video] ", "").strip()
+                    persist_content = f"{img_md}\n\n{caption}" if caption else img_md
+                else:
+                    persist_content = img_md
+            else:
+                persist_content = content or f"[media: {len(media)} file(s)]"
+
             logger.info(
                 "whatsapp: {} from {} — persisting to DB{}",
                 direction, phone_number, f" (media={len(media)})" if media else ""
@@ -212,7 +224,7 @@ class WhatsAppChannel(BaseChannel):
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None, _persist_whatsapp_sync,
-                direction, sender, phone_number, content or f"[media: {len(media)} file(s)]"
+                direction, sender, phone_number, persist_content
             )
 
             # Only route to agent if sender is on allow list; track this chat_id so we can reply to it.

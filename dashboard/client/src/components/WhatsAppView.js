@@ -84,32 +84,48 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
   async function sendMessage() {
     if ((!draft.trim() && !pendingImage) || !selectedChat || sending) return;
     setSending(true);
+    const tempId = -Date.now();
     try {
       if (pendingImage) {
-        await fetch(`${API}/api/whatsapp/send`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: selectedChat, image_url: pendingImage.url, caption: draft.trim() }),
-        });
-        setMessages(prev => [...prev, {
-          id: Date.now(), direction: 'outbound', chat_id: selectedChat,
-          phone_number: '', content: `![image](${pendingImage.url})`, created_at: new Date().toISOString(),
-        }]);
-        setPendingImage(null);
-        setDraft('');
-      } else {
+        const caption = draft.trim();
         const res = await fetch(`${API}/api/whatsapp/send`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: selectedChat, text: draft.trim() }),
+          body: JSON.stringify({ chat_id: selectedChat, image_url: pendingImage.url, caption }),
         });
-        if (res.ok) {
-          setMessages(prev => [...prev, {
-            id: Date.now(), direction: 'outbound', chat_id: selectedChat,
-            phone_number: '', content: draft.trim(), created_at: new Date().toISOString(),
-          }]);
-          setDraft('');
-        }
+        const data = res.ok ? await res.json().catch(() => ({})) : {};
+        const optimisticContent = caption ? `![Image](${pendingImage.url})\n\n${caption}` : `![Image](${pendingImage.url})`;
+        setMessages(prev => {
+          const withOptimistic = [...prev, {
+            id: tempId, direction: 'outbound', chat_id: selectedChat,
+            phone_number: selectedChat.split('@')[0], content: optimisticContent, created_at: new Date().toISOString(),
+          }];
+          if (data.message) {
+            return withOptimistic.map(m => m.id === tempId ? data.message : m);
+          }
+          return withOptimistic;
+        });
+        setPendingImage(null);
+        setDraft('');
+      } else {
+        const text = draft.trim();
+        const res = await fetch(`${API}/api/whatsapp/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: selectedChat, text }),
+        });
+        const data = res.ok ? await res.json().catch(() => ({})) : {};
+        setMessages(prev => {
+          const withOptimistic = [...prev, {
+            id: tempId, direction: 'outbound', chat_id: selectedChat,
+            phone_number: selectedChat.split('@')[0], content: text, created_at: new Date().toISOString(),
+          }];
+          if (data.message) {
+            return withOptimistic.map(m => m.id === tempId ? data.message : m);
+          }
+          return withOptimistic;
+        });
+        if (res.ok) setDraft('');
       }
     } finally {
       setSending(false);
@@ -261,7 +277,19 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
                     <div className="wa-message-body">
                       <div className="wa-sender-name">{msg.phone_number || msg.chat_id}</div>
                       <div className="wa-bubble">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ p: ({children}) => <p><Twemoji text={children} /></p> }}>{msg.content}</ReactMarkdown>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({ children }) => <p><Twemoji text={children} /></p>,
+                            img: ({ src, alt }) => (
+                              <img
+                                src={API && src?.startsWith('/') ? `${API}${src}` : src}
+                                alt={alt || 'Image'}
+                                style={{ maxWidth: '100%', borderRadius: 8, display: 'block' }}
+                              />
+                            ),
+                          }}
+                        >{msg.content}</ReactMarkdown>
                       </div>
                       <div className="wa-time">{formatTime(msg.created_at)}</div>
                     </div>

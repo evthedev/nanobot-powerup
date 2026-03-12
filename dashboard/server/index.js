@@ -179,6 +179,21 @@ app.use('/api/screenshots', (req, res, next) => {
 });
 app.use('/api/screenshots', express.static(SCREENSHOTS_DIR));
 
+// Serve WhatsApp bridge media (images/videos downloaded from native WhatsApp)
+const WA_MEDIA_DIR = path.join(NANOBOT_HOME, 'media');
+app.get('/api/wa-media/:filename', (req, res) => {
+  const raw = req.params.filename || '';
+  const safe = raw.replace(/[^a-zA-Z0-9_.-]/g, '');
+  if (safe !== raw || raw.includes('..')) {
+    return res.status(400).send('Invalid filename');
+  }
+  const filePath = path.join(WA_MEDIA_DIR, safe);
+  if (!filePath.startsWith(WA_MEDIA_DIR) || !fs.existsSync(filePath)) {
+    return res.status(404).send('Not found');
+  }
+  res.sendFile(filePath);
+});
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function generateTitle(content) {
   const words = content.trim().split(/\s+/).slice(0, 6).join(' ');
@@ -1065,22 +1080,26 @@ app.post('/api/whatsapp/send', (req, res) => {
   if (!chat_id || (!text && !image_url)) return res.status(400).json({ error: 'chat_id and text or image_url required' });
   try {
     const ws = getBridgeWs();
+    const phone_number = chat_id.split('@')[0];
     function doSend() {
       if (image_url) {
         // Resolve relative URL to absolute so the bridge can fetch it
         const absUrl = image_url.startsWith('http') ? image_url : `http://nanobot-dashboard:3001${image_url}`;
         ws.send(JSON.stringify({ type: 'send_image', to: chat_id, url: absUrl, caption: caption || '' }));
-        const content = caption || '[Image]';
-        db.prepare(
+        const content = caption ? `![Image](${image_url})\n\n${caption}` : `![Image](${image_url})`;
+        const result = db.prepare(
           'INSERT INTO whatsapp_messages (direction, chat_id, phone_number, content) VALUES (?,?,?,?)'
-        ).run('outbound', chat_id, chat_id.split('@')[0], content);
+        ).run('outbound', chat_id, phone_number, content);
+        const row = db.prepare('SELECT * FROM whatsapp_messages WHERE id = ?').get(result.lastInsertRowid);
+        res.json({ ok: true, message: row });
       } else {
         ws.send(JSON.stringify({ type: 'send', to: chat_id, text }));
-        db.prepare(
+        const result = db.prepare(
           'INSERT INTO whatsapp_messages (direction, chat_id, phone_number, content) VALUES (?,?,?,?)'
-        ).run('outbound', chat_id, chat_id.split('@')[0], text);
+        ).run('outbound', chat_id, phone_number, text);
+        const row = db.prepare('SELECT * FROM whatsapp_messages WHERE id = ?').get(result.lastInsertRowid);
+        res.json({ ok: true, message: row });
       }
-      res.json({ ok: true });
     }
     if (ws.readyState === WebSocket.OPEN) {
       doSend();
