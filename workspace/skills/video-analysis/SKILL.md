@@ -42,3 +42,19 @@ pip install openai-whisper openai ffmpeg-python Pillow
 - **Transcript** — cleaned-up speech-to-text
 - **Question answers** — responses to any `--question` flags
 - **JSON** (if `--output` set) — all of the above in structured form
+
+## CRITICAL: Failure handling rules
+
+**You MUST follow these rules exactly. No exceptions.**
+
+1. **Check exit code and stderr before doing anything else.** If the script exits non-zero or prints `❌`, the analysis has FAILED.
+2. **On failure, attempt to self-heal before retrying:**
+   - If the error is `❌ ANALYSIS FAILED — Missing dependency: whisper`, run `pip install openai-whisper` then retry.
+   - If the error is `❌ ANALYSIS FAILED — Missing dependency: ffmpeg` or `ffmpeg: not found`, run `apt-get install -y ffmpeg` then retry.
+   - For any other missing dependency shown in the error, install it with pip then retry.
+   - Retry up to 2 times total after self-healing. Transient errors (model timeouts) also often resolve on plain retry.
+3. **If all retries fail, tell the user honestly:**
+   - State exactly what failed (copy the error message)
+   - Give specific recommendations to fix it (e.g. "install ffmpeg", "check your OpenRouter key", "video file may be corrupt")
+4. **NEVER fabricate or infer video content.** If the script did not produce output, you have NO information about the video. Do not guess, summarise, or describe anything about it.
+5. **A hallucinated response is worse than an honest failure.** Always choose honesty.

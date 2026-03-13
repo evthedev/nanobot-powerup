@@ -46,7 +46,8 @@ def _require(pkg, install_hint):
     try:
         return __import__(pkg)
     except ImportError:
-        print(f"❌ Missing dependency: {pkg}. Install with: {install_hint}", file=sys.stderr)
+        print(f"\n❌ ANALYSIS FAILED — Missing dependency: {pkg}. Install with: {install_hint}", file=sys.stderr)
+        print("❌ ANALYSIS FAILED — no results were produced.", file=sys.stderr)
         sys.exit(1)
 
 
@@ -135,7 +136,8 @@ def _read_api_key() -> str:
     except Exception:
         pass
     if not key:
-        print("❌ OPENROUTER_API_KEY not set and not found in ~/.nanobot/config.json", file=sys.stderr)
+        print("\n❌ ANALYSIS FAILED — OPENROUTER_API_KEY not set and not found in ~/.nanobot/config.json", file=sys.stderr)
+        print("❌ ANALYSIS FAILED — no results were produced.", file=sys.stderr)
         sys.exit(1)
     return key
 
@@ -242,7 +244,8 @@ def main():
 
     video_path = os.path.expanduser(args.video)
     if not os.path.exists(video_path):
-        print(f"❌ File not found: {video_path}", file=sys.stderr)
+        print(f"\n❌ ANALYSIS FAILED — File not found: {video_path}", file=sys.stderr)
+        print("❌ ANALYSIS FAILED — no results were produced.", file=sys.stderr)
         sys.exit(1)
 
     with tempfile.TemporaryDirectory() as tmp:
