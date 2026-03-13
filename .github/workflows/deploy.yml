@@ -209,9 +209,10 @@ jobs:
               echo "  waiting for $REMAINING container(s) to finish removal ($i/10)..."
               sleep 3
             done
-            echo "--- pruning unused images and build cache to free disk ---"
+            echo "--- pruning unused images, build cache, and volumes to free disk ---"
             docker image prune -af
             docker builder prune -af
+            docker volume prune -f
             echo "--- disk after cleanup ---"
             df -h /
 

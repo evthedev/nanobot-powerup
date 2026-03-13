@@ -23,6 +23,9 @@ RUN apt-get update && \
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/bin
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
+# PyTorch CPU-only — avoids ~2GB CUDA/cuDNN, prevents "no space left" on t3.micro builds
+ENV UV_TORCH_BACKEND=cpu
+
 WORKDIR /app
 
 # Install Python dependencies first (cached layer)
