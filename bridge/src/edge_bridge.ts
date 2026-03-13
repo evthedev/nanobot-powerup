@@ -505,21 +505,17 @@ export class EdgeBridgeServer {
     }
   }
 
-  private static readonly ALLOWED_DIRECTIVES = new Set([
-    'wake', 'sleep', 'restart_app', 'restart_picoclaw', 'set_volume', 'capture_frame',
-  ]);
-
   private async _handleCommand(req: IncomingMessage, res: ServerResponse, deviceId: string): Promise<void> {
     const body = await this._readBody(req);
     const { command } = JSON.parse(body.toString());
-    if (!command) { res.writeHead(400).end('missing command'); return; }
-    if (!EdgeBridgeServer.ALLOWED_DIRECTIVES.has(String(command))) {
-      this._json(res, 400, { error: `Unknown directive: ${command}` });
+    const cmd = String(command ?? '').trim();
+    if (!cmd) {
+      res.writeHead(400).end('missing command');
       return;
     }
     const device = this._getOrCreateDevice(deviceId);
-    device.directives.push({ command, queued_at: Date.now() / 1000 });
-    bridgeLog.info('edge', `[${deviceId}] directive queued: ${command}`);
+    device.directives.push({ command: cmd, queued_at: Date.now() / 1000 });
+    bridgeLog.info('edge', `[${deviceId}] directive queued: ${cmd}`);
     this._json(res, 200, { queued: true });
   }
 

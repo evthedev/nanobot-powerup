@@ -2,7 +2,7 @@ VENV = .venv
 BIN  = $(VENV)/bin
 
 .PHONY: setup sync-workspace sync-skills up down restart restart-gateway restart-dashboard logs logs-dashboard \
-        status shell venv-clean help
+        status shell venv-clean test-edge-poll help
 
 # Default target
 help:
@@ -26,6 +26,7 @@ help:
 	@echo "  make status             - Show container status"
 	@echo "  make shell              - Drop into gateway shell"
 	@echo "  make venv-clean         - Delete the virtual environment"
+	@echo "  make test-edge-poll     - Test edge bridge: queue message, poll, verify receive"
 
 setup:
 	@python3 setup-local.py
@@ -77,3 +78,8 @@ shell:
 
 venv-clean:
 	rm -rf $(VENV)
+
+# Test edge bridge: queue a directive via command API, poll sync, assert poller receives it.
+# Requires bridge running with EDGE_DEVICES_ENABLED=true.
+test-edge-poll:
+	python3 scripts/test_edge_poll.py

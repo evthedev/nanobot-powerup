@@ -97,15 +97,18 @@ Only `message` items are forwarded to the agent. Other kinds are logged for the 
 
 ### Directives
 
+The bridge accepts **any non-empty string** as a directive. The device (e.g. onboard PicoClaw agent) interprets each directive.
+
 | Command | What to do |
 |---------|------------|
-| `reply:<text>` | Strip prefix, speak/display the text |
+| `reply:<text>` | Strip prefix, speak/display the text (from agent) |
 | `wake` | Wake hardware |
 | `sleep` | Enter sleep mode |
 | `restart_app` | Restart conversation process |
 | `restart_device` | Full device restart |
 | `set_volume` | Adjust volume |
 | `capture_frame` | Capture and return a camera frame |
+| *free-form text* | Natural-language command — device interprets (e.g. "walk forward", "turn left 45°") |
 
 ```python
 for d in result["directives"]:

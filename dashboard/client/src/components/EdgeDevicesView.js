@@ -6,8 +6,6 @@ import './EdgeDevicesView.css';
 
 const API = process.env.REACT_APP_API_URL || '';
 
-const DIRECTIVES = ['wake', 'sleep', 'restart_app', 'restart_picoclaw', 'set_volume', 'capture_frame'];
-
 const GUIDE = `## Setup
 
 Save this as \`~/.nanobot/workspace/skills-auto/edge-sync/sync.py\` and fill in the 3 variables.
@@ -117,7 +115,7 @@ function timeAgo(ts) {
 
 function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirectives }) {
   const navigate = useNavigate();
-  const [selected, setSelected] = useState(DIRECTIVES[0]);
+  const [inputValue, setInputValue] = useState('');
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState([]);
   const [tick, setTick] = useState(0);
@@ -185,9 +183,19 @@ function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirecti
     .slice(0, 4);
 
   async function handleSend() {
+    const text = inputValue.trim();
+    if (!text) return;
     setSending(true);
-    await onSendDirective(device.device_id, selected);
+    setInputValue('');
+    await onSendDirective(device.device_id, text);
     setSending(false);
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   }
 
   return (
@@ -262,17 +270,20 @@ function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirecti
       </div>
 
       <div className="ed-send-row">
-        <select
-          className="ed-select"
-          value={selected}
-          onChange={e => setSelected(e.target.value)}
-        >
-          {DIRECTIVES.map(d => <option key={d} value={d}>{d}</option>)}
-        </select>
+        <input
+          type="text"
+          className="ed-input"
+          placeholder="Type a command (e.g. walk forward, wake up)..."
+          value={inputValue}
+          onChange={e => setInputValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={sending}
+          aria-label="Command input"
+        />
         <button
           className="ed-btn-send"
           onClick={handleSend}
-          disabled={sending}
+          disabled={sending || !inputValue.trim()}
         >{sending ? '…' : 'Send'}</button>
       </div>
     </div>
