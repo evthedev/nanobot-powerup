@@ -35,9 +35,9 @@ All services run as Docker containers managed by `docker-compose.yml`:
 
 Persistent state lives on the host at `/opt/nanobot/` (mounted into containers as `/root/.nanobot/`).
 The repo itself is cloned at `/opt/nanobot-app/` and mounted into `nanobot-claude` as `/workspace`.
+Both volumes are available inside the Claude Code terminal — full access to the repo and nanobot runtime state.
 
 ## Secrets
 
 Secrets are stored as GitHub Actions environment secrets (per environment: clyde / shantelle).
 They are injected into `config.json` at deploy time via `deploy/inject_keys.py`.
-`ANTHROPIC_API_KEY` is written to `.env.docker` and passed to the `claude-terminal` container.

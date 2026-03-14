@@ -107,6 +107,7 @@ services:
     working_dir: /workspace
     volumes:
       - /opt/nanobot-app:/workspace
+      - /opt/nanobot:/root/.nanobot
     expose:
       - "7681"
 
