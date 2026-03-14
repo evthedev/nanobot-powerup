@@ -40,6 +40,7 @@ export default function LogsPanel({ mainModel, onToggleSidebar, sidebarOpen }) {
   const bottomRef  = useRef(null);
   const pauseRef   = useRef(false);
   const esRef      = useRef(null);
+  const hasScrolledOnLoad = useRef(false);
 
   pauseRef.current = paused;
 
@@ -76,12 +77,6 @@ export default function LogsPanel({ mainModel, onToggleSidebar, sidebarOpen }) {
     return cleanup;
   }, [connect]);
 
-  useEffect(() => {
-    if (autoScroll && bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [entries, autoScroll]);
-
   const visibleEntries = entries.filter(e => {
     if (filter === 'error'    && e.category !== 'error' && e.level !== 'ERROR') return false;
     if (filter === 'main'     && e.type !== 'main')     return false;
@@ -93,6 +88,19 @@ export default function LogsPanel({ mainModel, onToggleSidebar, sidebarOpen }) {
     if (search && !e.msg.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
+
+  // Scroll to bottom on load and when filter changes — not on every entries update
+  useEffect(() => {
+    hasScrolledOnLoad.current = false;
+  }, [filter]);
+
+  useEffect(() => {
+    if (!autoScroll || !bottomRef.current || visibleEntries.length === 0) return;
+    if (!hasScrolledOnLoad.current) {
+      hasScrolledOnLoad.current = true;
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [filter, visibleEntries.length, autoScroll]);
 
   // Running token totals across the visible entries
   const tokenTotals = visibleEntries.reduce((acc, e) => {

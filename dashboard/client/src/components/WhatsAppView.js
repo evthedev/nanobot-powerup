@@ -72,6 +72,7 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const lastIdRef = useRef(0);
+  const hasScrolledOnLoad = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -92,9 +93,18 @@ export default function WhatsAppView({ onToggleSidebar, sidebarOpen }) {
       .catch(() => {});
   }, []);
 
+  // Reset scroll-on-load when switching chats
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, selectedChat, scrollToBottom]);
+    hasScrolledOnLoad.current = false;
+  }, [selectedChat]);
+
+  // Scroll to bottom on load only — not on every messages update
+  useEffect(() => {
+    if (messages.length > 0 && !hasScrolledOnLoad.current) {
+      hasScrolledOnLoad.current = true;
+      scrollToBottom();
+    }
+  }, [messages.length, selectedChat, scrollToBottom]);
 
   useEffect(() => {
     const url = `${API}/api/whatsapp/stream?lastId=${lastIdRef.current}`;

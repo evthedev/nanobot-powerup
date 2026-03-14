@@ -515,6 +515,9 @@ export class EdgeBridgeServer {
     }
     const device = this._getOrCreateDevice(deviceId);
     device.directives.push({ command: cmd, queued_at: Date.now() / 1000 });
+    this._db.prepare(
+      `INSERT INTO activity_log (source, sender, content) VALUES ('bridge', ?, ?)`
+    ).run(deviceId, cmd);
     bridgeLog.info('edge', `[${deviceId}] directive queued: ${cmd}`);
     this._json(res, 200, { queued: true });
   }
@@ -573,9 +576,9 @@ export class EdgeBridgeServer {
       const limit = Math.min(parseInt(rawLimit, 10) || 100, 500);
       const rows = this._db.prepare(
         `SELECT id, source, sender, content, created_at FROM activity_log
-         WHERE source = ? OR (source = 'assistant' AND sender = ?)
+         WHERE source = ? OR (source = 'assistant' AND sender = ?) OR (source = 'bridge' AND sender = ?)
          ORDER BY created_at ASC LIMIT ?`
-      ).all(deviceId, deviceId, limit) as { id: number; source: string; sender: string; content: string; created_at: string }[];
+      ).all(deviceId, deviceId, deviceId, limit) as { id: number; source: string; sender: string; content: string; created_at: string }[];
       this._json(res, 200, rows);
     } catch (e) {
       bridgeLog.error('edge', `Messages error: ${e}`);

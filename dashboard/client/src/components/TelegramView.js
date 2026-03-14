@@ -13,6 +13,7 @@ export default function TelegramView({ onToggleSidebar, sidebarOpen }) {
   const messagesEndRef = useRef(null);
   const lastIdRef = useRef(0);
   const eventSourceRef = useRef(null);
+  const hasScrolledOnLoad = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -36,10 +37,13 @@ export default function TelegramView({ onToggleSidebar, sidebarOpen }) {
       .catch(() => {});
   }, []);
 
-  // Scroll after messages load
+  // Scroll to bottom on load only — not on every messages update
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+    if (messages.length > 0 && !hasScrolledOnLoad.current) {
+      hasScrolledOnLoad.current = true;
+      scrollToBottom();
+    }
+  }, [messages.length, scrollToBottom]);
 
   // SSE stream for live messages.
   // The server emits `id:` fields — the browser automatically sends Last-Event-ID

@@ -172,6 +172,7 @@ export default function PicoClawView({ onToggleSidebar, sidebarOpen }) {
   const [guide, setGuide] = useState('');
   const bottomRef = useRef(null);
   const lastIdRef = useRef(0);
+  const hasScrolledOnLoad = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -223,7 +224,13 @@ export default function PicoClawView({ onToggleSidebar, sidebarOpen }) {
     return () => clearInterval(statusPoll);
   }, [refreshStatus]);
 
-  useEffect(() => { scrollToBottom(); }, [rows, scrollToBottom]);
+  // Scroll to bottom on load only — not on every rows update
+  useEffect(() => {
+    if (rows.length > 0 && !hasScrolledOnLoad.current) {
+      hasScrolledOnLoad.current = true;
+      scrollToBottom();
+    }
+  }, [rows.length, scrollToBottom]);
 
   useEffect(() => {
     const es = new EventSource(`${API}/api/edge-sync/stream?lastId=${lastIdRef.current}`);

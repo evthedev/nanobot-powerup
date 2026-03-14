@@ -146,7 +146,7 @@ function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirecti
     fetchMessages();
   }, [fetchMessages]);
 
-  // Fallback poll for new messages (SSE can fail behind some proxies)
+  // Poll for new messages every 4s (SSE proxy hangs in Docker — polling is reliable)
   useEffect(() => {
     const interval = setInterval(fetchMessages, 4000);
     return () => clearInterval(interval);
@@ -158,19 +158,6 @@ function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirecti
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.id) setConvId(data.id); })
       .catch(() => {});
-  }, [device.device_id]);
-
-  // SSE stream for new messages
-  useEffect(() => {
-    const es = new EventSource(`${API}/api/devices/${device.device_id}/messages/stream?lastId=${lastIdRef.current}`);
-    es.onmessage = (e) => {
-      try {
-        const row = JSON.parse(e.data);
-        lastIdRef.current = row.id;
-        setMessages(prev => prev.some(m => m.id === row.id) ? prev : [...prev, row]);
-      } catch {}
-    };
-    return () => es.close();
   }, [device.device_id]);
 
   // Scroll to bottom when messages change
@@ -226,7 +213,7 @@ function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirecti
           <div className="ed-messages-empty">No messages yet</div>
         ) : (
           messages.map((m, i) => {
-            const isDevice = m.source !== 'assistant';
+            const isDevice = m.source !== 'assistant' && m.source !== 'bridge';
             const time = (() => {
               try { return new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
               catch { return ''; }
