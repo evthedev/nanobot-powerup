@@ -8,12 +8,12 @@ export default function TerminalView({ onToggleSidebar, sidebarOpen }) {
         <button className="icon-btn" onClick={onToggleSidebar} title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}>
           {sidebarOpen ? '◀' : '▶'}
         </button>
-        <span className="terminal-title">Claude Code</span>
+        <span className="terminal-title">Terminal</span>
       </div>
       <div className="terminal-frame-wrap">
         <iframe
           src="/ttyd"
-          title="Claude Code terminal"
+          title="Terminal"
           className="terminal-frame"
           allow="clipboard-read; clipboard-write; popup"
         />

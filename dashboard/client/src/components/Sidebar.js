@@ -120,10 +120,10 @@ export default function Sidebar({
         <button
           className={`logs-nav-btn ${showTerminal ? 'active' : ''}`}
           onClick={onTerminal}
-          title="Claude Code"
+          title="Terminal"
         >
-          <span className="btn-icon">🖥️</span>
-          {isOpen && <span>Claude Code</span>}
+          <span className="btn-icon btn-icon-terminal">{'>_'}</span>
+          {isOpen && <span>Terminal</span>}
         </button>
       </div>
 

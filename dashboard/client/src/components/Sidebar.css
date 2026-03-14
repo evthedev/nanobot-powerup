@@ -122,6 +122,12 @@
 }
 
 .btn-icon { font-size: 14px; flex-shrink: 0; }
+.btn-icon-terminal {
+  font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
 
 /* ─── Conversations ───────────────────────────────────────────────────────────── */
 .conversations-section {

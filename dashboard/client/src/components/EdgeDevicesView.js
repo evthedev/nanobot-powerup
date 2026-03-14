@@ -6,100 +6,6 @@ import './EdgeDevicesView.css';
 
 const API = process.env.REACT_APP_API_URL || '';
 
-const GUIDE = `## Setup
-
-Save this as \`~/.nanobot/workspace/skills-auto/edge-sync/sync.py\` and fill in the 3 variables.
-
-\`\`\`python
-#!/usr/bin/env python3
-# Run once: sync, wait 30s, sync again, exit. Schedule with cron every minute.
-import hashlib, hmac, json, ssl, sys, time, urllib.request
-
-BRIDGE_URL    = "https://ec2-3-106-107-16.ap-southeast-2.compute.amazonaws.com"  # no /bridge suffix
-DEVICE_ID     = "my-device"   # unique name for this instance
-DEVICE_SECRET = "Nb9kQmX3pL7!"
-
-def sync(message=None):
-    telemetry = [{"kind": "message", "content": message}] if message else []
-    payload = {"status": {"daemon": "running"}, "telemetry": telemetry}
-    body = json.dumps(payload).encode()
-    sig = hmac.new(DEVICE_SECRET.encode(), body, hashlib.sha256).hexdigest()
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request(
-        f"{BRIDGE_URL}/api/devices/{DEVICE_ID}/sync",
-        data=body,
-        headers={"Content-Type": "application/json", "X-Bridge-Signature": sig},
-        method="POST"
-    )
-    with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-        return json.loads(resp.read().decode())
-
-def handle(result):
-    for d in result.get("directives", []):
-        if d["command"].startswith("reply:"):
-            print("Agent:", d["command"][len("reply:"):])
-        else:
-            print("Directive:", d["command"])
-
-message = " ".join(sys.argv[1:]) or None
-handle(sync(message))  # first sync — sends message if provided
-time.sleep(30)
-handle(sync())         # second sync — picks up agent reply
-# script exits — cron runs it again next minute
-\`\`\`
-
-**Schedule it (one cron job, covers both syncs per minute):**
-\`\`\`
-nanobot cron add --name "edge-sync" --command "python3 /root/.nanobot/workspace/skills-auto/edge-sync/sync.py >> /tmp/edge-sync.log 2>&1" --cron "* * * * *"
-\`\`\`
-
-> ⚠️ **Do NOT use** \`cron(action="add", message="python3 ...")\` — that routes every execution through the LLM (~20k tokens/run). Use \`--command\` (shown above) which runs the script directly with zero LLM cost.
-
-**To send a message manually:**
-\`\`\`
-python3 /root/.nanobot/workspace/skills-auto/edge-sync/sync.py "your message here"
-\`\`\`
-
----
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---------|-----|
-| \`401 Unauthorized\` | \`BRIDGE_URL\` has \`/bridge\` suffix — remove it. Or wrong \`DEVICE_SECRET\`. |
-| directives always empty | Agent hasn't replied yet — wait for the next sync cycle. Only send \`kind=message\` telemetry when the user actually speaks; empty status-only polls are correct and expected. |
-| device shows stale | Cron not running — check with \`crontab -l\` |
-| script hangs | You used \`while True\` or \`nohup\` — the script must exit on its own |
-
----
-
-## Stop polling / disconnect (to halt token burn)
-
-**1. Stop the cron job** (on the host running the gateway):
-\`\`\`
-nanobot cron list                    # find the edge-sync job id
-nanobot cron remove <id>             # remove permanently
-# or disable temporarily:
-nanobot cron enable <id> --disable
-\`\`\`
-(Docker: \`docker exec nanobot-gateway nanobot cron list\`)
-
-**2. Disconnect WebSocket stream** (if using WS \`/api/devices/:id/stream\`):  
-Close the client app or stop the process that holds the WebSocket. The server sends \`hello\` on connect; the handshake itself does not use tokens. Only \`message.send\` triggers the LLM.
-
-**3. Disable edge on host** (nuclear option — stops all devices):
-\`\`\`
-# In .env.docker or deploy env:
-EDGE_DEVICES_ENABLED=false
-# Then: docker compose restart nanobot-whatsapp-bridge
-\`\`\`
-
-**4. Find what's burning tokens:**  
-Check gateway logs for \`LLM usage | model=... tokens_in=...\` — that shows which session/channel triggered each call.
-`;
-
 function StatusDot({ online }) {
   return <span className={`ed-dot ${online ? 'online' : 'offline'}`} title={online ? 'Online' : 'Offline'} />;
 }
@@ -380,10 +286,6 @@ export default function EdgeDevicesView({ onToggleSidebar, sidebarOpen }) {
             ))}
           </div>
         )}
-        <div className="ed-guide">
-            <div className="ed-guide-label">📋 INTEGRATION GUIDE</div>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{GUIDE}</ReactMarkdown>
-          </div>
       </div>
     </div>
   );
