@@ -15,7 +15,7 @@ export default function TerminalView({ onToggleSidebar, sidebarOpen }) {
           src="/ttyd"
           title="Claude Code terminal"
           className="terminal-frame"
-          allow="clipboard-read; clipboard-write"
+          allow="clipboard-read; clipboard-write; popup"
         />
       </div>
     </div>

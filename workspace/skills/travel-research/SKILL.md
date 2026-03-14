@@ -1,7 +1,6 @@
 ---
 name: travel-research
 description: Research travel plans — flights, accommodation, itineraries and screenshots for events, concerts, and trips anywhere in the world.
-metadata: {"nanobot":{"always":true}}
 ---
 
 # Travel Research Skill

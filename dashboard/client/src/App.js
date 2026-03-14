@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import ChatWindow from './components/ChatWindow';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -17,6 +17,8 @@ const API = process.env.REACT_APP_API_URL || '';
 // ── Inner app — has access to router hooks ────────────────────────────────────
 function AppInner() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const isTerminalRoute = location.pathname === '/terminal';
 
   const [conversations, setConversations] = useState([]);
   const [activeConvId, setActiveConvId] = useState(null);
@@ -339,6 +341,14 @@ function AppInner() {
       <Sidebar {...sidebarProps} />
 
       <main className="main-area">
+        {/* Persistent terminal: stay mounted when switching routes so shell session is preserved */}
+        <div className="main-area-content" style={{ display: isTerminalRoute ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0 }}>
+          <TerminalView
+            onToggleSidebar={() => setSidebarOpen(p => !p)}
+            sidebarOpen={sidebarOpen}
+          />
+        </div>
+        <div className="main-area-content" style={{ display: isTerminalRoute ? 'none' : 'block', flex: 1, minHeight: 0 }}>
         <Routes>
           <Route path="/settings" element={
             <Settings
@@ -375,15 +385,6 @@ function AppInner() {
             path="/devices"
             element={
               <EdgeDevicesView
-                onToggleSidebar={() => setSidebarOpen(p => !p)}
-                sidebarOpen={sidebarOpen}
-              />
-            }
-          />
-          <Route
-            path="/terminal"
-            element={
-              <TerminalView
                 onToggleSidebar={() => setSidebarOpen(p => !p)}
                 sidebarOpen={sidebarOpen}
               />
@@ -428,6 +429,7 @@ function AppInner() {
             }
           />
         </Routes>
+        </div>
       </main>
     </div>
   );

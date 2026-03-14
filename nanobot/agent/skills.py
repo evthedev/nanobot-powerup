@@ -113,7 +113,6 @@ class SkillsLoader:
             if content:
                 content = self._strip_frontmatter(content)
                 parts.append(f"### Skill: {name}\n\n{content}")
-                logger.info("🔧 Skill always-loaded into context: {}", name)
             else:
                 logger.warning("🔧 Skill always-load failed (not found): {}", name)
         

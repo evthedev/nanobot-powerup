@@ -1,7 +1,6 @@
 ---
 name: review
 description: Aggregate product and service reviews from multiple sources with verbatim quotes and screenshots.
-metadata: {"nanobot":{"always":true}}
 ---
 
 # Review Skill
