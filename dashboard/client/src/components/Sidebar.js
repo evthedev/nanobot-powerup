@@ -16,6 +16,7 @@ export default function Sidebar({
   isOpen,
   onToggle,
   onLogs,
+  onTerminal,
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -24,6 +25,7 @@ export default function Sidebar({
   const showWhatsApp  = location.pathname === '/whatsapp';
   const showPicoClaw  = location.pathname === '/picoclaw' || location.pathname === '/devices';
   const showSettings  = location.pathname === '/settings';
+  const showTerminal  = location.pathname === '/terminal';
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [hoveredId, setHoveredId] = useState(null);
@@ -114,6 +116,14 @@ export default function Sidebar({
         >
           <span className="btn-icon">📋</span>
           {isOpen && <span>Logs</span>}
+        </button>
+        <button
+          className={`logs-nav-btn ${showTerminal ? 'active' : ''}`}
+          onClick={onTerminal}
+          title="Claude Code"
+        >
+          <span className="btn-icon">🖥️</span>
+          {isOpen && <span>Claude Code</span>}
         </button>
       </div>
 

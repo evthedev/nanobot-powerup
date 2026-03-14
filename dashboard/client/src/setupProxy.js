@@ -9,6 +9,17 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 
 module.exports = function (app) {
   const target = process.env.PROXY_TARGET || 'http://localhost:3001';
+  const ttydTarget = process.env.TTYD_TARGET || 'http://localhost:7681';
+
+  app.use(
+    '/ttyd',
+    createProxyMiddleware({
+      target: ttydTarget,
+      changeOrigin: true,
+      ws: true,
+      logLevel: 'warn',
+    })
+  );
 
   app.use(
     '/api',

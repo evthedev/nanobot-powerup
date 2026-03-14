@@ -97,6 +97,19 @@ services:
     depends_on:
       - dashboard
 
+  # ── Claude Code web terminal (/claude) ───────────────────────────────────
+  claude-terminal:
+    container_name: nanobot-claude
+    build:
+      context: ./deploy/claude
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    working_dir: /workspace
+    volumes:
+      - /opt/nanobot-app:/workspace
+    expose:
+      - "7681"
+
   # ── one-off CLI (docker compose --profile cli run nanobot-cli <cmd>) ──────
   nanobot-cli:
     profiles: ["cli"]
