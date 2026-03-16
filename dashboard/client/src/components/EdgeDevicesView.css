@@ -173,68 +173,6 @@
   text-transform: uppercase;
 }
 
-/* ── Directives queue ── */
-.ed-directives-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-height: 28px;
-}
-
-.ed-directives-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.ed-directives-label {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.ed-btn-clear {
-  font-size: 10px;
-  padding: 1px 7px;
-  cursor: pointer;
-  background: #f38ba8;
-  border: none;
-  border-radius: 3px;
-  color: #1e1e2e;
-  font-weight: 600;
-}
-
-.ed-directive-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.ed-directive-cmd {
-  flex: 1;
-  font-size: 12px;
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-  border-radius: 4px;
-  padding: 2px 7px;
-  font-family: ui-monospace, monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ed-btn-remove {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 11px;
-  padding: 2px 4px;
-  border-radius: 3px;
-  line-height: 1;
-}
-.ed-btn-remove:hover { color: #f38ba8; background: var(--bg-elevated); }
-
 /* ── Send directive row ── */
 .ed-send-row {
   display: flex;

@@ -93,4 +93,11 @@ export class DeviceRegistry {
     d.status = { ...d.status, ...status, last_seen: Date.now() / 1000 };
     d.lastSeen = Date.now() / 1000;
   }
+
+  updateLastSeen(deviceId: string): void {
+    const d = this.devices.get(deviceId);
+    if (d) {
+      d.lastSeen = Date.now() / 1000;
+    }
+  }
 }

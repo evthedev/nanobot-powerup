@@ -19,12 +19,12 @@ function timeAgo(ts) {
   return `${Math.floor(secs / 3600)}h ago`;
 }
 
-function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirectives, onDisconnect, onRemove }) {
+function DeviceCard({ device, onSendDirective, onDisconnect, onRemove }) {
   const navigate = useNavigate();
   const [inputValue, setInputValue] = useState('');
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState([]);
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
   const [convId, setConvId] = useState(null);
   const bottomRef = useRef(null);
   const lastIdRef = useRef(0);
@@ -153,31 +153,6 @@ function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirecti
         <div ref={bottomRef} />
       </div>
 
-      <div className="ed-directives-section">
-        <div className="ed-directives-header">
-          <span className="ed-directives-label">
-            📬 Queue ({device.pending_directives})
-          </span>
-          {device.pending_directives > 0 && (
-            <button
-              className="ed-btn-clear"
-              onClick={() => onClearDirectives(device.device_id)}
-              title="Clear all"
-            >Clear</button>
-          )}
-        </div>
-        {(device.directives || []).map((d, i) => (
-          <div key={i} className="ed-directive-row">
-            <code className="ed-directive-cmd">{d.command}</code>
-            <button
-              className="ed-btn-remove"
-              onClick={() => onDeleteDirective(device.device_id, i)}
-              title="Remove"
-            >✕</button>
-          </div>
-        ))}
-      </div>
-
       <div className="ed-send-row">
         <input
           type="text"
@@ -209,20 +184,7 @@ export default function EdgeDevicesView({ onToggleSidebar, sidebarOpen }) {
       const r = await fetch(`${API}/api/devices`);
       if (!r.ok) throw new Error(`${r.status}`);
       const data = await r.json();
-      // Fetch per-device status to get directives list
-      const detailed = await Promise.all(
-        (data.devices || []).map(async d => {
-          try {
-            const sr = await fetch(`${API}/api/devices/${d.device_id}/status`);
-            if (sr.ok) {
-              const s = await sr.json();
-              return { ...d, directives: s.directives || [] };
-            }
-          } catch {}
-          return { ...d, directives: [] };
-        })
-      );
-      setDevices(detailed);
+      setDevices(data.devices || []);
       setError(null);
     } catch (e) {
       setError(e.message);
@@ -243,16 +205,6 @@ export default function EdgeDevicesView({ onToggleSidebar, sidebarOpen }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ command }),
     });
-    await refresh();
-  }, [refresh]);
-
-  const deleteDirective = useCallback(async (deviceId, idx) => {
-    await fetch(`${API}/api/devices/${deviceId}/command/${idx}`, { method: 'DELETE' });
-    await refresh();
-  }, [refresh]);
-
-  const clearDirectives = useCallback(async (deviceId) => {
-    await fetch(`${API}/api/devices/${deviceId}/command`, { method: 'DELETE' });
     await refresh();
   }, [refresh]);
 
@@ -299,7 +251,6 @@ export default function EdgeDevicesView({ onToggleSidebar, sidebarOpen }) {
         ) : devices.length === 0 ? (
           <div className="ed-empty">
             No devices registered.<br />
-            <small>Add <code>channels.edgeDevices.devices</code> to config.json and restart.</small>
           </div>
         ) : (
           <div className="ed-grid">
@@ -308,8 +259,6 @@ export default function EdgeDevicesView({ onToggleSidebar, sidebarOpen }) {
                 key={d.device_id}
                 device={d}
                 onSendDirective={sendDirective}
-                onDeleteDirective={deleteDirective}
-                onClearDirectives={clearDirectives}
                 onDisconnect={disconnectDevice}
                 onRemove={removeDevice}
               />

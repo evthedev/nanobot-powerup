@@ -107,6 +107,7 @@ export class BridgeServer {
     }, 30_000);
 
     ws.on('message', async (raw) => {
+      this.registry.updateLastSeen(deviceId);
       let msg: Record<string, unknown>;
       try { msg = JSON.parse(raw.toString()); } catch {
         ws.send(frame('error', { code: 'parse_error', message: 'Invalid JSON' }));
@@ -187,7 +188,6 @@ export class BridgeServer {
     const msgStreamMatch   = url.match(/^\/api\/devices\/([^/]+)\/messages\/stream$/);
     const conversationMatch = url.match(/^\/api\/devices\/([^/]+)\/conversation$/);
     const commandMatch     = url.match(/^\/api\/devices\/([^/]+)\/command$/);
-    const commandIdxMatch  = url.match(/^\/api\/devices\/([^/]+)\/command\/(\d+)$/);
     const messageMatch     = url.match(/^\/api\/devices\/([^/]+)\/message$/);
     const deviceMatch      = url.match(/^\/api\/devices\/([^/]+)$/);
 
@@ -203,8 +203,6 @@ export class BridgeServer {
     if (method === 'GET'    && msgStreamMatch)      return this._deviceMessagesStream(req, res, msgStreamMatch[1]);
     if (method === 'GET'    && conversationMatch)   return this._deviceConversation(res, conversationMatch[1]);
     if (method === 'POST'   && commandMatch)        return this._queueCommand(req, res, commandMatch[1]);
-    if (method === 'DELETE' && commandIdxMatch)     return this._deleteCommand(res, commandIdxMatch[1], parseInt(commandIdxMatch[2]));
-    if (method === 'DELETE' && commandMatch)        return this._clearCommands(res, commandMatch[1]);
     if (method === 'POST'   && messageMatch)        return this._adminMessage(req, res, messageMatch[1]);
 
     if (method === 'DELETE' && deviceMatch)         return this._removeDevice(res, deviceMatch[1]);
@@ -347,27 +345,31 @@ export class BridgeServer {
     const { command } = JSON.parse(body.toString());
     if (!command?.trim()) { res.writeHead(400).end('missing command'); return; }
 
-    // Try to push directly if WS-connected, otherwise queue
+    // 1. Try to push directly if WS-connected, otherwise queue for next poll
     const pushed = this.registry.pushDirective(deviceId, String(command));
+    
+    // 2. Log activity for the dashboard /devices list
     this.db.logActivity('bridge', deviceId, String(command));
+
+    // 3. Log to conversations/messages tables for the /chat view
+    const convId = `edge-${deviceId}`;
+    this.db.upsertConversation(convId, `Edge: ${deviceId}`);
+    this.db.insertMessage(convId, 'user', String(command));
+
+    // 4. Forward to NanoBot gateway so it can process the command and reply
+    forwardToGateway(deviceId, String(command))
+      .then(reply => {
+        if (reply) {
+          // Push reply back to device (instantly via WS or queued for poll)
+          this.registry.pushDirective(deviceId, `reply:${reply}`);
+          this.db.logActivity('assistant', deviceId, reply);
+          this.db.insertMessage(convId, 'assistant', reply);
+        }
+      })
+      .catch(e => bridgeLog.error('edge', `[${deviceId}] command gateway error: ${e}`));
+
     bridgeLog.info('edge', `[${deviceId}] command ${pushed ? 'pushed via WS' : 'queued for poll'}: ${command}`);
     this._json(res, 200, { queued: !pushed, pushed });
-  }
-
-  private _deleteCommand(res: ServerResponse, deviceId: string, idx: number): void {
-    const d = this.registry.getOrCreate(deviceId);
-    if (isNaN(idx) || idx < 0 || idx >= d.directives.length) {
-      res.writeHead(404).end();
-    } else {
-      d.directives.splice(idx, 1);
-      this._json(res, 200, { deleted: true, remaining: d.directives.length });
-    }
-  }
-
-  private _clearCommands(res: ServerResponse, deviceId: string): void {
-    const d = this.registry.getOrCreate(deviceId);
-    d.directives = [];
-    this._json(res, 200, { cleared: true });
   }
 
   private _disconnectDevice(res: ServerResponse, deviceId: string): void {

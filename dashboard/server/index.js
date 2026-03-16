@@ -315,8 +315,9 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
     VALUES (?, ?, 'user', ?, ?)
   `).run(userMsgId, conversationId, content, now);
   try {
-    db.prepare(`INSERT INTO activity_log (source, sender, content) VALUES ('web', 'web_user', ?)`) 
-      .run(content.slice(0, 500));
+    const logSender = conversationId.startsWith('edge-') ? conversationId.replace('edge-', '') : 'web_user';
+    db.prepare(`INSERT INTO activity_log (source, sender, content) VALUES ('web', ?, ?)`) 
+      .run(logSender, content.slice(0, 500));
   } catch (_) {}
 
   // Auto-title conversation if it's the first user message
@@ -410,8 +411,9 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
             // Commit to DB and send done immediately — no waiting for WS close
             saveAndFinish(msg.content, thisTempId);
             try {
-              db.prepare(`INSERT INTO activity_log (source, sender, content) VALUES ('web', 'assistant', ?)`) 
-                .run(msg.content.slice(0, 500));
+              const logSender = conversationId.startsWith('edge-') ? conversationId.replace('edge-', '') : 'assistant';
+              db.prepare(`INSERT INTO activity_log (source, sender, content) VALUES ('web', ?, ?)`) 
+                .run(logSender, msg.content.slice(0, 500));
             } catch (_) {}
           }
 

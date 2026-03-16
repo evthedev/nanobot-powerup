@@ -85,9 +85,12 @@ export class DB {
   getMessages(deviceId: string, limit = 100): unknown[] {
     return this.db.prepare(`
       SELECT id, source, sender, content, created_at FROM activity_log
-      WHERE source = ? OR (source = 'assistant' AND sender = ?) OR (source = 'bridge' AND sender = ?)
+      WHERE source = ? 
+         OR (source = 'assistant' AND sender = ?) 
+         OR (source = 'bridge' AND sender = ?)
+         OR (source = 'web' AND sender = ?)
       ORDER BY created_at ASC LIMIT ?
-    `).all(deviceId, deviceId, deviceId, limit);
+    `).all(deviceId, deviceId, deviceId, deviceId, limit);
   }
 
   getConversation(convId: string): unknown {
