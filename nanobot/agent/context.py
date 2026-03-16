@@ -113,6 +113,7 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
         media: list[str] | None = None,
         channel: str | None = None,
         chat_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Build the complete message list for an LLM call.
@@ -124,6 +125,7 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
             media: Optional list of local file paths for images/media.
             channel: Current channel (telegram, feishu, etc.).
             chat_id: Current chat/user ID.
+            metadata: Optional message-level metadata.
 
         Returns:
             List of messages including system prompt.
@@ -134,6 +136,11 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
         system_prompt = self.build_system_prompt(skill_names)
         if channel and chat_id:
             system_prompt += f"\n\n## Current Session\nChannel: {channel}\nChat ID: {chat_id}"
+        
+        # Inject dynamic system context from metadata if provided
+        if metadata and metadata.get("system"):
+            system_prompt += f"\n\n## Edge Voice System\n{metadata['system']}"
+            
         messages.append({"role": "system", "content": system_prompt})
 
         # History

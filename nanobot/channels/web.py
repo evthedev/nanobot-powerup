@@ -148,6 +148,7 @@ class WebChannel(BaseChannel):
 
                 session_id = data.get("session_id", "")
                 content = data.get("content", "").strip()
+                system = data.get("system", "").strip()
 
                 if not session_id or not content:
                     await websocket.send(json.dumps({"type": "error", "content": "Missing session_id or content"}))
@@ -175,6 +176,7 @@ class WebChannel(BaseChannel):
                     chat_id=session_id,
                     content=clean_content or content,
                     media=media or None,
+                    metadata={"system": system} if system else None,
                 )
         except Exception as exc:
             logger.debug("Web channel: connection closed: {}", exc)

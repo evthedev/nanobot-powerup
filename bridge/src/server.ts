@@ -9,6 +9,14 @@ import { DB } from './db.js';
 import { forwardToGateway } from './gateway.js';
 import { bridgeLog } from './logger.js';
 
+// ── Voice Proxy Context ───────────────────────────────────────────────────────
+
+const EDGE_VOICE_SYSTEM =
+  "You are responding via an edge device that will speak your reply verbatim to the user. " +
+  "Respond in second person directly to the user. " +
+  "No markdown, no bullet points, no lists. " +
+  "Natural spoken sentences only. Be concise.";
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
 function loadConfig(): { devices: Record<string, { secret: string; pollIntervalSeconds: number }> } {
@@ -138,7 +146,7 @@ export class BridgeServer {
 
         // Forward to NanoBot gateway
         try {
-          const reply = await forwardToGateway(deviceId, content);
+          const reply = await forwardToGateway(deviceId, content, EDGE_VOICE_SYSTEM);
           if (reply) {
             ws.send(frame('message.create', { content: reply, done: true }));
             ws.send(frame('typing.stop'));
@@ -357,7 +365,7 @@ export class BridgeServer {
     this.db.insertMessage(convId, 'user', String(command));
 
     // 4. Forward to NanoBot gateway so it can process the command and reply
-    forwardToGateway(deviceId, String(command))
+    forwardToGateway(deviceId, String(command), EDGE_VOICE_SYSTEM)
       .then(reply => {
         if (reply) {
           // Push reply back to device (instantly via WS or queued for poll)
@@ -408,7 +416,7 @@ export class BridgeServer {
     this.db.insertMessage(convId, 'user', String(content));
 
     // Forward to gateway async — reply arrives via pushDirective
-    forwardToGateway(deviceId, String(content))
+    forwardToGateway(deviceId, String(content), EDGE_VOICE_SYSTEM)
       .then(reply => {
         if (reply) {
           this.registry.pushDirective(deviceId, `reply:${reply}`);
@@ -463,7 +471,7 @@ export class BridgeServer {
       this.db.upsertConversation(convId, `Edge: ${deviceId}`);
       this.db.insertMessage(convId, 'user', item.content);
 
-      forwardToGateway(deviceId, item.content)
+      forwardToGateway(deviceId, item.content, EDGE_VOICE_SYSTEM)
         .then(reply => {
           if (reply) {
             d.directives.push({ command: `reply:${reply}`, queued_at: Date.now() / 1000 });
