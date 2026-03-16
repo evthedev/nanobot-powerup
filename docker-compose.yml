@@ -29,6 +29,7 @@ services:
       - EDGE_DEVICES_ENABLED=${EDGE_DEVICES_ENABLED:-false}
       - REACHY_BRIDGE_PORT=18790
       - DB_PATH=/root/.nanobot/chat.db
+      - NANOBOT_WS=ws://nanobot-gateway:18791
 
   # ── nanobot gateway ─────────────────────────────────────────────────────────
   nanobot-gateway:
