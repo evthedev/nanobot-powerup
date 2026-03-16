@@ -128,6 +128,23 @@
   border-color: transparent;
 }
 
+.ed-btn-disconnect,
+.ed-btn-remove-device {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+
+.ed-btn-disconnect:hover { color: var(--warning, #f59e0b); background: var(--bg-elevated); }
+.ed-btn-remove-device:hover { color: #f38ba8; background: var(--bg-elevated); }
+
 .ed-card-meta {
   display: flex;
   flex-wrap: wrap;
@@ -146,6 +163,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 160px;
+}
+
+.ed-meta-item.ws-badge {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.4);
+  background: rgba(74, 222, 128, 0.1);
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 /* ── Directives queue ── */

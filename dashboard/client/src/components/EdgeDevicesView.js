@@ -19,7 +19,7 @@ function timeAgo(ts) {
   return `${Math.floor(secs / 3600)}h ago`;
 }
 
-function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirectives }) {
+function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirectives, onDisconnect, onRemove }) {
   const navigate = useNavigate();
   const [inputValue, setInputValue] = useState('');
   const [sending, setSending] = useState(false);
@@ -104,10 +104,26 @@ function DeviceCard({ device, onSendDirective, onDeleteDirective, onClearDirecti
             title="Open in chat"
           >💬 Chat</button>
         )}
+        {device.ws_connected && (
+          <button
+            className="ed-btn-disconnect"
+            onClick={() => onDisconnect(device.device_id)}
+            title="Disconnect WebSocket"
+          >⏏</button>
+        )}
+        <button
+          className="ed-btn-remove-device"
+          onClick={() => onRemove(device.device_id)}
+          title="Remove from registry"
+        >✕</button>
       </div>
 
       <div className="ed-card-meta">
-        <span className="ed-meta-item">poll {device.poll_interval_seconds}s</span>
+        {device.ws_connected ? (
+          <span className="ed-meta-item ws-badge">ws</span>
+        ) : (
+          <span className="ed-meta-item">poll {device.poll_interval_seconds}s</span>
+        )}
         {device.stream_mode && <span className="ed-meta-item">stream:{device.stream_mode}</span>}
         {statusFields.map(([k, v]) => (
           <span key={k} className="ed-meta-item">{k}:{String(v)}</span>
@@ -240,6 +256,18 @@ export default function EdgeDevicesView({ onToggleSidebar, sidebarOpen }) {
     await refresh();
   }, [refresh]);
 
+  const disconnectDevice = useCallback(async (deviceId) => {
+    if (!window.confirm(`Disconnect WebSocket for ${deviceId}?`)) return;
+    await fetch(`${API}/api/devices/${deviceId}/disconnect`, { method: 'POST' });
+    await refresh();
+  }, [refresh]);
+
+  const removeDevice = useCallback(async (deviceId) => {
+    if (!window.confirm(`Remove ${deviceId} from registry entirely?`)) return;
+    await fetch(`${API}/api/devices/${deviceId}`, { method: 'DELETE' });
+    await refresh();
+  }, [refresh]);
+
   return (
     <div className="ed-view">
       <div className="ed-header">
@@ -282,6 +310,8 @@ export default function EdgeDevicesView({ onToggleSidebar, sidebarOpen }) {
                 onSendDirective={sendDirective}
                 onDeleteDirective={deleteDirective}
                 onClearDirectives={clearDirectives}
+                onDisconnect={disconnectDevice}
+                onRemove={removeDevice}
               />
             ))}
           </div>
