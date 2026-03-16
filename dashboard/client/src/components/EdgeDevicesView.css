@@ -45,6 +45,23 @@
 }
 .ed-btn-refresh:hover { color: var(--text-primary); background: var(--bg-elevated); }
 
+.ed-btn-install {
+  font-size: 11px;
+  color: var(--accent-primary);
+  background: none;
+  border: 1px solid var(--accent-primary);
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: pointer;
+  margin-left: 8px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.ed-btn-install:hover {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
 .ed-body {
   flex: 1;
   overflow-y: auto;
@@ -278,3 +295,112 @@
 }
 
 .ed-msg.outbound .ed-msg-time { text-align: right; }
+
+/* ── Install Guide Modal ── */
+.ed-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+.ed-modal {
+  background: var(--bg-secondary);
+  width: 100%;
+  max-width: 800px;
+  max-height: 90vh;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.ed-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ed-modal-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.ed-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 24px;
+  cursor: pointer;
+}
+.ed-modal-close:hover { color: var(--text-primary); }
+
+.ed-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.ed-guide-section {
+  margin-bottom: 24px;
+}
+
+.ed-guide-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ed-guide-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ed-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  letter-spacing: 0.5px;
+}
+
+.ed-pill.md { color: #3b82f6; border-color: rgba(59, 130, 246, 0.4); background: rgba(59, 130, 246, 0.1); }
+.ed-pill.py { color: #eab308; border-color: rgba(234, 179, 8, 0.4); background: rgba(234, 179, 8, 0.1); }
+
+.ed-code-wrap {
+  position: relative;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  margin-top: 8px;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.ed-code {
+  font-family: 'Fira Code', ui-monospace, SFMono-Regular, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre;
+}

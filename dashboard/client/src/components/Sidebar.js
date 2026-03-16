@@ -23,7 +23,7 @@ export default function Sidebar({
   const showLogs      = location.pathname === '/logs';
   const showTelegram  = location.pathname === '/telegram';
   const showWhatsApp  = location.pathname === '/whatsapp';
-  const showPicoClaw  = location.pathname === '/picoclaw' || location.pathname === '/devices';
+  const showEdgeDevices = location.pathname === '/devices';
   const showSettings  = location.pathname === '/settings';
   const showTerminal  = location.pathname === '/terminal';
   const [editingId, setEditingId] = useState(null);
@@ -102,7 +102,7 @@ export default function Sidebar({
           {isOpen && <span>WhatsApp</span>}
         </button>
         <button
-          className={`logs-nav-btn ${showPicoClaw ? 'active' : ''}`}
+          className={`logs-nav-btn ${showEdgeDevices ? 'active' : ''}`}
           onClick={() => navigate('/devices')}
           title="Edge Devices"
         >

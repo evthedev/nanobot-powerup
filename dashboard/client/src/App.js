@@ -7,7 +7,6 @@ import Settings from './components/Settings';
 import LogsPanel from './components/LogsPanel';
 import TelegramView from './components/TelegramView';
 import WhatsAppView from './components/WhatsAppView';
-import PicoClawView from './components/PicoClawView';
 import EdgeDevicesView from './components/EdgeDevicesView';
 import TerminalView from './components/TerminalView';
 import './App.css';
@@ -385,15 +384,6 @@ function AppInner() {
             path="/devices"
             element={
               <EdgeDevicesView
-                onToggleSidebar={() => setSidebarOpen(p => !p)}
-                sidebarOpen={sidebarOpen}
-              />
-            }
-          />
-          <Route
-            path="/picoclaw"
-            element={
-              <PicoClawView
                 onToggleSidebar={() => setSidebarOpen(p => !p)}
                 sidebarOpen={sidebarOpen}
               />

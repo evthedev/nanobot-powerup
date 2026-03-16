@@ -10,6 +10,135 @@ function StatusDot({ online }) {
   return <span className={`ed-dot ${online ? 'online' : 'offline'}`} title={online ? 'Online' : 'Offline'} />;
 }
 
+function InstallGuideModal({ onClose }) {
+  const skillMd = `# edge-listener
+
+## Purpose
+Connects edge device to the NanoBot bridge via WebSocket. Listens for incoming messages from users, attempts to fulfill them using local skills, and proxies anything it cannot fulfill to NanoBot. Speaks NanoBot's reply verbatim to the user.
+
+## Location
+~/.nanobot/workspace/skills/edge-listener/
+
+## Files
+- SKILL.md (this file)
+- listener.py (main process)
+
+## Behaviour
+
+### Proxy pattern
+1. User speaks to edge device
+2. edge device STT → text
+3. try_local_skills(text)
+   - Match found AND executes successfully → speak result locally
+   - No match OR execution fails OR returns empty → proxy to NanoBot
+4. If proxying: speak "let me check" → send verbatim to bridge → speak reply verbatim
+
+### Knowledge boundary
+edge device owns: motors, servos, LEDs, GPIO, local hardware commands
+NanoBot owns: everything else (calendar, weather, reminders, general knowledge, etc.)
+
+The boundary is enforced by skill availability — not a hardcoded list.
+If a skill exists and succeeds → handle locally.
+If no skill matches OR skill throws/returns empty → forward to NanoBot.
+
+### Proxy invariants
+- User message is forwarded to bridge VERBATIM — no rephrasing
+- Bridge reply is spoken to user VERBATIM — no rephrasing
+- edge device does not interpret, summarise or modify NanoBot's response
+- NanoBot replies in 2nd person, spoken sentence structure (enforced bridge-side)
+
+## Usage
+
+### Run as daemon
+python3 listener.py --device-id my-device --bridge wss://<host>/edge/ws
+
+### One-shot query (testing)
+python3 listener.py --send "what events do I have today"
+
+### Environment variables
+EDGE_DEVICE_ID   device id registered with bridge
+EDGE_TOKEN       bearer token for bridge auth
+BRIDGE_URL       wss://host/edge/ws
+
+## Dependencies
+- websockets
+- local skill router (imported from device agent)
+- TTS (native)
+- STT (native)
+
+## Reconnect behaviour
+Exponential backoff: 5s → 10s → 20s → 40s → 60s (cap)
+On reconnect: re-sends hello frame, resumes normal operation
+
+## Integration points
+- Bridge endpoint: /edge/ws?device_id=<id>
+- Auth: Authorization: Bearer <EDGE_TOKEN>
+- Frames used: hello, ping/pong, message.send, message.create
+`;
+
+  const listenerPy = `def handle_message(content: str):
+    # Attempt local skill dispatch
+    result = try_local_skills(content)
+    
+    if result is not None:
+        speak(result)
+    else:
+        # No skill matched or skill failed — proxy to NanoBot
+        speak("let me check")
+        reply = send_to_bridge(content)
+        if reply:
+            speak(reply)
+
+def try_local_skills(content: str) -> str | None:
+    """
+    Attempt to match and execute a local skill.
+    Returns result string if handled, None if not matched or failed.
+    """
+    try:
+        match = skill_router.match(content)
+        if not match:
+            return None
+        result = match.execute(content)
+        return result if result else None  # empty result also falls through
+    except Exception:
+        return None  # skill failure falls through to NanoBot
+`;
+
+  return (
+    <div className="ed-modal-overlay" onClick={onClose}>
+      <div className="ed-modal" onClick={e => e.stopPropagation()}>
+        <div className="ed-modal-header">
+          <span className="ed-modal-title">Edge Installation Guide</span>
+          <button className="ed-modal-close" onClick={onClose}>&times;</button>
+        </div>
+        <div className="ed-modal-body">
+          <div className="ed-guide-section">
+            <div className="ed-guide-header">
+              <div className="ed-guide-name">edge-listener</div>
+              <span className="ed-pill md">MD</span>
+              <span className="ed-guide-name">SKILL.md</span>
+            </div>
+            <div className="ed-code-wrap">
+              <div className="ed-code">{skillMd}</div>
+            </div>
+          </div>
+
+          <div className="ed-guide-section">
+            <div className="ed-guide-header">
+              <div className="ed-guide-name">edge-listener</div>
+              <span className="ed-pill py">PY</span>
+              <span className="ed-guide-name">listener.py</span>
+            </div>
+            <div className="ed-code-wrap">
+              <div className="ed-code">{listenerPy}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function timeAgo(ts) {
   if (!ts) return 'never';
   const secs = Math.floor(Date.now() / 1000 - ts);
@@ -178,6 +307,7 @@ export default function EdgeDevicesView({ onToggleSidebar, sidebarOpen }) {
   const [devices, setDevices] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -228,7 +358,12 @@ export default function EdgeDevicesView({ onToggleSidebar, sidebarOpen }) {
         )}
         <div className="ed-header-icon">🔌</div>
         <div className="ed-header-info">
-          <div className="ed-header-title">Edge Devices</div>
+          <div className="ed-header-title">
+            Edge Devices
+            <button className="ed-btn-install" onClick={() => setShowInstallGuide(true)}>
+              Install Guide
+            </button>
+          </div>
           <div className="ed-header-sub">
             {loading ? 'Loading…' : error ? `Bridge unreachable` : `${devices.length} device${devices.length !== 1 ? 's' : ''}`}
           </div>
@@ -239,6 +374,8 @@ export default function EdgeDevicesView({ onToggleSidebar, sidebarOpen }) {
           title="Refresh"
         >↻</button>
       </div>
+
+      {showInstallGuide && <InstallGuideModal onClose={() => setShowInstallGuide(false)} />}
 
       <div className="ed-body">
         {loading ? (
